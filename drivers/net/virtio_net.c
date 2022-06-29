@@ -1384,7 +1384,7 @@ static void free_old_xmit_skbs(struct send_queue *sq, bool in_napi)
 	unsigned int bytes = 0;
 	void *ptr;
 
-	while ((ptr = virtqueue_get_buf(sq->vq, &len)) != NULL) {
+	while ((ptr = virtqueue_get_buf(sq->vq, &len)) != NULL) { //get_bufs 里会更新，last_used_idx 的
 		if (likely(!is_xdp_frame(ptr))) {
 			struct sk_buff *skb = ptr;
 

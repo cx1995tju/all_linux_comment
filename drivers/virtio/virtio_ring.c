@@ -105,7 +105,7 @@ struct vring_virtqueue {
 	/* Host publishes avail event idx */
 	bool event;
 
-	/* Head of free buffer list. */
+	/* Head of free buffer list. desc_state 是一个静态list，free_head 指向的就是这个静态list中 free_list 的头部 */
 	unsigned int free_head;
 	/* Number we've added since last sync. */
 	unsigned int num_added;
@@ -1122,14 +1122,15 @@ static inline int virtqueue_add_packed(struct virtqueue *_vq,
 		return virtqueue_add_indirect_packed(vq, sgs, total_sg,
 				out_sgs, in_sgs, data, gfp);
 
+	//下一个可用的avail desc idx
 	head = vq->packed.next_avail_idx;
 	avail_used_flags = vq->packed.avail_used_flags;
 
 	WARN_ON_ONCE(total_sg > vq->packed.vring.num && !vq->indirect);
 
 	desc = vq->packed.vring.desc;
-	i = head;
-	descs_used = total_sg;
+	i = head; // next avail desc idx
+	descs_used = total_sg; //需要的 desc 数目
 
 	if (unlikely(vq->vq.num_free < descs_used)) {
 		pr_debug("Can't add buf len %i - avail = %i\n",
@@ -1143,6 +1144,7 @@ static inline int virtqueue_add_packed(struct virtqueue *_vq,
 
 	curr = id;
 	c = 0;
+	//一个一个sg做处理
 	for (n = 0; n < out_sgs + in_sgs; n++) {
 		for (sg = sgs[n]; sg; sg = sg_next(sg)) {
 			dma_addr_t addr = vring_map_one_sg(vq, sg, n < out_sgs ?
@@ -1180,6 +1182,7 @@ static inline int virtqueue_add_packed(struct virtqueue *_vq,
 		}
 	}
 
+	//绕圈了
 	if (i < head)
 		vq->packed.avail_wrap_counter ^= 1;
 
@@ -1192,7 +1195,7 @@ static inline int virtqueue_add_packed(struct virtqueue *_vq,
 
 	/* Store token. */
 	vq->packed.desc_state[id].num = descs_used;
-	vq->packed.desc_state[id].data = data;
+	vq->packed.desc_state[id].data = data; // buffer token
 	vq->packed.desc_state[id].indir_desc = ctx;
 	vq->packed.desc_state[id].last = prev;
 
@@ -1747,7 +1750,7 @@ EXPORT_SYMBOL_GPL(virtqueue_add_sgs);
  * @vq: the struct virtqueue we're talking about.
  * @sg: scatterlist (must be well-formed and terminated!)
  * @num: the number of entries in @sg readable by other side
- * @data: the token identifying the buffer.
+ * @data: the token identifying the buffer. // buffer token
  * @gfp: how to do memory allocations (if necessary).
  *
  * Caller must ensure we don't call this with other virtqueue operations

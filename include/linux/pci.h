@@ -394,7 +394,7 @@ struct pci_dev {
 	 * directly, use the values stored here. They might be different!
 	 */
 	unsigned int	irq;
-	struct resource resource[DEVICE_COUNT_RESOURCE]; /* I/O and memory regions + expansion ROMs */
+	struct resource resource[DEVICE_COUNT_RESOURCE]; /* I/O and memory regions + expansion ROMs  这里存储的已经是 存储器域地址了，不是PCI 域地址。访问bar空间的时候，用这个访问。不要直接去读取BAR寄存器，然后访问。x86上使能了IOMMU后，更可能不一样了。 这个成员的值是谁写入的 */
 
 	bool		match_driver;		/* Skip attaching driver */
 
