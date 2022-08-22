@@ -55,11 +55,11 @@ static inline struct netlink_sock *nlk_sk(struct sock *sk)
 }
 
 struct netlink_table {
-	struct rhashtable	hash;
+	struct rhashtable	hash; //每个protocol有一个hash表，hash表的key是portid，refer to：netlink_insert
 	struct hlist_head	mc_list;
-	struct listeners __rcu	*listeners;
+	struct listeners __rcu	*listeners; // 这是一个重要东西，是内核侧处理socket的实体
 	unsigned int		flags;
-	unsigned int		groups;
+	unsigned int		groups; //用来支持组播的，最大的组播组
 	struct mutex		*cb_mutex;
 	struct module		*module;
 	int			(*bind)(struct net *net, int group);

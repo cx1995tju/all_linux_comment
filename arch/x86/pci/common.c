@@ -21,6 +21,7 @@
 #include <asm/setup.h>
 #include <asm/irqdomain.h>
 
+//这里是默认值，Boot loader 譬如Grub在引导linux内核的时候，如果加上了`pci=xxx`的参数的话就不会使用默认值了
 unsigned int pci_probe = PCI_PROBE_BIOS | PCI_PROBE_CONF1 | PCI_PROBE_CONF2 |
 				PCI_PROBE_MMCONF;
 
@@ -40,7 +41,7 @@ const struct pci_raw_ops *__read_mostly raw_pci_ext_ops;
 int raw_pci_read(unsigned int domain, unsigned int bus, unsigned int devfn,
 						int reg, int len, u32 *val)
 {
-	if (domain == 0 && reg < 256 && raw_pci_ops)
+	if (domain == 0 && reg < 256 && raw_pci_ops) //大于256Bytes，显然需要ECAM方式访问的
 		return raw_pci_ops->read(domain, bus, devfn, reg, len, val);
 	if (raw_pci_ext_ops)
 		return raw_pci_ext_ops->read(domain, bus, devfn, reg, len, val);
@@ -469,6 +470,7 @@ void pcibios_scan_root(int busnum)
 	sd->node = x86_pci_root_bus_node(busnum);
 	x86_pci_root_bus_resources(busnum, &resources);
 	printk(KERN_DEBUG "PCI: Probing PCI hardware (bus %02x)\n", busnum);
+	//枚举PCI总线树
 	bus = pci_scan_root_bus(NULL, busnum, &pci_root_ops, sd, &resources);
 	if (!bus) {
 		pci_free_resource_list(&resources);
@@ -498,6 +500,7 @@ void __init pcibios_set_cache_line_size(void)
 	}
 }
 
+//主要是检查PCI设备使用的存储器资源和IO资源
 int __init pcibios_init(void)
 {
 	if (!raw_pci_ops && !raw_pci_ext_ops) {

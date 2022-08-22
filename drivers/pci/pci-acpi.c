@@ -1346,17 +1346,17 @@ static int __init acpi_pci_init(void)
 {
 	int ret;
 
-	if (acpi_gbl_FADT.boot_flags & ACPI_FADT_NO_MSI) {
+	if (acpi_gbl_FADT.boot_flags & ACPI_FADT_NO_MSI) { //是否需要使能MSI
 		pr_info("ACPI FADT declares the system doesn't support MSI, so disable it\n");
 		pci_no_msi();
 	}
 
-	if (acpi_gbl_FADT.boot_flags & ACPI_FADT_NO_ASPM) {
+	if (acpi_gbl_FADT.boot_flags & ACPI_FADT_NO_ASPM) { //是否需要enable ASPM机制
 		pr_info("ACPI FADT declares the system doesn't support PCIe ASPM, so disable it\n");
 		pcie_no_aspm();
 	}
 
-	ret = register_acpi_bus_type(&acpi_pci_bus);
+	ret = register_acpi_bus_type(&acpi_pci_bus); //acpi_pci_bus 也是一个bus_type
 	if (ret)
 		return 0;
 

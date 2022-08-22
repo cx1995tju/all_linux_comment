@@ -57,7 +57,7 @@
  *   nlmsg_data(nlh)			head of message payload
  *   nlmsg_len(nlh)			length of message payload
  *   nlmsg_attrdata(nlh, hdrlen)	head of attributes data
- *   nlmsg_attrlen(nlh, hdrlen)		length of attributes data
+ *   nlmsg_attrlen(nlh, hdrlen)		length of attributes data //不包含头部，即nlattr结构
  *
  * Message Parsing:
  *   nlmsg_ok(nlh, remaining)		does nlh fit into remaining bytes?

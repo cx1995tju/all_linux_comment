@@ -251,6 +251,7 @@ static void __init pcie_init_services(void)
 	pcie_bandwidth_notification_init();
 }
 
+// sysfs /sys/bus/pci_express
 static int __init pcie_portdrv_init(void)
 {
 	if (pcie_ports_disabled)

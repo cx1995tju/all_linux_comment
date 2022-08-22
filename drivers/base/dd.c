@@ -1101,6 +1101,7 @@ static int __driver_attach(struct device *dev, void *data)
  * returns 0 and the @dev->driver is set, we've found a
  * compatible pair.
  */
+//在该bus挂载的所有驱动中，尝试匹配该driver
 int driver_attach(struct device_driver *drv)
 {
 	return bus_for_each_dev(drv->bus, NULL, drv, __driver_attach);

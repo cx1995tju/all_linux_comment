@@ -517,6 +517,7 @@ static int __netlink_insert(struct netlink_table *table, struct sock *sk)
 
 static struct sock *netlink_lookup(struct net *net, int protocol, u32 portid)
 {
+	//根据protocol找到nl_table，进而根据hash表找到sock
 	struct netlink_table *table = &nl_table[protocol];
 	struct sock *sk;
 
@@ -555,6 +556,8 @@ netlink_update_listeners(struct sock *sk)
 	 * makes sure updates are visible before bind or setsockopt return. */
 }
 
+//portid 为0表示，这个sk是属于内核的。这个portid一般使用进程的pid
+//refer to %netlink_autobind
 static int netlink_insert(struct sock *sk, u32 portid)
 {
 	struct netlink_table *table = &nl_table[sk->sk_protocol];
@@ -808,7 +811,7 @@ static int netlink_autobind(struct socket *sock)
 	struct sock *sk = sock->sk;
 	struct net *net = sock_net(sk);
 	struct netlink_table *table = &nl_table[sk->sk_protocol];
-	s32 portid = task_tgid_vnr(current);
+	s32 portid = task_tgid_vnr(current);  //用来寻找这个socket的owner的，也是保存sock的hash表的key
 	int err;
 	s32 rover = -4096;
 	bool ok;
@@ -1016,10 +1019,11 @@ static int netlink_bind(struct socket *sock, struct sockaddr *addr,
 		int group;
 
 		/* nl_groups is a u32, so cap the maximum groups we can bind */
+		//逐个group 做绑定
 		for (group = 0; group < BITS_PER_TYPE(u32); group++) {
 			if (!test_bit(group, &groups))
 				continue;
-			err = nlk->netlink_bind(net, group + 1);
+			err = nlk->netlink_bind(net, group + 1); //调用cb函数, %rtnetlink_bind
 			if (!err)
 				continue;
 			netlink_undo_bind(group, groups, sk);
@@ -1048,7 +1052,7 @@ static int netlink_bind(struct socket *sock, struct sockaddr *addr,
 	netlink_update_subscriptions(sk, nlk->subscriptions +
 					 hweight32(groups) -
 					 hweight32(nlk->groups[0]));
-	nlk->groups[0] = (nlk->groups[0] & ~0xffffffffUL) | groups;
+	nlk->groups[0] = (nlk->groups[0] & ~0xffffffffUL) | groups; //sock 对应的 groups 记录下来了。在sock中记录group。那么怎么根据group找到sock呢？
 	netlink_update_listeners(sk);
 	netlink_table_ungrab();
 
@@ -1133,6 +1137,7 @@ static int netlink_ioctl(struct socket *sock, unsigned int cmd,
 
 static struct sock *netlink_getsockbyportid(struct sock *ssk, u32 portid)
 {
+	//portid 一般是用pid
 	struct sock *sock;
 	struct netlink_sock *nlk;
 
@@ -1296,7 +1301,7 @@ static int netlink_unicast_kernel(struct sock *sk, struct sk_buff *skb,
 	struct netlink_sock *nlk = nlk_sk(sk);
 
 	ret = -ECONNREFUSED;
-	if (nlk->netlink_rcv != NULL) {
+	if (nlk->netlink_rcv != NULL) { //有recv函数
 		ret = skb->len;
 		netlink_skb_set_owner_r(skb, sk);
 		NETLINK_CB(skb).sk = ssk;
@@ -1336,6 +1341,8 @@ retry:
 		return err;
 	}
 
+	//sk中已经记录了dst port id，即 用户进程pid；skb中则记录了发送者的id，譬如：是内核的话，这个id就是0
+	//内核发消息给进程比较简单，就是把skb挂上去，然后notify进程
 	err = netlink_attachskb(sk, skb, &timeo, ssk);
 	if (err == 1)
 		goto retry;
@@ -1866,7 +1873,7 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 			goto out;
 		if (addr->nl_family != AF_NETLINK)
 			goto out;
-		dst_portid = addr->nl_pid;
+		dst_portid = addr->nl_pid; //使用pid做portid
 		dst_group = ffs(addr->nl_groups);
 		err =  -EPERM;
 		if ((dst_group || dst_portid) &&
@@ -1916,6 +1923,7 @@ static int netlink_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 		refcount_inc(&skb->users);
 		netlink_broadcast(sk, skb, dst_portid, dst_group, GFP_KERNEL);
 	}
+	//单播
 	err = netlink_unicast(sk, skb, dst_portid, msg->msg_flags & MSG_DONTWAIT);
 
 out:
@@ -2066,7 +2074,9 @@ __netlink_kernel_create(struct net *net, int unit, struct module *module,
 	nlk = nlk_sk(sk);
 	nlk->flags |= NETLINK_F_KERNEL_SOCKET;
 
+	//搞个锁保护
 	netlink_table_grab();
+	//如果该协议还没有注册的话, 先注册。主要是cfg提供一些kernel侧使用的函数
 	if (!nl_table[unit].registered) {
 		nl_table[unit].groups = groups;
 		rcu_assign_pointer(nl_table[unit].listeners, listeners);
@@ -2465,6 +2475,8 @@ void netlink_ack(struct sk_buff *in_skb, struct nlmsghdr *nlh, int err,
 }
 EXPORT_SYMBOL(netlink_ack);
 
+//cb 怎么来的? refer to: %rtnelink_rcv %rtnetlink_rcv_msg
+//netlink_sendmsg -> netlink_uncast -> netlink_unicast_kernel -> nlk->netlink_rcv(rtnetlink_rcv) -> netlink_rcv_skb
 int netlink_rcv_skb(struct sk_buff *skb, int (*cb)(struct sk_buff *,
 						   struct nlmsghdr *,
 						   struct netlink_ext_ack *))
@@ -2491,7 +2503,7 @@ int netlink_rcv_skb(struct sk_buff *skb, int (*cb)(struct sk_buff *,
 		if (nlh->nlmsg_type < NLMSG_MIN_TYPE)
 			goto ack;
 
-		err = cb(skb, nlh, &extack);
+		err = cb(skb, nlh, &extack); //%rtnetlink_rcv_msg
 		if (err == -EINTR)
 			goto skip;
 
@@ -2534,7 +2546,7 @@ int nlmsg_notify(struct sock *sk, struct sk_buff *skb, u32 portid,
 
 		/* errors reported via destination sk->sk_err, but propagate
 		 * delivery errors if NETLINK_BROADCAST_ERROR flag is set */
-		err = nlmsg_multicast(sk, skb, exclude_portid, group, flags);
+		err = nlmsg_multicast(sk, skb, exclude_portid, group, flags); //多播报告给这个group
 	}
 
 	if (report) {
@@ -2858,6 +2870,7 @@ static int __init bpf_iter_register(void)
 static int __init netlink_proto_init(void)
 {
 	int i;
+	//正常的proto_register
 	int err = proto_register(&netlink_proto, 0);
 
 	if (err != 0)
@@ -2871,10 +2884,12 @@ static int __init netlink_proto_init(void)
 
 	BUILD_BUG_ON(sizeof(struct netlink_skb_parms) > sizeof_field(struct sk_buff, cb));
 
+	//netlink 机制最核心的结构, 大小是编译时静态确定的
 	nl_table = kcalloc(MAX_LINKS, sizeof(*nl_table), GFP_KERNEL);
 	if (!nl_table)
 		goto panic;
 
+	//为netlink的每个protocol 初始化相关hansh表
 	for (i = 0; i < MAX_LINKS; i++) {
 		if (rhashtable_init(&nl_table[i].hash,
 				    &netlink_rhashtable_params) < 0) {
@@ -2885,12 +2900,16 @@ static int __init netlink_proto_init(void)
 		}
 	}
 
+	//为netlink机制，添加一个最基础的 USERSOCK protocol
 	netlink_add_usersock_entry();
 
 	sock_register(&netlink_family_ops);
+	// net namespace 相关初始化
 	register_pernet_subsys(&netlink_net_ops);
 	register_pernet_subsys(&netlink_tap_net_ops);
 	/* The netlink device handler may be needed early. */
+
+	// 为最重要的route netlink做初始化, 可见这个子系统的重要与特殊了
 	rtnetlink_init();
 out:
 	return err;

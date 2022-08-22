@@ -159,6 +159,7 @@ static void pci_acpi_generic_release_info(struct acpi_pci_root_info *ci)
 }
 
 /* Interface called from ACPI code to setup PCI host controller */
+//DFS 枚举
 struct pci_bus *pci_acpi_scan_root(struct acpi_pci_root *root)
 {
 	struct acpi_pci_generic_root_info *ri;
@@ -202,7 +203,7 @@ struct pci_bus *pci_acpi_scan_root(struct acpi_pci_root *root)
 	pci_assign_unassigned_root_bus_resources(bus);
 
 	list_for_each_entry(child, &bus->children, node)
-		pcie_bus_configure_settings(child);
+		pcie_bus_configure_settings(child); //枚举核心
 
 	return bus;
 }

@@ -788,6 +788,12 @@ acpi_status acpi_os_table_override(struct acpi_table_header *existing_table,
  * result: sdt_entry[] is initialized
  */
 
+
+/*  在内存中找到RSDP RSDT/XSDT，进而定位ACPI表 
+ *
+ *  BIOS在系统初始化的时候将ACPI表放到一块固定的物理地址区域中
+ *  */
+
 int __init acpi_table_init(void)
 {
 	acpi_status status;

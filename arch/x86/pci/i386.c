@@ -352,6 +352,7 @@ static void pcibios_allocate_rom_resources(struct pci_bus *bus)
 	}
 }
 
+//主要处理PCI设备使用的ROM空间和PCI设备使员工的存储器以及IO资源
 static int __init pcibios_assign_resources(void)
 {
 	struct pci_bus *bus;
@@ -360,7 +361,7 @@ static int __init pcibios_assign_resources(void)
 		list_for_each_entry(bus, &pci_root_buses, node)
 			pcibios_allocate_rom_resources(bus);
 
-	pci_assign_unassigned_resources();
+	pci_assign_unassigned_resources(); //设置PCI设备的存储器和IO资源, 在x86中，BIOS已经将PCI设备使用的存储器和IO资源设置完毕
 	pcibios_fw_addr_list_del();
 
 	return 0;

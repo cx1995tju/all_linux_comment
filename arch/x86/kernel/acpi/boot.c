@@ -657,6 +657,7 @@ static int acpi_register_gsi_ioapic(struct device *dev, u32 gsi,
 {
 	int irq = gsi;
 #ifdef CONFIG_X86_IO_APIC
+
 	int node;
 	struct irq_alloc_info info;
 
@@ -1553,6 +1554,7 @@ void __init acpi_boot_table_init(void)
 
 	/*
 	 * Initialize the ACPI boot-time table parser.
+	 * 在内存中找到RSDP RSDT/XSDT，进而定位ACPI表
 	 */
 	if (acpi_table_init()) {
 		disable_acpi();
@@ -1586,7 +1588,7 @@ int __init early_acpi_boot_init(void)
 	/*
 	 * Process the Multiple APIC Description Table (MADT), if present
 	 */
-	early_acpi_process_madt();
+	early_acpi_process_madt(); //进一步处理MADT表
 
 	/*
 	 * Hardware-reduced ACPI mode initialization:
@@ -1596,6 +1598,7 @@ int __init early_acpi_boot_init(void)
 	return 0;
 }
 
+ //依次分析SBFT，FADT，HPET
 int __init acpi_boot_init(void)
 {
 	/* those are executed after early-quirks are executed */

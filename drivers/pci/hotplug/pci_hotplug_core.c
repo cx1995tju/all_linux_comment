@@ -558,6 +558,7 @@ void pci_hp_destroy(struct hotplug_slot *slot)
 }
 EXPORT_SYMBOL_GPL(pci_hp_destroy);
 
+//支持compactPCI热插拔功能
 static int __init pci_hotplug_init(void)
 {
 	int result;

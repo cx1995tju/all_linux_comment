@@ -421,7 +421,7 @@ EXPORT_SYMBOL(pcibios_set_irq_routing);
 
 void __init pci_pcbios_init(void)
 {
-	if ((pci_probe & PCI_PROBE_BIOS) 
+	if ((pci_probe & PCI_PROBE_BIOS)  //这里表示会使用BIOS的枚举结果
 		&& ((raw_pci_ops = pci_find_bios()))) {
 		pci_bios_present = 1;
 	}

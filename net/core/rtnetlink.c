@@ -1707,21 +1707,28 @@ static int rtnl_fill_ifinfo(struct sk_buff *skb,
 	struct nlmsghdr *nlh;
 
 	ASSERT_RTNL();
-	nlh = nlmsg_put(skb, pid, seq, type, sizeof(*ifm), flags);
+	nlh = nlmsg_put(skb, pid, seq, type, sizeof(*ifm), flags); //将ifm放到skb头部, 即proto-spec netlink msg hdr, ifm 是proto-spec 的hdr，但是是netlink 的payload
 	if (nlh == NULL)
 		return -EMSGSIZE;
 
-	ifm = nlmsg_data(nlh);
+	//填充msg hdr信息
+	ifm = nlmsg_data(nlh); //payload 的start point, 存储具体协议(rtnetlink)相关的header
 	ifm->ifi_family = AF_UNSPEC;
 	ifm->__ifi_pad = 0;
 	ifm->ifi_type = dev->type;
 	ifm->ifi_index = dev->ifindex;
-	ifm->ifi_flags = dev_get_flags(dev);
-	ifm->ifi_change = change;
+	ifm->ifi_flags = dev_get_flags(dev); //设备当前的flags IFF_*
+	ifm->ifi_change = change; //设备改变的状态的mask
 
+	//nlmsg = nlmsghdr + nlmsg payload
+	//nlmsg payload = proto-spec hdr + payload
+	//payload = nlattr + attr_payload
+	//
+	//放置一个s32 到skb的tail room，这个是nlattr
 	if (tgt_netnsid >= 0 && nla_put_s32(skb, IFLA_TARGET_NETNSID, tgt_netnsid))
 		goto nla_put_failure;
 
+	//将设备的各种信息放置到skb中
 	if (nla_put_string(skb, IFLA_IFNAME, dev->name) ||
 	    nla_put_u32(skb, IFLA_TXQLEN, dev->tx_queue_len) ||
 	    nla_put_u8(skb, IFLA_OPERSTATE,
@@ -3800,6 +3807,7 @@ struct sk_buff *rtmsg_ifinfo_build_skb(int type, struct net_device *dev,
 	int err = -ENOBUFS;
 	size_t if_info_size;
 
+	//分配payload 大小 为  if_nlmsg_size(dev, 0) 的skb，来存储 msg
 	skb = nlmsg_new((if_info_size = if_nlmsg_size(dev, 0)), flags);
 	if (skb == NULL)
 		goto errout;
@@ -3824,9 +3832,15 @@ void rtmsg_ifinfo_send(struct sk_buff *skb, struct net_device *dev, gfp_t flags)
 {
 	struct net *net = dev_net(dev);
 
+	//向RTNLGRP_LINK 多播组发消息
 	rtnl_notify(skb, net, 0, RTNLGRP_LINK, NULL, flags);
 }
 
+/* @param type: %RTM_NEWLINK,  netlink msg type(proto-spec, stored in nlmsghdr)
+ * @param dev: net_device
+ * @param change: mask of changed flags, IFF_* flags, %IFF_UP
+ * @param event: put event in nlattr %IFLA_EVENT_REBOOT
+ * */
 static void rtmsg_ifinfo_event(int type, struct net_device *dev,
 			       unsigned int change, u32 event,
 			       gfp_t flags, int *new_nsid, int new_ifindex)
@@ -3836,10 +3850,11 @@ static void rtmsg_ifinfo_event(int type, struct net_device *dev,
 	if (dev->reg_state != NETREG_REGISTERED)
 		return;
 
+	//将设备的各种信息都保存到skb中，后续发送给用户
 	skb = rtmsg_ifinfo_build_skb(type, dev, change, event, flags, new_nsid,
 				     new_ifindex);
 	if (skb)
-		rtmsg_ifinfo_send(skb, dev, flags);
+		rtmsg_ifinfo_send(skb, dev, flags); //发送组播消息给RTNLGRP_LINK
 }
 
 void rtmsg_ifinfo(int type, struct net_device *dev, unsigned int change,
@@ -5629,13 +5644,13 @@ static int __net_init rtnetlink_net_init(struct net *net)
 	struct sock *sk;
 	struct netlink_kernel_cfg cfg = {
 		.groups		= RTNLGRP_MAX,
-		.input		= rtnetlink_rcv,
+		.input		= rtnetlink_rcv, //核心，接收到用户态消息后的处理函数
 		.cb_mutex	= &rtnl_mutex,
 		.flags		= NL_CFG_F_NONROOT_RECV,
 		.bind		= rtnetlink_bind,
 	};
 
-	sk = netlink_kernel_create(net, NETLINK_ROUTE, &cfg);
+	sk = netlink_kernel_create(net, NETLINK_ROUTE, &cfg); //创建一个netlink protocol, refer to nl_table
 	if (!sk)
 		return -ENOMEM;
 	net->rtnl = sk;
@@ -5658,8 +5673,10 @@ void __init rtnetlink_init(void)
 	if (register_pernet_subsys(&rtnetlink_net_ops))
 		panic("rtnetlink_init: cannot initialize rtnetlink\n");
 
+	//注册到netdev_chain 通知链
 	register_netdevice_notifier(&rtnetlink_dev_notifier);
 
+	//为rt netlink协议注册一些消息类型
 	rtnl_register(PF_UNSPEC, RTM_GETLINK, rtnl_getlink,
 		      rtnl_dump_ifinfo, 0);
 	rtnl_register(PF_UNSPEC, RTM_SETLINK, rtnl_setlink, NULL, 0);

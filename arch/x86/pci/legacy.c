@@ -24,6 +24,7 @@ static void pcibios_fixup_peer_bridges(void)
 		pcibios_scan_specific_bus(n);
 }
 
+//完成对PCI总线的美剧，并在proc sysfs中建立相关结构
 int __init pci_legacy_init(void)
 {
 	if (!raw_pci_ops)
@@ -61,15 +62,16 @@ static int __init pci_subsys_init(void)
 	 * The init function returns an non zero value when
 	 * pci_legacy_init should be invoked.
 	 */
-	if (x86_init.pci.init()) {
-		if (pci_legacy_init()) {
+	if (x86_init.pci.init()) { //refer to: `x86_init.c: struct x86_init_ops x86_init __initdata` / pci_acpi_init
+		//引入了ACPI机制之后，这里一般不会进入了
+		if (pci_legacy_init()) { 
 			pr_info("PCI: System does not support PCI\n");
 			return -ENODEV;
 		}
 	}
 
 	pcibios_fixup_peer_bridges();
-	x86_init.pci.init_irq();
+	x86_init.pci.init_irq(); //这里使用ACPI提供的中断路由表，来初始化中断(现在不会使用ACPI提供的中断路由表了)
 	pcibios_init();
 
 	return 0;

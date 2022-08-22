@@ -44,7 +44,7 @@ void netlink_table_ungrab(void);
 struct netlink_kernel_cfg {
 	unsigned int	groups;
 	unsigned int	flags;
-	void		(*input)(struct sk_buff *skb);
+	void		(*input)(struct sk_buff *skb); //kernel侧的接收函数
 	struct mutex	*cb_mutex;
 	int		(*bind)(struct net *net, int group);
 	void		(*unbind)(struct net *net, int group);

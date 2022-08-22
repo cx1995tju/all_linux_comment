@@ -571,6 +571,8 @@ int unregister_acpi_bus_type(struct acpi_bus_type *);
 int acpi_bind_one(struct device *dev, struct acpi_device *adev);
 int acpi_unbind_one(struct device *dev);
 
+//该结构用来描述HOST主桥控制器
+//有多个Host主桥的时候，会将其组织在acpi_pci_roots 队列中
 struct acpi_pci_root {
 	struct acpi_device * device;
 	struct pci_bus *bus;

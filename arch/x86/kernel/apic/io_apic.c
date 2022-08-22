@@ -1098,11 +1098,11 @@ int mp_map_gsi_to_irq(u32 gsi, unsigned int flags, struct irq_alloc_info *info)
 {
 	int ioapic, pin, idx;
 
-	ioapic = mp_find_ioapic(gsi);
+	ioapic = mp_find_ioapic(gsi); //先找到这个gsi对应的是哪一个ioapic，系统可能有多个ioapic的
 	if (ioapic < 0)
 		return -ENODEV;
 
-	pin = mp_find_ioapic_pin(ioapic, gsi);
+	pin = mp_find_ioapic_pin(ioapic, gsi); //确定当前的PCI设备与IO APIC的哪个IRQ_PIN引脚连接
 	idx = find_irq_entry(ioapic, pin, mp_INT);
 	if ((flags & IOAPIC_MAP_CHECK) && idx < 0)
 		return -ENODEV;

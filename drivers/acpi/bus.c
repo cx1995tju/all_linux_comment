@@ -910,7 +910,7 @@ static int acpi_device_probe(struct device *dev)
 	if (!acpi_drv->ops.add)
 		return -ENOSYS;
 
-	ret = acpi_drv->ops.add(acpi_dev);
+	ret = acpi_drv->ops.add(acpi_dev); //acpi_pci_root_add
 	if (ret)
 		return ret;
 

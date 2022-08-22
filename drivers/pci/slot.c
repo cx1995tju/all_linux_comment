@@ -362,6 +362,7 @@ void pci_hp_remove_module_link(struct pci_slot *pci_slot)
 EXPORT_SYMBOL_GPL(pci_hp_remove_module_link);
 #endif
 
+//主要是在sysfs中建立slots目录和相关的kobject结构
 static int pci_slot_init(void)
 {
 	struct kset *pci_bus_kset;

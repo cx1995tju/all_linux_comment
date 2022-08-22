@@ -536,11 +536,12 @@ static int acpi_pci_root_add(struct acpi_device *device,
 	bool hotadd = system_state == SYSTEM_RUNNING;
 	bool is_pcie;
 
-	root = kzalloc(sizeof(struct acpi_pci_root), GFP_KERNEL);
+	root = kzalloc(sizeof(struct acpi_pci_root), GFP_KERNEL); //该结构用来描述HOST主桥控制器, 核心就是以这个结构为起点，构建这个pci 树
 	if (!root)
 		return -ENOMEM;
 
 	segment = 0;
+	//首先获取HOST主桥的Segment 和 Bus 号
 	status = acpi_evaluate_integer(handle, METHOD_NAME__SEG, NULL,
 				       &segment);
 	if (ACPI_FAILURE(status) && status != AE_NOT_FOUND) {
@@ -606,7 +607,8 @@ static int acpi_pci_root_add(struct acpi_device *device,
 	 * PCI namespace does not get created until this call is made (and
 	 * thus the root bridge's pci_dev does not exist).
 	 */
-	root->bus = pci_acpi_scan_root(root);
+	//这里开始枚举总线树，构建整个树状结构了
+	root->bus = pci_acpi_scan_root(root); //enable 了acpi就使用这个扫描。否则使用pcibios_scan_root 函数来美剧PCI设备
 	if (!root->bus) {
 		dev_err(&device->dev,
 			"Bus %04x:%02x not present in PCI namespace\n",

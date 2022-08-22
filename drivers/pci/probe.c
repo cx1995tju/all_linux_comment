@@ -95,6 +95,7 @@ static void release_pcibus_dev(struct device *dev)
 	kfree(pci_bus);
 }
 
+//please refer to sysfs
 static struct class pcibus_class = {
 	.name		= "pci_bus",
 	.dev_release	= &release_pcibus_dev,
@@ -173,6 +174,7 @@ static inline unsigned long decode_bar(struct pci_dev *dev, u32 bar)
  *
  * Returns 1 if the BAR is 64-bit, or 0 if 32-bit.
  */
+/* 获取 BAR 空间长度的方法。 PCI 总线规范规定了获取 BAR 空间的标准实现方法。 其步骤是首先向 BAR 寄存器写全 1， 之 后再读取 BAR 寄存器的内容， 即可获得 BAR 空间的大小。 */
 int __pci_read_base(struct pci_dev *dev, enum pci_bar_type type,
 		    struct resource *res, unsigned int pos)
 {
@@ -318,6 +320,8 @@ out:
 	return (res->flags & IORESOURCE_MEM_64) ? 1 : 0;
 }
 
+/* 函数访问 PCI 设备的 BAR 空间和 ROM 空间， 并构建pci_dev->resources 结构 */
+/* XXX: 这里有一个细节需要提醒读者注意， 在 pci_dev→resource 参数中存放的 BAR 空间的基地 址属于存储器域， 而在 PCI 设备的 BAR 寄存器中存放的基地址属于 PCI 总线域。 */
 static void pci_read_bases(struct pci_dev *dev, unsigned int howmany, int rom)
 {
 	unsigned int pos, reg;
@@ -1464,6 +1468,9 @@ EXPORT_SYMBOL(pci_scan_bridge);
  * Read interrupt line and base address registers.
  * The architecture-dependent code can tweak these, of course.
  */
+/* pci_read_irq 函数的主要作用是读取 PCI 设备配置空间的 Interrupt Pin 和 Interrupt Line 寄 存器， 并将结构赋值到 pci_dev→pin 和 irq 参数中。 其中 pin 参数记录当前 PCI 设备使用的中 断引脚， 而 irq 参数存放系统软件使用的 irq 号。 */
+/* 值得注意的是， 在 pci_setup_devic 函数中初始化的 pci_dev→irq 参数并不一定是 PCI 设 备驱动程序在 request_irq 函数中使用的 irq 入口参数。 如果当前 Linux x86 系统使用了 I / O A⁃ PIC 控制器时， Linux 设备驱动程序调用 pci_enable_device 函数将会改变 pci_dev→irq 参数 */
+/* 而如果 PCIe 设备使能了 MSI / MSI - X 中断处理机制， pci_dev→irq 参数在设备驱动程序 调用 pci_enable_msi / pci_enable_msix 函数后也将会发生变化， */
 static void pci_read_irq(struct pci_dev *dev)
 {
 	unsigned char irq;
@@ -1482,6 +1489,7 @@ static void pci_read_irq(struct pci_dev *dev)
 	dev->irq = irq;
 }
 
+//主要是处理PCIe Extended Cap结构, 并将其保存到pci_dev->pcie_type 参数中
 void set_pcie_port_type(struct pci_dev *pdev)
 {
 	int pos;
@@ -1801,7 +1809,7 @@ int pci_setup_device(struct pci_dev *dev)
 	dev->hdr_type = hdr_type & 0x7f;
 	dev->multifunction = !!(hdr_type & 0x80);
 	dev->error_state = pci_channel_io_normal;
-	set_pcie_port_type(dev);
+	set_pcie_port_type(dev); /* XXX */
 
 	pci_dev_assign_slot(dev);
 
@@ -1855,6 +1863,7 @@ int pci_setup_device(struct pci_dev *dev)
 
 	dev->broken_intx_masking = pci_intx_mask_broken(dev);
 
+	//根据设备的不同，做不同的初始化: PCI桥 / PCI Agent设备
 	switch (dev->hdr_type) {		    /* header type */
 	case PCI_HEADER_TYPE_NORMAL:		    /* standard header */
 		if (class == PCI_CLASS_BRIDGE_PCI)
@@ -2348,6 +2357,7 @@ EXPORT_SYMBOL(pci_bus_read_dev_vendor_id);
  * Read the config data for a PCI device, sanity-check it,
  * and fill in the dev structure.
  */
+//PCI硬件相关的配置，对硬件的初始化操作
 static struct pci_dev *pci_scan_device(struct pci_bus *bus, int devfn)
 {
 	struct pci_dev *dev;
@@ -2466,6 +2476,7 @@ static void pci_set_msi_domain(struct pci_dev *dev)
 	dev_set_msi_domain(&dev->dev, d);
 }
 
+//pci 软件层面的初始化操作
 void pci_device_add(struct pci_dev *dev, struct pci_bus *bus)
 {
 	int ret;
@@ -2522,11 +2533,11 @@ struct pci_dev *pci_scan_single_device(struct pci_bus *bus, int devfn)
 		return dev;
 	}
 
-	dev = pci_scan_device(bus, devfn);
+	dev = pci_scan_device(bus, devfn); //硬件层面初始化
 	if (!dev)
 		return NULL;
 
-	pci_device_add(dev, bus);
+	pci_device_add(dev, bus); //软件层面初始化
 
 	return dev;
 }
@@ -2805,6 +2816,7 @@ void __weak pcibios_fixup_bus(struct pci_bus *bus)
  * equally between hotplug-capable bridges to allow future extension of the
  * hierarchy.
  */
+//分配PCI总线树的PCI总线号，但是并不初始化PCI设备使用的BAR空间
 static unsigned int pci_scan_child_bus_extend(struct pci_bus *bus,
 					      unsigned int available_buses)
 {
@@ -2818,7 +2830,7 @@ static unsigned int pci_scan_child_bus_extend(struct pci_bus *bus,
 
 	/* Go find them, Rover! */
 	for (devfn = 0; devfn < 256; devfn += 8) {
-		nr_devs = pci_scan_slot(bus, devfn);
+		nr_devs = pci_scan_slot(bus, devfn); //一条PCI总线最多32个设备，每个设备最多8个VF，每个function都需要调用一次该函数
 
 		/*
 		 * The Jailhouse hypervisor may pass individual functions of a
@@ -2946,6 +2958,7 @@ static unsigned int pci_scan_child_bus_extend(struct pci_bus *bus,
  * Scans devices below @bus including subordinate buses. Returns new
  * subordinate number including all the found devices.
  */
+//这个是PCI枚举函数的实体
 unsigned int pci_scan_child_bus(struct pci_bus *bus)
 {
 	return pci_scan_child_bus_extend(bus, 0);

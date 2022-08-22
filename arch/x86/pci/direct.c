@@ -287,8 +287,8 @@ int __init pci_direct_probe(void)
 	if (!request_region(0xCF8, 8, "PCI conf1"))
 		goto type2;
 
-	if (pci_check_type1()) {
-		raw_pci_ops = &pci_direct_conf1;
+	if (pci_check_type1()) { //主要用第一种方法访问配置空间前256Bytes
+		raw_pci_ops = &pci_direct_conf1; //访问配置空间的函数
 		port_cf9_safe = true;
 		return 1;
 	}

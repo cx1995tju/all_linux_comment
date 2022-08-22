@@ -61,7 +61,7 @@ void (*pcibios_disable_irq)(struct pci_dev *dev) = pirq_disable_irq;
  *  Check passed address for the PCI IRQ Routing Table signature
  *  and perform checksum verification.
  */
-
+ 
 static inline struct irq_routing_table *pirq_check_routing_table(u8 *addr)
 {
 	struct irq_routing_table *rt;
@@ -1194,6 +1194,7 @@ void pcibios_penalize_isa_irq(int irq, int active)
 		pirq_penalize_isa_irq(irq, active);
 }
 
+//没有MSI/MSI-X机制的时候，调用该函数分配中断号
 static int pirq_enable_irq(struct pci_dev *dev)
 {
 	u8 pin = 0;

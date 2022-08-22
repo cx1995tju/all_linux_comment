@@ -628,9 +628,9 @@ static int msi_capability_init(struct pci_dev *dev, int nvec,
 	int ret;
 	unsigned mask;
 
-	pci_msi_set_enable(dev, 0);	/* Disable MSI during set up */
+	pci_msi_set_enable(dev, 0);	/* Disable MSI during set up 配置过程，disable MSI */
 
-	entry = msi_setup_entry(dev, nvec, affd);
+	entry = msi_setup_entry(dev, nvec, affd); //核心
 	if (!entry)
 		return -ENOMEM;
 
@@ -664,7 +664,7 @@ static int msi_capability_init(struct pci_dev *dev, int nvec,
 
 	/* Set MSI enabled bits	*/
 	pci_intx_for_msi(dev, 0);
-	pci_msi_set_enable(dev, 1);
+	pci_msi_set_enable(dev, 1); //设置好了，重新enable
 	dev->msi_enabled = 1;
 
 	pcibios_free_irq(dev);
@@ -860,7 +860,7 @@ static int pci_msi_supported(struct pci_dev *dev, int nvec)
 	struct pci_bus *bus;
 
 	/* MSI must be globally enabled and supported by the device */
-	if (!pci_msi_enable)
+	if (!pci_msi_enable) //这是软件层面的检查
 		return 0;
 
 	if (!dev || dev->no_msi)
@@ -881,7 +881,7 @@ static int pci_msi_supported(struct pci_dev *dev, int nvec)
 	 * We expect only arch-specific PCI host bus controller driver
 	 * or quirks for specific PCI bridges to be setting NO_MSI.
 	 */
-	for (bus = dev->bus; bus; bus = bus->parent)
+	for (bus = dev->bus; bus; bus = bus->parent) //是硬件 层面的检测， 包括当前 PCI 设备的上游 PCI 桥是否支持 MSI 报文的转发， PCI 设备是否具有 Capabilities 链表， 是否具有 MSI Capability 结构。
 		if (bus->bus_flags & PCI_BUS_FLAGS_NO_MSI)
 			return 0;
 
@@ -1054,13 +1054,16 @@ int pci_msi_enabled(void)
 }
 EXPORT_SYMBOL(pci_msi_enabled);
 
+/* minvec 表示最少需要分配的
+ * maxvec 表示最多需要分配的
+ * */
 static int __pci_enable_msi_range(struct pci_dev *dev, int minvec, int maxvec,
 				  struct irq_affinity *affd)
 {
 	int nvec;
 	int rc;
 
-	if (!pci_msi_supported(dev, minvec) || dev->current_state != PCI_D0)
+	if (!pci_msi_supported(dev, minvec) || dev->current_state != PCI_D0) //判断硬件是否支持最小的中断向量数目
 		return -EINVAL;
 
 	/* Check whether driver already requested MSI-X IRQs */

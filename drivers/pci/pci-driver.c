@@ -1375,6 +1375,7 @@ static const struct dev_pm_ops pci_dev_pm_ops = {
  * If no error occurred, the driver remains registered even if
  * no device was claimed during registration.
  */
+//将driver注册到系统
 int __pci_register_driver(struct pci_driver *drv, struct module *owner,
 			  const char *mod_name)
 {

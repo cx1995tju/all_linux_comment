@@ -1032,8 +1032,11 @@ EXPORT_SYMBOL(__nla_put_nohdr);
  * Returns -EMSGSIZE if the tailroom of the skb is insufficient to store
  * the attribute header and payload.
  */
+// 将属性attrtype，以及对应的data 防到skb tailroom。会做对齐的
+// 即 attr header(nlattr) + payload(data), 详见 struct nlattr
 int nla_put(struct sk_buff *skb, int attrtype, int attrlen, const void *data)
 {
+	//attr 是要放到skb tailroom的，即下拉tail
 	if (unlikely(skb_tailroom(skb) < nla_total_size(attrlen)))
 		return -EMSGSIZE;
 

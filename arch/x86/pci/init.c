@@ -7,12 +7,14 @@
 
 /* arch_initcall has too random ordering, so call the initializers
    in the right sequence from here. */
+//x86 系统执行的第一个与PCI总线初始化相关的函数
 static __init int pci_arch_init(void)
 {
 	int type;
 
 	x86_create_pci_msi_domain();
 
+	//OS 会重新枚举PCI总线的，不会使用BIOS的结果
 	type = pci_direct_probe();
 
 	if (!(pci_probe & PCI_PROBE_NOEARLY))

@@ -20,8 +20,8 @@ do {						\
 #endif
 
 #define PCI_PROBE_BIOS		0x0001
-#define PCI_PROBE_CONF1		0x0002
-#define PCI_PROBE_CONF2		0x0004
+#define PCI_PROBE_CONF1		0x0002 //表示使用0XCF8 0XCFC 两个寄存器访问配置空间
+#define PCI_PROBE_CONF2		0x0004 //这种方法现在不使用了
 #define PCI_PROBE_MMCONF	0x0008
 #define PCI_PROBE_MASK		0x000f
 #define PCI_PROBE_NOEARLY	0x0010

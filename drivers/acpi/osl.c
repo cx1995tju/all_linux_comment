@@ -1,3 +1,4 @@
+/*  OSL: OS Service Layer */
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
  *  acpi_osl.c - OS-dependent functions ($Revision: 83 $)
@@ -568,13 +569,13 @@ acpi_os_install_interrupt_handler(u32 gsi, acpi_osd_handler handler,
 	 * ACPI interrupts different from the SCI in our copy of the FADT are
 	 * not supported.
 	 */
-	if (gsi != acpi_gbl_FADT.sci_interrupt)
+	if (gsi != acpi_gbl_FADT.sci_interrupt) //从FADT表获取ACPI中断使用的中断向量, 一般是0x9, gsi可以看作是一个中断引脚
 		return AE_BAD_PARAMETER;
 
 	if (acpi_irq_handler)
 		return AE_ALREADY_ACQUIRED;
 
-	if (acpi_gsi_to_irq(gsi, &irq) < 0) {
+	if (acpi_gsi_to_irq(gsi, &irq) < 0) { //将gsi值转换为系统内部使用的irq号
 		printk(KERN_ERR PREFIX "SCI (ACPI GSI %d) not registered\n",
 		       gsi);
 		return AE_OK;

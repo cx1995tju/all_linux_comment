@@ -1183,7 +1183,7 @@ void __init setup_arch(char **cmdline_p)
 	/*
 	 * Read APIC and some other early information from ACPI tables.
 	 */
-	acpi_boot_init();
+	acpi_boot_init(); //依次分析SBFT，FADT，HPET
 	sfi_init();
 	x86_dtb_init();
 

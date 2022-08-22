@@ -1807,6 +1807,7 @@ static int dev_boot_phase = 1;
  * view of the network device list.
  */
 
+//注册到netdevice 子系统的通知链netdev_chain上
 int register_netdevice_notifier(struct notifier_block *nb)
 {
 	struct net *net;
@@ -2029,6 +2030,7 @@ static int call_netdevice_notifiers_info(unsigned long val,
 	 * Hopefully, one day, the global one is going to be removed after
 	 * all notifier block registrators get converted to be per-netns.
 	 */
+	//通知到netdev_chain
 	ret = raw_notifier_call_chain(&net->netdev_chain, val, info);
 	if (ret & NOTIFY_STOP_MASK)
 		return ret;

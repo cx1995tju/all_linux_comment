@@ -34,6 +34,8 @@ pci_free_consistent(struct pci_dev *hwdev, size_t size,
 	dma_free_coherent(&hwdev->dev, size, vaddr, dma_handle);
 }
 
+/* @direction */
+/* PCI_DMA_NONE 用于调试， 较少使用; PCI_DMA_TODEVICE 表示这段数据的传递方 向是从存储器到 PCI 设备; PCI_DMA_FROMDEVICE 表示这段数据的传递方向是从 PCI 设备 到存储器; PCI_DMA_BIDIRECTIONAL 表示方向未知。 */
 static inline dma_addr_t
 pci_map_single(struct pci_dev *hwdev, void *ptr, size_t size, int direction)
 {

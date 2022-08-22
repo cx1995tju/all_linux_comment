@@ -125,6 +125,7 @@ static int __init pci_iommu_init(void)
 
 	x86_init.iommu.iommu_init();
 
+	//设置iommu的页表
 	for (p = __iommu_table; p < __iommu_table_end; p++) {
 		if (p && (p->flags & IOMMU_DETECTED) && p->late_init)
 			p->late_init();

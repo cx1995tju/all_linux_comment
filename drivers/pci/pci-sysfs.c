@@ -1435,6 +1435,7 @@ void pci_remove_sysfs_dev_files(struct pci_dev *pdev)
 	pci_remove_firmware_label_files(pdev);
 }
 
+//将每一个pci设备都加入到sysfs中管理
 static int __init pci_sysfs_init(void)
 {
 	struct pci_dev *pdev = NULL;

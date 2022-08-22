@@ -73,6 +73,7 @@ u32 acpi_ev_sci_dispatch(void)
  *
  ******************************************************************************/
 
+//acpi_early_init -> acpi_enable_subsystem -> acpi_ev_install_xrupt_handlers -> acpi_ev_install_sci_handler ->  acpi_os_install_interrupt_handler 中注册了该中断处理函数
 static u32 ACPI_SYSTEM_XFACE acpi_ev_sci_xrupt_handler(void *context)
 {
 	struct acpi_gpe_xrupt_info *gpe_xrupt_list = context;
