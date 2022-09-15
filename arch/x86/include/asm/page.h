@@ -39,6 +39,7 @@ static inline void copy_user_page(void *to, void *from, unsigned long vaddr,
 #define __HAVE_ARCH_ALLOC_ZEROED_USER_HIGHPAGE
 
 #ifndef __pa
+//内核的虚拟地址，转物理地址
 #define __pa(x)		__phys_addr((unsigned long)(x))
 #endif
 
@@ -66,6 +67,7 @@ static inline void copy_user_page(void *to, void *from, unsigned long vaddr,
  * virt_to_page(kaddr) returns a valid pointer if and only if
  * virt_addr_valid(kaddr) returns true.
  */
+//内核用虚拟地址 -> 物理地址 -> pfn(即mem_map 数组的idx) -> page结构(mem_map 数组的元素)
 #define virt_to_page(kaddr)	pfn_to_page(__pa(kaddr) >> PAGE_SHIFT)
 #define pfn_to_kaddr(pfn)      __va((pfn) << PAGE_SHIFT)
 extern bool __virt_addr_valid(unsigned long kaddr);

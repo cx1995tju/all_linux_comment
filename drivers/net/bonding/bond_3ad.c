@@ -3,6 +3,9 @@
  * Copyright(c) 1999 - 2004 Intel Corporation. All rights reserved.
  */
 
+//实现的核心就是：几个state machine: ad_rx_machine ad_tx_machine 等
+//最终的运行入口是bond_main.c 中的一个delayed_work(bond_3ad_state_machine_handler)
+
 #include <linux/skbuff.h>
 #include <linux/if_ether.h>
 #include <linux/netdevice.h>
@@ -53,6 +56,8 @@
  * Port key  | User key (10 bits)           | Speed (5 bits)      | Duplex|
  *           --------------------------------------------------------------
  *           |15                           6|5                   1|0
+ *
+ * port_key = speed + duplex
  */
 #define  AD_DUPLEX_KEY_MASKS    0x1
 #define  AD_SPEED_KEY_MASKS     0x3E
@@ -89,8 +94,12 @@ static const u8 lacpdu_mcast_addr[ETH_ALEN + 2] __long_aligned =
 	MULTICAST_LACPDU_ADDR;
 
 /* ================= main 802.3ad protocol functions ================== */
+//实现协议的相关函数
+// linux/include/bond_3ad.h
 static int ad_lacpdu_send(struct port *port);
 static int ad_marker_send(struct port *port, struct bond_marker *marker);
+
+// XXX: 这几个machine是协议实现的核心
 static void ad_mux_machine(struct port *port, bool *update_slave_arr);
 static void ad_rx_machine(struct lacpdu *lacpdu, struct port *port);
 static void ad_tx_machine(struct port *port);
@@ -113,6 +122,7 @@ static void ad_update_actor_keys(struct port *port, bool reset);
 
 
 /* ================= api to bonding and kernel code ================== */
+//linux/include/bond_3ad.h
 
 /**
  * __get_bond_by_port - get the port's bonding struct
@@ -120,6 +130,7 @@ static void ad_update_actor_keys(struct port *port, bool reset);
  *
  * Return @port's bonding struct, or %NULL if it can't be found.
  */
+//通过802.3ad的port结构，拿到bonding结构
 static inline struct bonding *__get_bond_by_port(struct port *port)
 {
 	if (port->slave == NULL)
@@ -136,6 +147,7 @@ static inline struct bonding *__get_bond_by_port(struct port *port)
  * found.
  * The caller must hold RCU or RTNL lock.
  */
+//1个aggreator 多个 port
 static inline struct aggregator *__get_first_agg(struct port *port)
 {
 	struct bonding *bond = __get_bond_by_port(port);
@@ -161,6 +173,7 @@ static inline struct aggregator *__get_first_agg(struct port *port)
  * Return nonzero if aggregator has a partner (denoted by a non-zero ether
  * address for the partner). Return 0 if not.
  */
+//是否有对端
 static inline int __agg_has_partner(struct aggregator *agg)
 {
 	return !is_zero_ether_addr(agg->partner_system.mac_addr_value);
@@ -1059,6 +1072,7 @@ static void ad_mux_machine(struct port *port, bool *update_slave_arr)
 	}
 }
 
+//XXX: 802.3ad rx state machine
 /**
  * ad_rx_machine - handle a port's rx State Machine
  * @lacpdu: the lacpdu we've received

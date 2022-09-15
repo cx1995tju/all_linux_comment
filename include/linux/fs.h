@@ -448,6 +448,8 @@ int pagecache_write_end(struct file *, struct address_space *mapping,
  * @private_list: For use by the owner of the address_space.
  * @private_data: For use by the owner of the address_space.
  */
+/* 对于内核的每个交换设备有一个address_space结构，在swapper_spaces 数组中 */
+//更多，将4.19.36 comments
 struct address_space {
 	struct inode		*host;
 	struct xarray		i_pages;

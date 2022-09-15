@@ -36,7 +36,9 @@ static inline swp_entry_t swp_entry(unsigned long type, pgoff_t offset)
 
 /*
  * Extract the `type' field from a swp_entry_t.  The swp_entry_t is in
- * arch-independent format
+ * arch-independent format,
+ *
+ * 表示这个swp_entry_t 在描述swap_info 数组中的哪一个交换文件
  */
 static inline unsigned swp_type(swp_entry_t entry)
 {
@@ -53,6 +55,7 @@ static inline pgoff_t swp_offset(swp_entry_t entry)
 }
 
 /* check whether a pte points to a swap entry */
+/* 对于pte来说，当其present 位是0的时候，MMU不会check 其他位了；所以可以由系统软件任意解释,譬如：用来指示一个盘上页面的位置 */
 static inline int is_swap_pte(pte_t pte)
 {
 	return !pte_none(pte) && !pte_present(pte);

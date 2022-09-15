@@ -77,7 +77,7 @@ bs_die:
 
 	# int 0x19 should never return.  In case it does anyway,
 	# invoke the BIOS reset code...
-	ljmp	$0xf000,$0xfff0
+	ljmp	$0xf000,$0xfff0 # 这是bios的起始地址，注意不是0xf000fff0 而是 0xfffffff0
 
 #ifdef CONFIG_EFI_STUB
 	.org	0x3c

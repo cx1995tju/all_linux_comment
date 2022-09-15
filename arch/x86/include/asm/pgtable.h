@@ -62,6 +62,7 @@ extern pmdval_t early_pmd_flags;
 #ifdef CONFIG_PARAVIRT_XXL
 #include <asm/paravirt.h>
 #else  /* !CONFIG_PARAVIRT_XXL */
+//用来把一个表项的值pte，设置到表里，位置是(ptep)
 #define set_pte(ptep, pte)		native_set_pte(ptep, pte)
 
 #define set_pte_atomic(ptep, pte)					\
@@ -121,6 +122,7 @@ extern pmdval_t early_pmd_flags;
  * The following only work if pte_present() is true.
  * Undefined behaviour if not..
  */
+//表示这个pte指向的page是为为dirty
 static inline int pte_dirty(pte_t pte)
 {
 	return pte_flags(pte) & _PAGE_DIRTY;
@@ -155,6 +157,7 @@ static inline void write_pkru(u32 pkru)
 	fpregs_unlock();
 }
 
+//如果被访问过，那么就是young
 static inline int pte_young(pte_t pte)
 {
 	return pte_flags(pte) & _PAGE_ACCESSED;
@@ -180,6 +183,7 @@ static inline int pud_young(pud_t pud)
 	return pud_flags(pud) & _PAGE_ACCESSED;
 }
 
+//表示这个pte指向的page是否可写
 static inline int pte_write(pte_t pte)
 {
 	return pte_flags(pte) & _PAGE_RW;
@@ -751,6 +755,7 @@ static inline pgd_t pti_set_user_pgtbl(pgd_t *pgdp, pgd_t pgd)
 #include <linux/log2.h>
 #include <asm/fixmap.h>
 
+//表示这个pte 是否为空
 static inline int pte_none(pte_t pte)
 {
 	return !(pte.pte & ~(_PAGE_KNL_ERRATUM_MASK));
@@ -762,6 +767,7 @@ static inline int pte_same(pte_t a, pte_t b)
 	return a.pte == b.pte;
 }
 
+//表示这个entry指向的page在内存里
 static inline int pte_present(pte_t a)
 {
 	return pte_flags(a) & (_PAGE_PRESENT | _PAGE_PROTNONE);

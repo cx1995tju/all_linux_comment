@@ -9,6 +9,7 @@
 
 #define FIRST_USER_ADDRESS	0UL
 
+//pte 的entry，低位用来保存一些flag，因为其指向的页面至少是4KB对齐的，所以低12b不需要用来作为索引page的地址
 #define _PAGE_BIT_PRESENT	0	/* is present */
 #define _PAGE_BIT_RW		1	/* writeable */
 #define _PAGE_BIT_USER		2	/* userspace addressable */

@@ -505,6 +505,7 @@ start_thread_common(struct pt_regs *regs, unsigned long new_ip,
 void
 start_thread(struct pt_regs *regs, unsigned long new_ip, unsigned long new_sp)
 {
+	//linux 回避x86的段寄存器
 	start_thread_common(regs, new_ip, new_sp,
 			    __USER_CS, __USER_DS, 0);
 }

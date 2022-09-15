@@ -243,10 +243,10 @@ struct swap_info_struct {
 	struct plist_node list;		/* entry in swap_active_head */
 	signed char	type;		/* strange name for an index */
 	unsigned int	max;		/* extent of the swap_map */
-	unsigned char *swap_map;	/* vmalloc'ed array of usage counts */
+	unsigned char *swap_map;	/* vmalloc'ed array of usage counts */ //这个数组中的每个元素，表示这个交换设备的一个页面; 其中swap_map[0] 记录一些元信息，不使用。这个数组的每个元素，记录是对应page的引用计数。index才是page的索引。 e.g. swap_map[1] = 3, 表示page1 有三个人在使用
 	struct swap_cluster_info *cluster_info; /* cluster info. Only for SSD */
 	struct swap_cluster_list free_clusters; /* free clusters list */
-	unsigned int lowest_bit;	/* index of first free in swap_map */
+	unsigned int lowest_bit;	/* index of first free in swap_map */ //用于指示swap_map 中哪些页面是可用的
 	unsigned int highest_bit;	/* index of last free in swap_map */
 	unsigned int pages;		/* total of usable pages of swap */
 	unsigned int inuse_pages;	/* number of those currently in use */

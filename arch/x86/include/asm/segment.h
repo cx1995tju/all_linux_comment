@@ -57,7 +57,7 @@
 
 #ifdef CONFIG_X86_32
 /*
- * The layout of the per-CPU GDT under Linux:
+ * The layout of the per-CPU GDT under Linux:				GDTR 表内容
  *
  *   0 - null								<=== cacheline #1
  *   1 - reserved
@@ -131,10 +131,26 @@
  * Segment selector values corresponding to the above entries:
  */
 
+/* x86 段寄存器*格式
+ * +-----------------+--------+---------+
+ * | LDTR/GDTR Index | TI(1b) | RPL(2b) |
+ * +-----------------+--------+---------+
+ * 
+ * TI == 0 时，使用GDTR
+ * TI == 1 时, 使用LDTR
+ * 
+ * RPL 表示特权级:00 01 10 11
+ *
+ * __KERNEL_CS  0b00100 0 00
+ * __KERNEL_DS  0b00110 0 00
+ *
+ * __USER_CS  0b00101 0 11
+ * __USER_DS  0b00110 0 11
+ * */
 #define __KERNEL_CS			(GDT_ENTRY_KERNEL_CS*8)
 #define __KERNEL_DS			(GDT_ENTRY_KERNEL_DS*8)
 #define __USER_DS			(GDT_ENTRY_DEFAULT_USER_DS*8 + 3)
-#define __USER_CS			(GDT_ENTRY_DEFAULT_USER_CS*8 + 3)
+#define __USER_CS			(GDT_ENTRY_DEFAULT_USER_CS*8 + 3) // 14 * 8 + 3
 #define __ESPFIX_SS			(GDT_ENTRY_ESPFIX_SS*8)
 
 /* segment for calling fn: */

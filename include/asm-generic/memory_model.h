@@ -30,7 +30,10 @@
  */
 #if defined(CONFIG_FLATMEM)
 
+//mem_map 数组的索引 pfn -> page 结构
 #define __pfn_to_page(pfn)	(mem_map + ((pfn) - ARCH_PFN_OFFSET))
+
+//page 结构的指针(即mem_map中的一个元素) -> pfn
 #define __page_to_pfn(page)	((unsigned long)((page) - mem_map) + \
 				 ARCH_PFN_OFFSET)
 #elif defined(CONFIG_DISCONTIGMEM)

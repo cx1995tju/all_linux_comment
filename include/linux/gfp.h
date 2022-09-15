@@ -2,6 +2,8 @@
 #ifndef __LINUX_GFP_H
 #define __LINUX_GFP_H
 
+/* GFP: get free pages */
+
 #include <linux/mmdebug.h>
 #include <linux/mmzone.h>
 #include <linux/stddef.h>
@@ -538,7 +540,7 @@ static inline struct page *alloc_pages_node(int nid, gfp_t gfp_mask,
 	return __alloc_pages_node(nid, gfp_mask, order);
 }
 
-#ifdef CONFIG_NUMA
+#ifdef CONFIG_NUMA //支持NUMA
 extern struct page *alloc_pages_current(gfp_t gfp_mask, unsigned order);
 
 static inline struct page *

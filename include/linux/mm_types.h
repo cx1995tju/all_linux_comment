@@ -33,22 +33,26 @@ struct mem_cgroup;
  * a page, though if it is a pagecache page, rmap structures can tell us
  * who is mapping it.
  *
+ * # first union
  * If you allocate the page using alloc_pages(), you can use some of the
- * space in struct page for your own purposes.  The five words in the main
+ * space in struct page for your own purposes.  The five words in the main   //有意思
  * union are available, except for bit 0 of the first word which must be
  * kept clear.  Many users use this word to store a pointer to an object
  * which is guaranteed to be aligned.  If you use the same storage as
  * page->mapping, you must restore it to NULL before freeing the page.
  *
- * If your page will not be mapped to userspace, you can also use the four
+ * # _mapcount union
+ * If your page will not be mapped to userspace, you can also use the four //有意思
  * bytes in the mapcount union, but you must call page_mapcount_reset()
  * before freeing it.
  *
+ * # refcount member
  * If you want to use the refcount field, it must be used in such a way
  * that other CPUs temporarily incrementing and then decrementing the
  * refcount does not cause problems.  On receiving the page from
  * alloc_pages(), the refcount will be positive.
  *
+ * # subpage 中可以有更多字段使用
  * If you allocate pages of order > 0, you can use some of the fields
  * in each subpage, but you may need to restore some of their values
  * afterwards.
@@ -65,6 +69,7 @@ struct mem_cgroup;
 #define _struct_page_alignment
 #endif
 
+//内核用来管理，物理页面的结构，所有的page结构被组织在一个mem_map 数组中
 struct page {
 	unsigned long flags;		/* Atomic flags, some possibly
 					 * updated asynchronously */
@@ -74,8 +79,11 @@ struct page {
 	 * means the other users of this union MUST NOT use the bit to
 	 * avoid collision and false-positive PageTail().
 	 */
+	//这个union是自由使用的，如果使用的是最底层的alloc_pages() 分配page。
+	//可以看到这里已经预先定义了一些struct，就是内核各个子系统在使用的
+	//XXX： 但是first word的bit 0不能直接使用
 	union {
-		struct {	/* Page cache and anonymous pages */
+		struct {	/* Page cache and anonymous pages */ //这个struct 大小是40Bytes
 			/**
 			 * @lru: Pageout list, eg. active_list protected by
 			 * pgdat->lru_lock.  Sometimes used as a generic list
@@ -84,7 +92,7 @@ struct page {
 			struct list_head lru;
 			/* See page-flags.h for PAGE_MAPPING_FLAGS */
 			struct address_space *mapping;
-			pgoff_t index;		/* Our offset within mapping. */
+			pgoff_t index;		/* Our offset within mapping. */ //指示这个页面在后备存储器 mapping中的位置
 			/**
 			 * @private: Mapping-private opaque data.
 			 * Usually used for buffer_heads if PagePrivate.
@@ -181,7 +189,7 @@ struct page {
 		 * If the page can be mapped to userspace, encodes the number
 		 * of times this page is referenced by a page table.
 		 */
-		atomic_t _mapcount;
+		atomic_t _mapcount; //如果这个page不会映射到用户态使用，那么这4Bytes，也可以自由使用
 
 		/*
 		 * If the page is neither PageSlab nor mappable to userspace,
@@ -781,6 +789,8 @@ enum tlb_flush_reason {
  /*
   * A swap entry has to fit into a "unsigned long", as the entry is hidden
   * in the "index" field of the swapper address space.
+  *
+  * 描述一个盘上页面，在哪个swap设备的哪个page上, refer to %swp_type
   */
 typedef struct {
 	unsigned long val;

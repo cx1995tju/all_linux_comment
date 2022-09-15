@@ -17,7 +17,7 @@
  * @name: the name of this virtqueue (mainly for debugging)
  * @vdev: the virtio device this queue was created for.
  * @priv: a pointer for the virtqueue implementation to use.
- * @index: the zero-based ordinal number for this queue.
+ * @index: the zero-based ordinal number for this queue.  %qid
  * @num_free: number of elements we expect to be able to fit.
  *
  * A note on @num_free: with indirect buffers, each buffer needs one
@@ -29,7 +29,7 @@ struct virtqueue {
 	void (*callback)(struct virtqueue *vq);
 	const char *name;
 	struct virtio_device *vdev;
-	unsigned int index;
+	unsigned int index; // have VIRTIO_F_NOTIFICATION_DATA 的话 16b vq_no + 15b next_off + 1b next_wrap, 没有该feat的话，那么就是32b 的 vq_no
 	unsigned int num_free;
 	void *priv;
 };

@@ -485,15 +485,18 @@ static void dev_watchdog_down(struct net_device *dev)
  *
  * Device has detected acquisition of carrier.
  */
+//->linkwatch_fire_event -> linkwatch_schedule_work(linkwatch_event) -> __linkwatch_run_queue -> linkwatch_do_dev -> netdev_state_change
+//如果no-carrier就需要设置，否则不需要设置
+//设置为carrier on状态
 void netif_carrier_on(struct net_device *dev)
 {
-	if (test_and_clear_bit(__LINK_STATE_NOCARRIER, &dev->state)) {
+	if (test_and_clear_bit(__LINK_STATE_NOCARRIER, &dev->state)) { //如果no-carrier 需要设置；如果已经是carrier状态就不需要设置
 		if (dev->reg_state == NETREG_UNINITIALIZED)
 			return;
-		atomic_inc(&dev->carrier_up_count);
-		linkwatch_fire_event(dev);
-		if (netif_running(dev))
-			__netdev_watchdog_up(dev);
+		atomic_inc(&dev->carrier_up_count); //增加carrier up count
+		linkwatch_fire_event(dev); //触发state change, 可能被down，可能被up
+		if (netif_running(dev)) //如果是up状态
+			__netdev_watchdog_up(dev); // up watchdog
 	}
 }
 EXPORT_SYMBOL(netif_carrier_on);
@@ -504,6 +507,7 @@ EXPORT_SYMBOL(netif_carrier_on);
  *
  * Device has detected loss of carrier.
  */
+//如果已经是carrier状态就不需要设置了，否则要off
 void netif_carrier_off(struct net_device *dev)
 {
 	if (!test_and_set_bit(__LINK_STATE_NOCARRIER, &dev->state)) {
@@ -516,10 +520,11 @@ void netif_carrier_off(struct net_device *dev)
 EXPORT_SYMBOL(netif_carrier_off);
 
 /* "NOOP" scheduler: the best scheduler, recommended for all interfaces
-   under all circumstances. It is difficult to invent anything faster or
+   under all circumstances. It is difficult to invent anything faster or    // Yes，can't agree any more.
    cheaper.
  */
 
+//tc enqueue操作，drop所有的报文
 static int noop_enqueue(struct sk_buff *skb, struct Qdisc *qdisc,
 			struct sk_buff **to_free)
 {
@@ -590,6 +595,7 @@ struct Qdisc_ops noqueue_qdisc_ops __read_mostly = {
 	.owner		=	THIS_MODULE,
 };
 
+//priomap
 static const u8 prio2band[TC_PRIO_MAX + 1] = {
 	1, 2, 2, 2, 1, 2, 0, 0 , 1, 1, 1, 1, 1, 1, 1, 1
 };
@@ -614,6 +620,7 @@ static inline struct skb_array *band2list(struct pfifo_fast_priv *priv,
 	return &priv->q[band];
 }
 
+//tc pfifo enqueue
 static int pfifo_fast_enqueue(struct sk_buff *skb, struct Qdisc *qdisc,
 			      struct sk_buff **to_free)
 {
@@ -779,6 +786,7 @@ static int pfifo_fast_change_tx_queue_len(struct Qdisc *sch,
 					 GFP_KERNEL);
 }
 
+//TC pfifo 实现
 struct Qdisc_ops pfifo_fast_ops __read_mostly = {
 	.id		=	"pfifo_fast",
 	.priv_size	=	sizeof(struct pfifo_fast_priv),

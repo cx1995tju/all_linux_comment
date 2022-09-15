@@ -4864,6 +4864,8 @@ got_pg:
 	return page;
 }
 
+//做一些准备工作，将收集的信息都保存到alloc_context *ac中
+//@param preferred_nid, 首选的内存node
 static inline bool prepare_alloc_pages(gfp_t gfp_mask, unsigned int order,
 		int preferred_nid, nodemask_t *nodemask,
 		struct alloc_context *ac, gfp_t *alloc_mask,

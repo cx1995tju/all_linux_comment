@@ -4107,7 +4107,7 @@ static int __dev_queue_xmit(struct sk_buff *skb, struct net_device *sb_dev)
 
 	trace_net_dev_queue(skb);
 	if (q->enqueue) {
-		rc = __dev_xmit_skb(skb, q, dev, txq);
+		rhc = __dev_xmit_skb(skb, q, dev, txq);
 		goto out;
 	}
 

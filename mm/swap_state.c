@@ -125,10 +125,12 @@ void *get_shadow_from_swap_cache(swp_entry_t entry)
  * add_to_swap_cache resembles add_to_page_cache_locked on swapper_space,
  * but sets SwapCache flag and private instead of mapping and index.
  */
+//page 是要加入到交换设备的page
+//entry，是描述盘上页面的
 int add_to_swap_cache(struct page *page, swp_entry_t entry,
 			gfp_t gfp, void **shadowp)
 {
-	struct address_space *address_space = swap_address_space(entry);
+	struct address_space *address_space = swap_address_space(entry); //描述这个entry所在的后备存储器
 	pgoff_t idx = swp_offset(entry);
 	XA_STATE_ORDER(xas, &address_space->i_pages, idx, compound_order(page));
 	unsigned long i, nr = thp_nr_pages(page);

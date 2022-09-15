@@ -40,11 +40,11 @@ who to ask for help, please follow the links at the end of this file.
 
 .. Table of Contents
 
-   1. Bonding Driver Installation
+   1. Bonding Driver Installation //怎么安装？
 
-   2. Bonding Driver Options
+   2. Bonding Driver Options //哪些选项？
 
-   3. Configuring Bonding Devices
+   3. Configuring Bonding Devices // HOWTO：多种接口配置
    3.1	Configuration with Sysconfig Support
    3.1.1		Using DHCP with Sysconfig
    3.1.2		Configuring Multiple Bonds with Sysconfig
@@ -58,7 +58,7 @@ who to ask for help, please follow the links at the end of this file.
    3.6	Overriding Configuration for Special Cases
    3.7 Configuring LACP for 802.3ad mode in a more secure way
 
-   4. Querying Bonding Configuration
+   4. Querying Bonding Configuration //HOWTO: 多种接口查询
    4.1	Bonding Configuration
    4.2	Network Configuration
 

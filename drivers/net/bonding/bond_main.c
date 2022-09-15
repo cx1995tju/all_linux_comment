@@ -14,16 +14,16 @@
  *	and probably many L2 switches ...
  *
  * How it works:
- *    ifconfig bond0 ipaddress netmask up
+ *    ifconfig bond0 ipaddress netmask up //创建bond口
  *      will setup a network device, with an ip address.  No mac address
  *	will be assigned at this time.  The hw mac address will come from
  *	the first slave bonded to the channel.  All slaves will then use
  *	this hw mac address.
  *
- *    ifconfig bond0 down
+ *    ifconfig bond0 down //release all slaves
  *         will release all slaves, marking them as down.
  *
- *    ifenslave bond0 eth0
+ *    ifenslave bond0 eth0 //添加slave
  *	will attach eth0 to bond0 as a slave.  eth0 hw mac address will either
  *	a: be used as initial mac address
  *	b: if a hw mac address already is there, eth0's hw mac address
@@ -203,6 +203,7 @@ atomic_t netpoll_block_tx = ATOMIC_INIT(0);
 
 unsigned int bond_net_id __read_mostly;
 
+//tc机制使用的？
 static const struct flow_dissector_key flow_keys_bonding_keys[] = {
 	{
 		.key_id = FLOW_DISSECTOR_KEY_CONTROL,
@@ -250,6 +251,7 @@ static struct flow_dissector flow_keys_bonding __read_mostly;
 
 /*-------------------------- Forward declarations ---------------------------*/
 
+//一些重要的初始化以及相关函数
 static int bond_init(struct net_device *bond_dev);
 static void bond_uninit(struct net_device *bond_dev);
 static void bond_get_stats(struct net_device *bond_dev,
@@ -286,19 +288,21 @@ const char *bond_mode_name(int mode)
  * @skb: hw accel VLAN tagged skb to transmit
  * @slave_dev: slave that is supposed to xmit this skbuff
  */
+//基础的send函数, 其他xmit函数都是在这个基础上构建的
 netdev_tx_t bond_dev_queue_xmit(struct bonding *bond, struct sk_buff *skb,
 			struct net_device *slave_dev)
 {
-	skb->dev = slave_dev;
+	skb->dev = slave_dev; //外面已经确定过了tx dev，这里记录在skb中
 
+	//通过bond口发送数据，其skb的control block中应该保存了queue_mapping 信息
 	BUILD_BUG_ON(sizeof(skb->queue_mapping) !=
 		     sizeof(qdisc_skb_cb(skb)->slave_dev_queue_mapping));
-	skb_set_queue_mapping(skb, qdisc_skb_cb(skb)->slave_dev_queue_mapping);
+	skb_set_queue_mapping(skb, qdisc_skb_cb(skb)->slave_dev_queue_mapping); //使用这个queue???
 
-	if (unlikely(netpoll_tx_running(bond->dev)))
+	if (unlikely(netpoll_tx_running(bond->dev))) //如果netpoll机制在run，那么这时候通过netpoll发送出去
 		return bond_netpoll_send_skb(bond_get_slave_by_dev(bond, slave_dev), skb);
 
-	return dev_queue_xmit(skb);
+	return dev_queue_xmit(skb); // send it, 已经选择了slave了，后续就是dev_queue_xmit -> tc -> dev_hard_queue_xmit 发送出去
 }
 
 /*---------------------------------- VLAN -----------------------------------*/
@@ -467,6 +471,8 @@ static const struct xfrmdev_ops bond_xfrmdev_ops = {
 };
 #endif /* CONFIG_XFRM_OFFLOAD */
 
+
+//XXX: 重要 基础
 /*------------------------------- Link status -------------------------------*/
 
 /* Set the carrier state for the master according to the state of its
@@ -475,6 +481,7 @@ static const struct xfrmdev_ops bond_xfrmdev_ops = {
  *
  * Returns zero if carrier state does not change, nonzero if it does.
  */
+//有一个up，master就up。802.3ad 不是这样
 int bond_set_carrier(struct bonding *bond)
 {
 	struct list_head *iter;
@@ -488,8 +495,8 @@ int bond_set_carrier(struct bonding *bond)
 
 	bond_for_each_slave(bond, slave, iter) {
 		if (slave->link == BOND_LINK_UP) {
-			if (!netif_carrier_ok(bond->dev)) {
-				netif_carrier_on(bond->dev);
+			if (!netif_carrier_ok(bond->dev)) { //slave是up状态，但是现在carrier 不 ok，那么就需要设置
+				netif_carrier_on(bond->dev); //最终会走到内核通知链netdev_chain, 设置为carrier on
 				return 1;
 			}
 			return 0;
@@ -509,6 +516,8 @@ down:
  * values are invalid, set speed and duplex to -1,
  * and return. Return 1 if speed or duplex settings are
  * UNKNOWN; 0 otherwise.
+ *
+ * 用ethtool 去拿slave的speed and duplex
  */
 static int bond_update_speed_duplex(struct slave *slave)
 {
@@ -580,15 +589,17 @@ static int bond_check_dev_link(struct bonding *bond,
 	if (!reporting && !netif_running(slave_dev))
 		return 0;
 
-	if (bond->params.use_carrier)
+	if (bond->params.use_carrier) //设置了这个参数的话，就直接看软件了
 		return netif_carrier_ok(slave_dev) ? BMSR_LSTATUS : 0;
 
 	/* Try to get link status using Ethtool first. */
+	//尝试用ethtool去拿link_status
 	if (slave_dev->ethtool_ops->get_link)
 		return slave_dev->ethtool_ops->get_link(slave_dev) ?
 			BMSR_LSTATUS : 0;
 
 	/* Ethtool can't be used, fallback to MII ioctls. */
+	//ioctl 不能用，fallback到ioctl
 	ioctl = slave_ops->ndo_do_ioctl;
 	if (ioctl) {
 		/* TODO: set pointer to correct ioctl on a per team member
@@ -624,17 +635,18 @@ static int bond_check_dev_link(struct bonding *bond,
 /*----------------------------- Multicast list ------------------------------*/
 
 /* Push the promiscuity flag down to appropriate slaves */
+//设置bond dev的promiscuity，当然也设置到合适的slave dev
 static int bond_set_promiscuity(struct bonding *bond, int inc)
 {
 	struct list_head *iter;
 	int err = 0;
 
-	if (bond_uses_primary(bond)) {
+	if (bond_uses_primary(bond)) { //这些模式下，直接设置curr_active device
 		struct slave *curr_active = rtnl_dereference(bond->curr_active_slave);
 
 		if (curr_active)
 			err = dev_set_promiscuity(curr_active->dev, inc);
-	} else {
+	} else { //其他模式需要设置每一个slave的状态
 		struct slave *slave;
 
 		bond_for_each_slave(bond, slave, iter) {
@@ -647,6 +659,7 @@ static int bond_set_promiscuity(struct bonding *bond, int inc)
 }
 
 /* Push the allmulti flag down to all slaves */
+//多播设置？
 static int bond_set_allmulti(struct bonding *bond, int inc)
 {
 	struct list_head *iter;
@@ -673,6 +686,7 @@ static int bond_set_allmulti(struct bonding *bond, int inc)
  * device and retransmit an IGMP JOIN request to the current active
  * slave.
  */
+//组播相关的
 static void bond_resend_igmp_join_requests_delayed(struct work_struct *work)
 {
 	struct bonding *bond = container_of(work, struct bonding,
@@ -708,8 +722,10 @@ static void bond_hw_addr_flush(struct net_device *bond_dev,
 	}
 }
 
+//XXX: 重要部分
 /*--------------------------- Active slave change ---------------------------*/
 
+//更新硬件地址，然后为active slaves更新混杂和多播设置
 /* Update the hardware address list and promisc/allmulti for the new and
  * old active slaves (if any).  Modes that are not using primary keep all
  * slaves up date at all times; only the modes that use primary need to call
@@ -750,6 +766,7 @@ static void bond_hw_addr_swap(struct bonding *bond, struct slave *new_active,
  *
  * Should be called with RTNL held.
  */
+//设置硬件地址
 static int bond_set_dev_addr(struct net_device *bond_dev,
 			     struct net_device *slave_dev)
 {
@@ -767,6 +784,7 @@ static int bond_set_dev_addr(struct net_device *bond_dev,
 	return 0;
 }
 
+//bond 地址与old active地址一样
 static struct slave *bond_get_old_active(struct bonding *bond,
 					 struct slave *new_active)
 {
@@ -914,7 +932,7 @@ static struct slave *bond_find_best_slave(struct bonding *bond)
 		return slave;
 
 	bond_for_each_slave(bond, slave, iter) {
-		if (slave->link == BOND_LINK_UP)
+		if (slave->link == BOND_LINK_UP) //按顺序找，返回第一个up状态的slave
 			return slave;
 		if (slave->link == BOND_LINK_BACK && bond_slave_is_up(slave) &&
 		    slave->delay < mintime) {
@@ -937,6 +955,14 @@ static bool bond_should_notify_peers(struct bonding *bond)
 	netdev_dbg(bond->dev, "bond_should_notify_peers: slave %s\n",
 		   slave ? slave->dev->name : "NULL");
 
+	/* 1. 没有curr active slave
+	 * 2. 不需要send_peer_notif
+	 * 3. 没有到时间
+	 * 4. bond 设备carrier not ok
+	 * 5. slave dev处于LINKWATCH_PENDING状态
+	 *
+	 * 满足上述条件之一的话，就不需要通知peer
+	 * */
 	if (!slave || !bond->send_peer_notif ||
 	    bond->send_peer_notif %
 	    max(1, bond->params.peer_notif_delay) != 0 ||
@@ -962,6 +988,7 @@ static bool bond_should_notify_peers(struct bonding *bond)
  *
  * Caller must hold RTNL.
  */
+//XXX: 切换 active slave
 void bond_change_active_slave(struct bonding *bond, struct slave *new_active)
 {
 	struct slave *old_active;
@@ -1081,6 +1108,7 @@ void bond_change_active_slave(struct bonding *bond, struct slave *new_active)
  *
  * Caller must hold RTNL.
  */
+//XXX：选择一个active slave
 void bond_select_active_slave(struct bonding *bond)
 {
 	struct slave *best_slave;
@@ -1088,9 +1116,9 @@ void bond_select_active_slave(struct bonding *bond)
 
 	ASSERT_RTNL();
 
-	best_slave = bond_find_best_slave(bond);
+	best_slave = bond_find_best_slave(bond); //选一个best slave，然后切换其状态, 也设置bond 状态
 	if (best_slave != rtnl_dereference(bond->curr_active_slave)) {
-		bond_change_active_slave(bond, best_slave);
+		bond_change_active_slave(bond, best_slave); //选择后，就要change active slave
 		rv = bond_set_carrier(bond);
 		if (!rv)
 			return;
@@ -1102,7 +1130,7 @@ void bond_select_active_slave(struct bonding *bond)
 	}
 }
 
-#ifdef CONFIG_NET_POLL_CONTROLLER
+#ifdef CONFIG_NET_POLL_CONTROLLER //netpoll 相关
 static inline int slave_enable_netpoll(struct slave *slave)
 {
 	struct netpoll *np;
@@ -1308,6 +1336,7 @@ done:
 	netdev_change_features(bond_dev);
 }
 
+//使用slave的信息，来对bond做一些设置
 static void bond_setup_by_slave(struct net_device *bond_dev,
 				struct net_device *slave_dev)
 {
@@ -1544,9 +1573,9 @@ static void bond_netdev_notify_work(struct work_struct *_work)
 
 		bond_fill_ifslave(slave, &binfo.slave);
 		bond_fill_ifbond(slave->bond, &binfo.master);
-		netdev_bonding_info_change(slave->dev, &binfo);
+		netdev_bonding_info_change(slave->dev, &binfo); //netdev_chain bonding change info
 		rtnl_unlock();
-	} else {
+	} else { //没有拿到锁，后续在工作队列中做
 		queue_delayed_work(slave->bond->wq, &slave->notify_work, 1);
 	}
 }
@@ -1563,10 +1592,11 @@ void bond_lower_state_changed(struct slave *slave)
 	info.link_up = slave->link == BOND_LINK_UP ||
 		       slave->link == BOND_LINK_FAIL;
 	info.tx_enabled = bond_is_active_slave(slave);
-	netdev_lower_state_changed(slave->dev, &info);
+	netdev_lower_state_changed(slave->dev, &info); //需要通知的
 }
 
 /* enslave device <slave> to bond device <master> */
+//ioctl 接口，给bond 口增加slave
 int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev,
 		 struct netlink_ext_ack *extack)
 {
@@ -2062,6 +2092,7 @@ err_undo_flags:
  *   for Bonded connections:
  *     The first up interface should be left on and all others downed.
  */
+//释放一个slave 设备
 static int __bond_release_one(struct net_device *bond_dev,
 			      struct net_device *slave_dev,
 			      bool all, bool unregister)
@@ -3268,19 +3299,21 @@ static void bond_arp_monitor(struct work_struct *work)
 		bond_loadbalance_arp_mon(bond);
 }
 
+//XXX netdev 事件处理
 /*-------------------------- netdev event handling --------------------------*/
 
 /* Change device name */
 static int bond_event_changename(struct bonding *bond)
 {
 	bond_remove_proc_entry(bond);
-	bond_create_proc_entry(bond);
+	bond_create_proc_entry(bond); //重建构建proc 接口
 
 	bond_debug_reregister(bond);
 
 	return NOTIFY_DONE;
 }
 
+//发生的事件是关于bond口的
 static int bond_master_netdev_event(unsigned long event,
 				    struct net_device *bond_dev)
 {
@@ -3304,6 +3337,7 @@ static int bond_master_netdev_event(unsigned long event,
 	return NOTIFY_DONE;
 }
 
+//发生的事件是关于slave的
 static int bond_slave_netdev_event(unsigned long event,
 				   struct net_device *slave_dev)
 {
@@ -3422,6 +3456,7 @@ static int bond_slave_netdev_event(unsigned long event,
  * locks for us to safely manipulate the slave devices (RTNL lock,
  * dev_probe_lock).
  */
+//挂到netdev_chain了
 static int bond_netdev_event(struct notifier_block *this,
 			     unsigned long event, void *ptr)
 {
@@ -3580,6 +3615,7 @@ u32 bond_xmit_hash(struct bonding *bond, struct sk_buff *skb)
 
 /*-------------------------- Device entry points ----------------------------*/
 
+//bond相关的各种work
 void bond_work_init_all(struct bonding *bond)
 {
 	INIT_DELAYED_WORK(&bond->mcast_work,
@@ -3601,6 +3637,7 @@ static void bond_work_cancel_all(struct bonding *bond)
 	cancel_delayed_work_sync(&bond->slave_arr_work);
 }
 
+//netdevice 标准接口 ndo_open
 static int bond_open(struct net_device *bond_dev)
 {
 	struct bonding *bond = netdev_priv(bond_dev);
@@ -3768,6 +3805,7 @@ static void bond_get_stats(struct net_device *bond_dev,
 	rcu_read_unlock();
 }
 
+//ioctl 接口
 static int bond_do_ioctl(struct net_device *bond_dev, struct ifreq *ifr, int cmd)
 {
 	struct bonding *bond = netdev_priv(bond_dev);
@@ -4548,6 +4586,7 @@ static struct net_device *bond_xmit_get_slave(struct net_device *master_dev,
 	return NULL;
 }
 
+//不同模式，xmit 的方法不一样的
 static netdev_tx_t __bond_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct bonding *bond = netdev_priv(dev);
@@ -4652,6 +4691,7 @@ static void bond_ethtool_get_drvinfo(struct net_device *bond_dev,
 		 BOND_ABI_VERSION);
 }
 
+//ethtool 接口
 static const struct ethtool_ops bond_ethtool_ops = {
 	.get_drvinfo		= bond_ethtool_get_drvinfo,
 	.get_link		= ethtool_op_get_link,
@@ -4794,6 +4834,7 @@ static void bond_uninit(struct net_device *bond_dev)
 }
 
 /*------------------------- Module initialization ---------------------------*/
+//模块的参数处理
 
 static int bond_check_params(struct bond_params *params)
 {
@@ -5296,6 +5337,7 @@ static void __net_exit bond_net_exit(struct net *net)
 	bond_destroy_proc_dir(bn);
 }
 
+//pernet 操作
 static struct pernet_operations bond_net_ops = {
 	.init = bond_net_init,
 	.exit = bond_net_exit,
@@ -5303,6 +5345,7 @@ static struct pernet_operations bond_net_ops = {
 	.size = sizeof(struct bond_net),
 };
 
+//模块初始化操作
 static int __init bonding_init(void)
 {
 	int i;

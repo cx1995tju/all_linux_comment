@@ -15,11 +15,15 @@ extern unsigned long page_offset_base;
 extern unsigned long vmalloc_base;
 extern unsigned long vmemmap_base;
 
+//内核虚拟地址转物理地址, x是作为输入的物理地址
 static inline unsigned long __phys_addr_nodebug(unsigned long x)
 {
+	// x 是内核虚拟地址, 是高地址，先向下偏移这么多 0xffffffff80000000
 	unsigned long y = x - __START_KERNEL_map;
 
 	/* use the carry flag to determine if x was < __START_KERNEL_map */
+
+	// x > y 实际在判断 x < __START_KERNEL_map
 	x = y + ((x > y) ? phys_base : (__START_KERNEL_map - PAGE_OFFSET));
 
 	return x;

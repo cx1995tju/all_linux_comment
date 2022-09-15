@@ -93,9 +93,10 @@ extern int page_group_by_mobility_disabled;
 #define get_pageblock_migratetype(page)					\
 	get_pfnblock_flags_mask(page, page_to_pfn(page), MIGRATETYPE_MASK)
 
+//伙伴系统使用
 struct free_area {
 	struct list_head	free_list[MIGRATE_TYPES];
-	unsigned long		nr_free;
+	unsigned long		nr_free; //表示free页面的数目, 对于0阶就是page数目，对于n阶就是nr_free * 2^n 个pages
 };
 
 static inline struct page *get_page_from_free_area(struct free_area *area,
@@ -344,6 +345,8 @@ struct per_cpu_nodestat {
 
 #endif /* !__GENERATING_BOUNDS.H */
 
+//将物理内存划分为不同的Zone，做不同的用途；
+//譬如：将低地址的作为DMA使用，因为有些外设只能访问低地址的物理空间
 enum zone_type {
 	/*
 	 * ZONE_DMA and ZONE_DMA32 are used when there are peripherals not able
@@ -445,6 +448,7 @@ enum zone_type {
 
 #define ASYNC_AND_SYNC 2
 
+//管理page的结构
 struct zone {
 	/* Read-mostly fields */
 
@@ -468,7 +472,7 @@ struct zone {
 #ifdef CONFIG_NUMA
 	int node;
 #endif
-	struct pglist_data	*zone_pgdat;
+	struct pglist_data	*zone_pgdat; //指向这个zone所属的per NUMA node 内存管理结构
 	struct per_cpu_pageset __percpu *pageset;
 
 #ifndef CONFIG_SPARSEMEM
@@ -479,7 +483,7 @@ struct zone {
 	unsigned long		*pageblock_flags;
 #endif /* CONFIG_SPARSEMEM */
 
-	/* zone_start_pfn == zone_start_paddr >> PAGE_SHIFT */
+	/* zone_start_pfn == zone_start_paddr >> PAGE_SHIFT */ //就是取地址的高位，也就是mem_map 数组的idx
 	unsigned long		zone_start_pfn;
 
 	/*
@@ -543,7 +547,7 @@ struct zone {
 	ZONE_PADDING(_pad1_)
 
 	/* free areas of different sizes */
-	struct free_area	free_area[MAX_ORDER];
+	struct free_area	free_area[MAX_ORDER]; //按照order不同，使用多个队列管理这个zone的空闲page
 
 	/* zone flags, see below */
 	unsigned long		flags;
@@ -723,6 +727,7 @@ struct deferred_split {
  * Memory statistics and page replacement data structures are maintained on a
  * per-zone basis.
  */
+// node_data 数组组织该结构
 typedef struct pglist_data {
 	/*
 	 * node_zones contains just the zones for THIS node. Not all of the

@@ -177,6 +177,7 @@ struct bond_3ad_stats {
 };
 
 /* aggregator structure(43.4.5 in the 802.3ad standard) */
+//表示一个bonding 口
 typedef struct aggregator {
 	struct mac_addr aggregator_mac_address;
 	u16 aggregator_identifier;
@@ -205,6 +206,8 @@ struct port_params {
 };
 
 /* port structure(43.4.6 in the 802.3ad standard) */
+//根据802.3ad 标准定义的一些port相关信息
+//表示的是bond 口的一个口
 typedef struct port {
 	u16 actor_port_number;
 	u16 actor_port_priority;

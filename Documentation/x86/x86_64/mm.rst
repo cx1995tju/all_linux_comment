@@ -23,6 +23,7 @@ Complete virtual memory map with 4-level page tables
    notation than "16 EB", which few will recognize at first sight as 16 exabytes.
    It also shows it nicely how incredibly large 64-bit address space is.
 
+// 内核代码段映射到从__START_KERNEL_MAP开始的内存区，还有一个编译时可配置的偏移量 CONFIG_PHYSICAL_START。在编译可重定位内核时需要设置该偏移量，但还需要确保结果地址 __START_KERNEL对齐到__KERNEL_ALIGN
 ::
 
   ========================================================================================================================
@@ -44,9 +45,9 @@ Complete virtual memory map with 4-level page tables
    ffff880000000000 | -120    TB | ffff887fffffffff |  0.5 TB | LDT remap for PTI
    ffff888000000000 | -119.5  TB | ffffc87fffffffff |   64 TB | direct mapping of all physical memory (page_offset_base)
    ffffc88000000000 |  -55.5  TB | ffffc8ffffffffff |  0.5 TB | ... unused hole
-   ffffc90000000000 |  -55    TB | ffffe8ffffffffff |   32 TB | vmalloc/ioremap space (vmalloc_base)
+   ffffc90000000000 |  -55    TB | ffffe8ffffffffff |   32 TB | vmalloc/ioremap space (vmalloc_base) // vmalloc 区
    ffffe90000000000 |  -23    TB | ffffe9ffffffffff |    1 TB | ... unused hole
-   ffffea0000000000 |  -22    TB | ffffeaffffffffff |    1 TB | virtual memory map (vmemmap_base)
+   ffffea0000000000 |  -22    TB | ffffeaffffffffff |    1 TB | virtual memory map (vmemmap_base) //内核使用了稀疏内存模型的话, 内核的虚拟地址可以映射到这里, 物理内存的所有page都映射到这里
    ffffeb0000000000 |  -21    TB | ffffebffffffffff |    1 TB | ... unused hole
    ffffec0000000000 |  -20    TB | fffffbffffffffff |   16 TB | KASAN shadow memory
   __________________|____________|__________________|_________|____________________________________________________________

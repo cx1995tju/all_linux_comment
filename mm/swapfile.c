@@ -1147,9 +1147,9 @@ static struct swap_info_struct *__swap_info_get(swp_entry_t entry)
 	struct swap_info_struct *p;
 	unsigned long offset;
 
-	if (!entry.val)
+	if (!entry.val) //如果是0，直接返回。因为交换设备的swap_map[0]是用来存储一些元信息的
 		goto out;
-	p = swp_swap_info(entry);
+	p = swp_swap_info(entry); //swap_info 数组的对应元素返回
 	if (!p)
 		goto bad_nofile;
 	if (data_race(!(p->flags & SWP_USED)))
@@ -1221,7 +1221,7 @@ static unsigned char __swap_entry_free_locked(struct swap_info_struct *p,
 	unsigned char count;
 	unsigned char has_cache;
 
-	count = p->swap_map[offset];
+	count = p->swap_map[offset]; //这是该页面的引用计数
 
 	has_cache = count & SWAP_HAS_CACHE;
 	count &= ~SWAP_HAS_CACHE;
@@ -1354,11 +1354,12 @@ static void swap_entry_free(struct swap_info_struct *p, swp_entry_t entry)
  * Caller has made sure that the swap device corresponding to entry
  * is still around or has not been recycled.
  */
+//释放一个页面到磁盘设备
 void swap_free(swp_entry_t entry)
 {
 	struct swap_info_struct *p;
 
-	p = _swap_info_get(entry);
+	p = _swap_info_get(entry); //找到这个entry描述的swap_info_struct, 即交换设备
 	if (p)
 		__swap_entry_free(p, entry);
 }
