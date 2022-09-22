@@ -40,8 +40,8 @@
  * Passed into wb_writeback(), essentially a subset of writeback_control
  */
 struct wb_writeback_work {
-	long nr_pages;
-	struct super_block *sb;
+	long nr_pages; //将要flush的pages数目
+	struct super_block *sb; // 对应的super_block
 	enum writeback_sync_modes sync_mode;
 	unsigned int tagged_writepages:1;
 	unsigned int for_kupdate:1;

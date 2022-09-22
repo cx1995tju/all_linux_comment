@@ -110,9 +110,9 @@ struct bdi_writeback {
 	unsigned long state;		/* Always use atomic bitops on this */
 	unsigned long last_old_flush;	/* last old data flush */
 
-	struct list_head b_dirty;	/* dirty inodes */
-	struct list_head b_io;		/* parked for writeback */
-	struct list_head b_more_io;	/* parked for more writeback */
+	struct list_head b_dirty;	/* dirty inodes */ //所有的dirty inode 都挂在这里？
+	struct list_head b_io;		/* parked for writeback */ //等待writeback 的IO
+	struct list_head b_more_io;	/* parked for more writeback */ //more inodes parked for I/O; all inodes queued for flushing are inserted in this list, before being moved to b_io
 	struct list_head b_dirty_time;	/* time stamps are dirty */
 	spinlock_t list_lock;		/* protects the b_* lists */
 
@@ -141,11 +141,11 @@ struct bdi_writeback {
 
 	spinlock_t work_lock;		/* protects work_list & dwork scheduling */
 	struct list_head work_list;
-	struct delayed_work dwork;	/* work item used for writeback */
+	struct delayed_work dwork;	/* work item used for writeback */ //writeback的工作线程
 
 	unsigned long dirty_sleep;	/* last wait */
 
-	struct list_head bdi_node;	/* anchored at bdi->wb_list */
+	struct list_head bdi_node;	/* anchored at bdi->wb_list */ //挂到backing_dev_info 结构
 
 #ifdef CONFIG_CGROUP_WRITEBACK
 	struct percpu_ref refcnt;	/* used only for !root wb's */
