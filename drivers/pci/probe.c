@@ -96,6 +96,7 @@ static void release_pcibus_dev(struct device *dev)
 }
 
 //please refer to sysfs
+// `/sys/class/pci_bus`
 static struct class pcibus_class = {
 	.name		= "pci_bus",
 	.dev_release	= &release_pcibus_dev,

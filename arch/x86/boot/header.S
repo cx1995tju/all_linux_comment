@@ -25,8 +25,8 @@
 #include "voffset.h"
 #include "zoffset.h"
 
-BOOTSEG		= 0x07C0		/* original address of boot-sector */
-SYSSEG		= 0x1000		/* historical load address >> 4 */
+BOOTSEG		= 0x07C0		/* original address of boot-sector */ //注意需要 << 4, 即 0x7c00 // boot loader entry point
+SYSSEG		= 0x1000		/* historical load address >> 4 */ //同上，0x10000 // boot loader lowest addr
 
 #ifndef SVGA_MODE
 #define SVGA_MODE ASK_VGA
@@ -40,21 +40,21 @@ SYSSEG		= 0x1000		/* historical load address >> 4 */
 	.section ".bstext", "ax"
 
 	.global bootsect_start
-bootsect_start:
+bootsect_start:				# vmlinux 第一个512Bytes代码开始位置
 #ifdef CONFIG_EFI_STUB
 	# "MZ", MS-DOS header
-	.word	MZ_MAGIC
+	.word	MZ_MAGIC  # 会加载到0x7c000位置
 #endif
 
 	# Normalize the start address
-	ljmp	$BOOTSEG, $start2
+	ljmp	$BOOTSEG, $start2 # 0x07c0::start2 = 0x7c00 + start2, 0x7c00 header.S就是会被加载到0x7c00位置
 
 start2:
-	movw	%cs, %ax
+	movw	%cs, %ax # 此时cs应该是0x07c0
 	movw	%ax, %ds
 	movw	%ax, %es
 	movw	%ax, %ss
-	xorw	%sp, %sp
+	xorw	%sp, %sp # sp 置零
 	sti
 	cld
 
@@ -287,17 +287,17 @@ syssize:	.long 0			/* Filled in by build.c */
 ram_size:	.word 0			/* Obsolete */
 vid_mode:	.word SVGA_MODE
 root_dev:	.word 0			/* Filled in by build.c */
-boot_flag:	.word 0xAA55
+boot_flag:	.word 0xAA55		// 启动盘第一个扇区的最后两个字节应该是这个
 
-	# offset 512, entry point
+	# offset 512(0x200), entry point
 
 	.globl	_start
-_start:
+_start: # 0x200, 这是setup_header 的位置 512Bytes
 		# Explicitly enter this as bytes, or the assembler
 		# tries to generate a 3-byte jump here, which causes
 		# everything else to push off to the wrong offset.
-		.byte	0xeb		# short (2-byte) jump
-		.byte	start_of_setup-1f
+		.byte	0xeb		# short (2-byte) jump 这个是一条jump指令
+		.byte	start_of_setup-1f # 0x202 这里表示两个label: start_of_setup 和 1f 之间的距离。结合这个相对跳转指令。所以就是跳转到start_of_setup 位置。即header.S 的代码段开始位置。
 1:
 
 	# Part 2 of the header, from the old setup.S
@@ -634,7 +634,7 @@ start_of_setup:
 	rep; stosl
 
 # Jump to C code (should not return)
-	calll	main
+	calll	main # arch/x86/boot/main.c::main()
 
 # Setup corrupt somehow...
 setup_bad:

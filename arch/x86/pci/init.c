@@ -17,7 +17,7 @@ static __init int pci_arch_init(void)
 	//OS 会重新枚举PCI总线的，不会使用BIOS的结果
 	type = pci_direct_probe();
 
-	if (!(pci_probe & PCI_PROBE_NOEARLY))
+	if (!(pci_probe & PCI_PROBE_NOEARLY)) //pci_probe 来自于内核启动参数pci=xxx
 		pci_mmcfg_early_init();
 
 	if (x86_init.pci.arch_init && !x86_init.pci.arch_init())

@@ -2048,7 +2048,7 @@ irqreturn_t vring_interrupt(int irq, void *_vq)
 		return IRQ_HANDLED;
 
 	pr_debug("virtqueue callback for %p (%p)\n", vq, vq->vq.callback);
-	if (vq->vq.callback)
+	if (vq->vq.callback) //%skb_xmit_done
 		vq->vq.callback(&vq->vq);
 
 	return IRQ_HANDLED;

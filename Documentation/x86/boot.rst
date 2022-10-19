@@ -119,7 +119,7 @@ zImage kernels, typically looks like::
 
 When using bzImage, the protected-mode kernel was relocated to
 0x100000 ("high memory"), and the kernel real-mode block (boot sector,
-setup, and stack/heap) was made relocatable to any address between
+setup, and stack/heap) was made relocatable to any address between # 0x10000 -> 0x10000-1
 0x10000 and end of low memory. Unfortunately, in protocols 2.00 and
 2.01 the 0x90000+ memory range is still used internally by the kernel;
 the 2.02 protocol resolves that problem.
@@ -156,7 +156,7 @@ memory layout like the following is suggested::
 		|  Kernel setup		 |	The kernel real-mode code.
 		|  Kernel boot sector	 |	The kernel legacy boot sector.
 	X       +------------------------+
-		|  Boot loader		 |	<- Boot sector entry point 0000:7C00
+		|  Boot loader		 |	<- Boot sector entry point 0000:7C00 # header.S 0x7c00
 	001000	+------------------------+
 		|  Reserved for MBR/BIOS |
 	000800	+------------------------+
@@ -168,7 +168,7 @@ memory layout like the following is suggested::
   ... where the address X is as low as the design of the boot loader permits.
 
 
-The Real-Mode Kernel Header
+The Real-Mode Kernel Header # header.S
 ===========================
 
 In the following text, and anywhere in the kernel boot sequence, "a
@@ -177,7 +177,7 @@ size of the underlying medium.
 
 The first step in loading a Linux kernel should be to load the
 real-mode code (boot sector and setup code) and then examine the
-following header at offset 0x01f1.  The real-mode code can total up to
+following header at offset 0x01f1 of kernel image.  The real-mode code can total up to
 32K, although the boot loader may choose to load only the first two
 sectors (1K) and then examine the bootup sector size.
 
@@ -203,7 +203,7 @@ Offset/Size	Proto		Name			Meaning
 0211/1		2.00+		loadflags		Boot protocol option flags
 0212/2		2.00+		setup_move_size		Move to high memory size (used with hooks)
 0214/4		2.00+		code32_start		Boot loader hook (see below)
-0218/4		2.00+		ramdisk_image		initrd load address (set by boot loader)
+0218/4		2.00+		ramdisk_image		initrd load address (set by boot loader)  # 重要
 021C/4		2.00+		ramdisk_size		initrd size (set by boot loader)
 0220/4		2.00+		bootsect_kludge		DO NOT USE - for bootsect.S use only
 0224/2		2.01+		heap_end_ptr		Free memory after setup end
@@ -218,14 +218,14 @@ Offset/Size	Proto		Name			Meaning
 0238/4		2.06+		cmdline_size		Maximum size of the kernel command line
 023C/4		2.07+		hardware_subarch	Hardware subarchitecture
 0240/8		2.07+		hardware_subarch_data	Subarchitecture-specific data
-0248/4		2.08+		payload_offset		Offset of kernel payload
+0248/4		2.08+		payload_offset		Offset of kernel payload # 重要
 024C/4		2.08+		payload_length		Length of kernel payload
 0250/8		2.09+		setup_data		64-bit physical pointer to linked list
 							of struct setup_data
 0258/8		2.10+		pref_address		Preferred loading address
 0260/4		2.10+		init_size		Linear memory required during initialization
-0264/4		2.11+		handover_offset		Offset of handover entry point
-0268/4		2.15+		kernel_info_offset	Offset of the kernel_info
+0264/4		2.11+		handover_offset		Offset of handover entry point # 重要
+0268/4		2.15+		kernel_info_offset	Offset of the kernel_info # 重要
 ===========	========	=====================	============================================
 
 .. note::
@@ -285,7 +285,7 @@ Offset/size:	0x1f2/2
 Protocol:	ALL
 ============	=================
 
-  If this field is nonzero, the root defaults to readonly.  The use of
+  If this field is nonzero, the root defaults to readonly.  The use of  # 根文件系统的属性
   this field is deprecated; use the "ro" or "rw" options on the
   command line instead.
 
@@ -329,7 +329,7 @@ Protocol:	ALL
   deprecated, use the "root=" option on the command line instead.
 
 ============	=========
-Field name:	boot_flag
+Field name:	boot_flag # 启动盘第一个扇区的最后两个Bytes
 Type:		read
 Offset/size:	0x1fe/2
 Protocol:	ALL
@@ -339,7 +339,7 @@ Protocol:	ALL
   to a magic number.
 
 ============	=======
-Field name:	jump
+Field name:	jump    # grub2 就是用这条指令跳转到 header.S 中的, 这里的指令也是kernel 编译的时候就填进去了
 Type:		read
 Offset/size:	0x200/2
 Protocol:	2.00+
@@ -765,7 +765,7 @@ Protocol:	2.07+
 ============	=========================
 
   A pointer to data that is specific to hardware subarch
-  This field is currently unused for the default x86/PC environment,
+  This field is currently unused for the default x86/PC environment
   do not modify.
 
 ============	==============
@@ -1197,7 +1197,7 @@ The kernel is a bzImage kernel if the protocol >= 2.00 and the 0x01
 bit (LOAD_HIGH) in the loadflags field is set::
 
 	is_bzImage = (protocol >= 0x0200) && (loadflags & 0x01);
-	load_address = is_bzImage ? 0x100000 : 0x10000;
+	load_address = is_bzImage ? 0x100000 : 0x10000;  # kernel 主体入口了。在高地址处
 
 Note that Image/zImage kernels can be up to 512K in size, and thus use
 the entire 0x10000-0x90000 range of memory.  This means it is pretty

@@ -70,8 +70,8 @@ struct setup_header {
 	__u16	vid_mode;
 	__u16	root_dev;
 	__u16	boot_flag;
-	__u16	jump;
-	__u32	header;
+	__u16	jump; // 重要，参考boot.rst
+	__u32	header; //magic num "HdrS"
 	__u16	version;
 	__u32	realmode_swtch;
 	__u16	start_sys_seg;
@@ -80,7 +80,7 @@ struct setup_header {
 	__u8	loadflags;
 	__u16	setup_move_size;
 	__u32	code32_start;
-	__u32	ramdisk_image;
+	__u32	ramdisk_image; //boot loader 设置好，告诉内核initrd的位置大小。线性地址
 	__u32	ramdisk_size;
 	__u32	bootsect_kludge;
 	__u16	heap_end_ptr;
@@ -95,7 +95,7 @@ struct setup_header {
 	__u32	cmdline_size;
 	__u32	hardware_subarch;
 	__u64	hardware_subarch_data;
-	__u32	payload_offset;
+	__u32	payload_offset; //kernel payload
 	__u32	payload_length;
 	__u64	setup_data;
 	__u64	pref_address;
@@ -211,7 +211,7 @@ struct boot_params {
 	 */
 	__u8  sentinel;					/* 0x1ef */
 	__u8  _pad6[1];					/* 0x1f0 */
-	struct setup_header hdr;    /* setup header */	/* 0x1f1 */
+	struct setup_header hdr;    /* setup header */	/* 0x1f1 */ //refer to %Documentation/x86/boot.rst
 	__u8  _pad7[0x290-0x1f1-sizeof(struct setup_header)];
 	__u32 edd_mbr_sig_buffer[EDD_MBR_SIG_MAX];	/* 0x290 */
 	struct boot_e820_entry e820_table[E820_MAX_ENTRIES_ZEROPAGE]; /* 0x2d0 */

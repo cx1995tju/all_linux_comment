@@ -345,7 +345,7 @@ static void skb_xmit_done(struct virtqueue *vq)
 	struct napi_struct *napi = &vi->sq[vq2txq(vq)].napi;
 
 	/* Suppress further interrupts. */
-	virtqueue_disable_cb(vq);
+	virtqueue_disable_cb(vq); //常态是disable的, %refer to: vring_interrupt
 
 	if (napi->weight)
 		virtqueue_napi_schedule(napi, vq);
@@ -1589,7 +1589,7 @@ static netdev_tx_t start_xmit(struct sk_buff *skb, struct net_device *dev)
 	/* Free up any pending old buffers before queueing new ones. */
 	free_old_xmit_skbs(sq, false);
 
-	if (use_napi && kick)
+	if (use_napi && kick) //常态是disable的，只有在xmit的时候会尝试去enable一会
 		virtqueue_enable_cb_delayed(sq->vq);
 
 	/* timestamp packet in software */
@@ -1632,7 +1632,7 @@ static netdev_tx_t start_xmit(struct sk_buff *skb, struct net_device *dev)
 		    unlikely(!virtqueue_enable_cb_delayed(sq->vq))) {
 			/* More just got used, free them then recheck. */
 			free_old_xmit_skbs(sq, false);
-			if (sq->vq->num_free >= 2+MAX_SKB_FRAGS) {
+			if (sq->vq->num_free >= 2+MAX_SKB_FRAGS) { //这里说明TXQ的常态是disable的
 				netif_start_subqueue(dev, qnum);
 				virtqueue_disable_cb(sq->vq);
 			}
