@@ -104,11 +104,11 @@ zImage kernels, typically looks like::
 	098000	+------------------------+
 		|  Kernel setup		 |	The kernel real-mode code.
 	090200	+------------------------+
-		|  Kernel boot sector	 |	The kernel legacy boot sector.
+		|  Kernel boot sector	 |	The kernel legacy boot sector. //legacy 模式中保护模式的代码在zImage中位于这部分代码之后，但是加载的时候，这部分代码在内存后面位置。
 	090000	+------------------------+
 		|  Protected-mode kernel |	The bulk of the kernel image.
 	010000	+------------------------+
-		|  Boot loader		 |	<- Boot sector entry point 0000:7C00
+		|  Boot loader		 |	<- Boot sector entry point 0000:7C00 // MBR 位置, 以及后续的stage2 grub等
 	001000	+------------------------+
 		|  Reserved for MBR/BIOS |
 	000800	+------------------------+
@@ -119,7 +119,7 @@ zImage kernels, typically looks like::
 
 When using bzImage, the protected-mode kernel was relocated to
 0x100000 ("high memory"), and the kernel real-mode block (boot sector,
-setup, and stack/heap) was made relocatable to any address between # 0x10000 -> 0x10000-1
+setup, and stack/heap) was made relocatable to any address between # 0x10000 -> 0x100000
 0x10000 and end of low memory. Unfortunately, in protocols 2.00 and
 2.01 the 0x90000+ memory range is still used internally by the kernel;
 the 2.02 protocol resolves that problem.
@@ -144,7 +144,7 @@ memory layout like the following is suggested::
 
 		~                        ~
 		|  Protected-mode kernel |
-	100000  +------------------------+
+	100000  +------------------------+      # code32_start
 		|  I/O memory hole	 |
 	0A0000	+------------------------+
 		|  Reserved for BIOS	 |	Leave as much as possible unused
@@ -154,9 +154,9 @@ memory layout like the following is suggested::
 		|  Stack/heap		 |	For use by the kernel real-mode code.
 	X+08000	+------------------------+
 		|  Kernel setup		 |	The kernel real-mode code.
-		|  Kernel boot sector	 |	The kernel legacy boot sector.
+		|  Kernel boot sector	 |	The kernel legacy boot sector. // header.S
 	X       +------------------------+
-		|  Boot loader		 |	<- Boot sector entry point 0000:7C00 # header.S 0x7c00
+		|  Boot loader		 |	<- Boot sector entry point 0000:7C00 //MBR 以及 stage2 grub等
 	001000	+------------------------+
 		|  Reserved for MBR/BIOS |
 	000800	+------------------------+
@@ -168,7 +168,7 @@ memory layout like the following is suggested::
   ... where the address X is as low as the design of the boot loader permits.
 
 
-The Real-Mode Kernel Header # header.S
+The Real-Mode Kernel Header # header.S, X位置开始，一般是0x10000
 ===========================
 
 In the following text, and anywhere in the kernel boot sequence, "a
@@ -193,17 +193,17 @@ Offset/Size	Proto		Name			Meaning
 01FA/2		ALL		vid_mode		Video mode control
 01FC/2		ALL		root_dev		Default root device number
 01FE/2		ALL		boot_flag		0xAA55 magic number
-0200/2		2.00+		jump			Jump instruction
+0200/2		2.00+		jump			Jump instruction        # 0x200 位置，grub会使用这里的这条指令跳转到header.S 的第一条指令
 0202/4		2.00+		header			Magic signature "HdrS"
 0206/2		2.00+		version			Boot protocol version supported
 0208/4		2.00+		realmode_swtch		Boot loader hook (see below)
 020C/2		2.00+		start_sys_seg		The load-low segment (0x1000) (obsolete)
 020E/2		2.00+		kernel_version		Pointer to kernel version string
-0210/1		2.00+		type_of_loader		Boot loader identifier
+0210/1		2.00+		type_of_loader		Boot loader identifier  # i.e. grub2
 0211/1		2.00+		loadflags		Boot protocol option flags
 0212/2		2.00+		setup_move_size		Move to high memory size (used with hooks)
 0214/4		2.00+		code32_start		Boot loader hook (see below)
-0218/4		2.00+		ramdisk_image		initrd load address (set by boot loader)  # 重要
+0218/4		2.00+		ramdisk_image		initrd load address (set by boot loader)  # 重要, boot loader 加载到内存后，告诉kernel在哪里，kernel再去挂载
 021C/4		2.00+		ramdisk_size		initrd size (set by boot loader)
 0220/4		2.00+		bootsect_kludge		DO NOT USE - for bootsect.S use only
 0224/2		2.01+		heap_end_ptr		Free memory after setup end
@@ -769,7 +769,7 @@ Protocol:	2.07+
   do not modify.
 
 ============	==============
-Field name:	payload_offset
+Field name:	payload_offset  # bzImage 中的压缩部分相对于头部的偏移
 Type:		read
 Offset/size:	0x248/4
 Protocol:	2.08+
@@ -1258,7 +1258,7 @@ Running the Kernel
 ==================
 
 The kernel is started by jumping to the kernel entry point, which is
-located at *segment* offset 0x20 from the start of the real mode
+located at *segment* offset 0x20 from the start of the real mode        # real-mode 0x20 >> 4 = 0x200
 kernel.  This means that if you loaded your real-mode kernel code at
 0x90000, the kernel entry point is 9020:0000.
 

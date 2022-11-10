@@ -26,7 +26,7 @@
 #include "zoffset.h"
 
 BOOTSEG		= 0x07C0		/* original address of boot-sector */ //注意需要 << 4, 即 0x7c00 // boot loader entry point
-SYSSEG		= 0x1000		/* historical load address >> 4 */ //同上，0x10000 // boot loader lowest addr
+SYSSEG		= 0x1000		/* historical load address >> 4 */ //同上，0x10000, header.S 一般加载到这个位置
 
 #ifndef SVGA_MODE
 #define SVGA_MODE ASK_VGA
@@ -40,14 +40,14 @@ SYSSEG		= 0x1000		/* historical load address >> 4 */ //同上，0x10000 // boot 
 	.section ".bstext", "ax"
 
 	.global bootsect_start
-bootsect_start:				# vmlinux 第一个512Bytes代码开始位置
+bootsect_start:				# vmlinux 第一个512Bytes代码开始位置, 一般会加载到0x10000 位置
 #ifdef CONFIG_EFI_STUB
 	# "MZ", MS-DOS header
-	.word	MZ_MAGIC  # 会加载到0x7c000位置
+	.word	MZ_MAGIC  # 会加载到0x10000位置
 #endif
 
 	# Normalize the start address
-	ljmp	$BOOTSEG, $start2 # 0x07c0::start2 = 0x7c00 + start2, 0x7c00 header.S就是会被加载到0x7c00位置
+	ljmp	$BOOTSEG, $start2 # 跳到start2
 
 start2:
 	movw	%cs, %ax # 此时cs应该是0x07c0

@@ -17,7 +17,7 @@
  * @name: the name of this virtqueue (mainly for debugging)
  * @vdev: the virtio device this queue was created for.
  * @priv: a pointer for the virtqueue implementation to use.
- * @index: the zero-based ordinal number for this queue.  %qid
+ * @index: the zero-based ordinal number for this queue.			%qid
  * @num_free: number of elements we expect to be able to fit.
  *
  * A note on @num_free: with indirect buffers, each buffer needs one

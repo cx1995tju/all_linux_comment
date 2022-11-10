@@ -3070,6 +3070,7 @@ EXPORT_SYMBOL(netif_schedule_queue);
 
 void netif_tx_wake_queue(struct netdev_queue *dev_queue)
 {
+	//stop queue 的时候设置这个flag，这里清除掉了
 	if (test_and_clear_bit(__QUEUE_STATE_DRV_XOFF, &dev_queue->state)) {
 		struct Qdisc *q;
 

@@ -1627,12 +1627,12 @@ static netdev_tx_t start_xmit(struct sk_buff *skb, struct net_device *dev)
 	 * early means 16 slots are typically wasted.
 	 */
 	if (sq->vq->num_free < 2+MAX_SKB_FRAGS) {
-		netif_stop_subqueue(dev, qnum);
+		netif_stop_subqueue(dev, qnum); //这里会设置stop标记，这样在上层不进入driver就能感知到，就可以停止发包。等待txq中断 -> skb_xmit_done 中重新唤醒
 		if (!use_napi &&
 		    unlikely(!virtqueue_enable_cb_delayed(sq->vq))) {
 			/* More just got used, free them then recheck. */
 			free_old_xmit_skbs(sq, false);
-			if (sq->vq->num_free >= 2+MAX_SKB_FRAGS) { //这里说明TXQ的常态是disable的
+			if (sq->vq->num_free >= 2+MAX_SKB_FRAGS) { //这里说明TXQ的常态是disable的, 即发包过程中是disable的，停的时候会enable。
 				netif_start_subqueue(dev, qnum);
 				virtqueue_disable_cb(sq->vq);
 			}
