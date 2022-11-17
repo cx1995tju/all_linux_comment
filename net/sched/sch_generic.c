@@ -381,13 +381,13 @@ void __qdisc_run(struct Qdisc *q)
 	int quota = dev_tx_weight;
 	int packets;
 
-	while (qdisc_restart(q, &packets)) {
+	while (qdisc_restart(q, &packets)) { //有quota的前提下，不停的去dequeue，通过网卡发送出去
 		quota -= packets;
 		if (quota <= 0) {
-			__netif_schedule(q);
+			__netif_schedule(q); //没有quota的时候，就将其重新挂上去，等待下一次调度
 			break;
 		}
-	}
+	} // 没有报文，dequeue 不出来skb的时候，也直接退出
 }
 
 unsigned long dev_trans_start(struct net_device *dev)

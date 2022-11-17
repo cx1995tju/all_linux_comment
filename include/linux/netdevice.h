@@ -328,9 +328,9 @@ struct napi_struct {
 	 * to the per-CPU poll_list, and whoever clears that bit
 	 * can remove from the list right before clearing the bit.
 	 */
-	struct list_head	poll_list;
+	struct list_head	poll_list; // 一般挂到softnet_data 中
 
-	unsigned long		state;
+	unsigned long		state;	// %NAPI_STATE_* %napi_disable_pending
 	int			weight;
 	int			defer_hard_irqs_count;
 	unsigned long		gro_bitmask;
@@ -350,8 +350,8 @@ struct napi_struct {
 };
 
 enum {
-	NAPI_STATE_SCHED,	/* Poll is scheduled */
-	NAPI_STATE_MISSED,	/* reschedule a napi */
+	NAPI_STATE_SCHED,	/* Poll is scheduled */ //napi 在 running
+	NAPI_STATE_MISSED,	/* reschedule a napi */ //后续需要被reschedule???
 	NAPI_STATE_DISABLE,	/* Disable pending */
 	NAPI_STATE_NPSVC,	/* Netpoll - don't dequeue from poll_list */
 	NAPI_STATE_LISTED,	/* NAPI added to system lists */
@@ -465,6 +465,7 @@ static inline void napi_schedule_irqoff(struct napi_struct *n)
 }
 
 /* Try to reschedule poll. Called by dev->poll() after napi_complete().  */
+//和napi_schedule 一样的，不过是要返回一个值而已
 static inline bool napi_reschedule(struct napi_struct *napi)
 {
 	if (napi_schedule_prep(napi)) {
@@ -495,6 +496,7 @@ static inline bool napi_complete(struct napi_struct *n)
  * Stop NAPI from being scheduled on this context.
  * Waits till any outstanding processing completes.
  */
+//死等直到状态设置成功
 void napi_disable(struct napi_struct *n);
 
 /**
@@ -537,6 +539,7 @@ static inline void napi_synchronize(const struct napi_struct *n)
  * If napi is running, set the NAPIF_STATE_MISSED, and return true if
  * NAPI is scheduled.
  **/
+//状态设置
 static inline bool napi_if_scheduled_mark_missed(struct napi_struct *n)
 {
 	unsigned long val, new;
@@ -3179,7 +3182,7 @@ extern int netdev_flow_limit_table_len;
  * Incoming packets are placed on per-CPU queues
  */
 struct softnet_data {
-	struct list_head	poll_list;
+	struct list_head	poll_list; // refert to  %____napi_schedule, 挂在这里的是napi结构; 生产者： `中断 -> napi_schedule`; 消费者 `net_rx_action` 来polling
 	struct sk_buff_head	process_queue;
 
 	/* stats */
@@ -3192,9 +3195,9 @@ struct softnet_data {
 #ifdef CONFIG_NET_FLOW_LIMIT
 	struct sd_flow_limit __rcu *flow_limit;
 #endif
-	struct Qdisc		*output_queue;
+	struct Qdisc		*output_queue; // 生产者：`qdisc_run -> __netif_schedule -> __netif_reschedule`; 消费者`net_tx_action`
 	struct Qdisc		**output_queue_tailp;
-	struct sk_buff		*completion_queue;
+	struct sk_buff		*completion_queue; // refer to % dev_consume_skb_irq。在中断中或者中断被disable的时候，不能直接call consume_skb，这时候可以使用dev_consume_skb_irq 将其挂到这里，后续在net_tx_action 的时候来进行回收。
 #ifdef CONFIG_XFRM_OFFLOAD
 	struct sk_buff_head	xfrm_backlog;
 #endif

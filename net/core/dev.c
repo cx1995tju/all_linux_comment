@@ -4863,7 +4863,7 @@ static __latent_entropy void net_tx_action(struct softirq_action *h)
 {
 	struct softnet_data *sd = this_cpu_ptr(&softnet_data);
 
-	if (sd->completion_queue) {
+	if (sd->completion_queue) { //处理completion queue, 回收工作一般在driver层就完成了，这里不需要做了
 		struct sk_buff *clist;
 
 		local_irq_disable();
@@ -4891,7 +4891,7 @@ static __latent_entropy void net_tx_action(struct softirq_action *h)
 		__kfree_skb_flush();
 	}
 
-	if (sd->output_queue) {
+	if (sd->output_queue) { //主要处理这个队列，将报文发出去
 		struct Qdisc *head;
 
 		local_irq_disable();
@@ -4915,7 +4915,7 @@ static __latent_entropy void net_tx_action(struct softirq_action *h)
 			 */
 			smp_mb__before_atomic();
 			clear_bit(__QDISC_STATE_SCHED, &q->state);
-			qdisc_run(q);
+			qdisc_run(q); // 激活 qdisc_run
 			if (root_lock)
 				spin_unlock(root_lock);
 		}
@@ -6354,6 +6354,7 @@ static int process_backlog(struct napi_struct *napi, int quota)
  * The entry's receive function will be scheduled to run.
  * Consider using __napi_schedule_irqoff() if hard irqs are masked.
  */
+//启动napi, 即将一个napi_struct 挂到当前cpu的softnet_data 上
 void __napi_schedule(struct napi_struct *n)
 {
 	unsigned long flags;
@@ -6373,6 +6374,7 @@ EXPORT_SYMBOL(__napi_schedule);
  * insure only one NAPI poll instance runs.  We also make
  * sure there is no pending NAPI disable.
  */
+//主要是check并切换state
 bool napi_schedule_prep(struct napi_struct *n)
 {
 	unsigned long val, new;
@@ -6816,7 +6818,7 @@ static __latent_entropy void net_rx_action(struct softirq_action *h)
 	LIST_HEAD(repoll);
 
 	local_irq_disable();
-	list_splice_init(&sd->poll_list, &list);
+	list_splice_init(&sd->poll_list, &list); //将sd->poll_list 链接到list上
 	local_irq_enable();
 
 	for (;;) {
@@ -6829,13 +6831,13 @@ static __latent_entropy void net_rx_action(struct softirq_action *h)
 		}
 
 		n = list_first_entry(&list, struct napi_struct, poll_list);
-		budget -= napi_poll(n, &repoll);
+		budget -= napi_poll(n, &repoll); //核心
 
 		/* If softirq window is exhausted then punt.
 		 * Allow this to run for 2 jiffies since which will allow
 		 * an average latency of 1.5/HZ.
 		 */
-		if (unlikely(budget <= 0 ||
+		if (unlikely(budget <= 0 ||	//超时，或者 budget用完了，那么就退出
 			     time_after_eq(jiffies, time_limit))) {
 			sd->time_squeeze++;
 			break;
@@ -6847,7 +6849,7 @@ static __latent_entropy void net_rx_action(struct softirq_action *h)
 	list_splice_tail_init(&sd->poll_list, &list);
 	list_splice_tail(&repoll, &list);
 	list_splice(&list, &sd->poll_list);
-	if (!list_empty(&sd->poll_list))
+	if (!list_empty(&sd->poll_list)) //如果softnet_data 上还有工作要处理，继续激活net_rx_action
 		__raise_softirq_irqoff(NET_RX_SOFTIRQ);
 
 	net_rps_action_and_irq_enable(sd);
