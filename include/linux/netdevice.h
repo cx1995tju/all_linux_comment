@@ -321,6 +321,7 @@ struct gro_list {
 /*
  * Structure for NAPI scheduling similar to tasklet but with weighting
  */
+//一般用来polling rxq的；不过也可以基于此实现txq的polling，这样就可以在net_rx_action 中去回收txq的skb
 struct napi_struct {
 	/* The poll_list must only be managed by the entity which
 	 * changes the state of the NAPI_STATE_SCHED bit.  This means
@@ -352,7 +353,7 @@ struct napi_struct {
 enum {
 	NAPI_STATE_SCHED,	/* Poll is scheduled */ //napi 在 running
 	NAPI_STATE_MISSED,	/* reschedule a napi */ //后续需要被reschedule???
-	NAPI_STATE_DISABLE,	/* Disable pending */
+	NAPI_STATE_DISABLE,	/* Disable pending */	// 该NAPI暂时不可用
 	NAPI_STATE_NPSVC,	/* Netpoll - don't dequeue from poll_list */
 	NAPI_STATE_LISTED,	/* NAPI added to system lists */
 	NAPI_STATE_NO_BUSY_POLL,/* Do not add in napi_hash, no busy polling */

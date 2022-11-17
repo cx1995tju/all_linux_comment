@@ -316,12 +316,14 @@ static struct page *get_a_page(struct receive_queue *rq, gfp_t gfp_mask)
 	return p;
 }
 
+//调度 vq的napi，注意：rq / sq都有napi的
 static void virtqueue_napi_schedule(struct napi_struct *napi,
 				    struct virtqueue *vq)
 {
+	//激活对应vq的napi
 	if (napi_schedule_prep(napi)) {
-		virtqueue_disable_cb(vq);
-		__napi_schedule(napi);
+		virtqueue_disable_cb(vq); //disable 中断
+		__napi_schedule(napi); //调度napi
 	}
 }
 
@@ -330,7 +332,7 @@ static void virtqueue_napi_complete(struct napi_struct *napi,
 {
 	int opaque;
 
-	opaque = virtqueue_enable_cb_prepare(vq);
+	opaque = virtqueue_enable_cb_prepare(vq); //开启中断
 	if (napi_complete_done(napi, processed)) {
 		if (unlikely(virtqueue_poll(vq, opaque)))
 			virtqueue_napi_schedule(napi, vq);
@@ -348,7 +350,7 @@ static void skb_xmit_done(struct virtqueue *vq)
 	virtqueue_disable_cb(vq); //常态是disable的, %refer to: vring_interrupt
 
 	if (napi->weight)
-		virtqueue_napi_schedule(napi, vq);
+		virtqueue_napi_schedule(napi, vq); //sq的napi 去回收
 	else
 		/* We were probably waiting for more output buffers. */
 		netif_wake_subqueue(vi->dev, vq2txq(vq));
@@ -1433,6 +1435,7 @@ static void virtnet_poll_cleantx(struct receive_queue *rq)
 	if (!sq->napi.weight || is_xdp_raw_buffer_queue(vi, index))
 		return;
 
+	//这里会free，在tx napi 中也会free; virtnet_poll_tx
 	if (__netif_tx_trylock(txq)) {
 		free_old_xmit_skbs(sq, true);
 		__netif_tx_unlock(txq);
@@ -1503,6 +1506,7 @@ static int virtnet_open(struct net_device *dev)
 	return 0;
 }
 
+//poll tx 为了释放skb。这个函数也是通过一个napi_struct 挂到softnet_data 下的
 static int virtnet_poll_tx(struct napi_struct *napi, int budget)
 {
 	struct send_queue *sq = container_of(napi, struct send_queue, napi);
@@ -2813,7 +2817,7 @@ static int virtnet_alloc_queues(struct virtnet_info *vi)
 	INIT_DELAYED_WORK(&vi->refill, refill_work);
 	for (i = 0; i < vi->max_queue_pairs; i++) {
 		vi->rq[i].pages = NULL;
-		netif_napi_add(vi->dev, &vi->rq[i].napi, virtnet_poll,
+		netif_napi_add(vi->dev, &vi->rq[i].napi, virtnet_poll,	// 注意，这里rq sq都有napi的，sq的napi是去回收skb
 			       napi_weight);
 		netif_tx_napi_add(vi->dev, &vi->sq[i].napi, virtnet_poll_tx,
 				  napi_tx ? napi_weight : 0);

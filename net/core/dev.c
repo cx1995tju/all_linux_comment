@@ -6354,7 +6354,7 @@ static int process_backlog(struct napi_struct *napi, int quota)
  * The entry's receive function will be scheduled to run.
  * Consider using __napi_schedule_irqoff() if hard irqs are masked.
  */
-//启动napi, 即将一个napi_struct 挂到当前cpu的softnet_data 上
+//启动napi, 本质就是：即将一个napi_struct 挂到当前cpu的softnet_data 上
 void __napi_schedule(struct napi_struct *n)
 {
 	unsigned long flags;
@@ -6389,13 +6389,13 @@ bool napi_schedule_prep(struct napi_struct *n)
 		 * This was suggested by Alexander Duyck, as compiler
 		 * emits better code than :
 		 * if (val & NAPIF_STATE_SCHED)
-		 *     new |= NAPIF_STATE_MISSED;
+		 *     new |= NAPIF_STATE_MISSED;  //下面的代码，等价于这个
 		 */
 		new |= (val & NAPIF_STATE_SCHED) / NAPIF_STATE_SCHED *
 						   NAPIF_STATE_MISSED;
-	} while (cmpxchg(&n->state, val, new) != val);
+	} while (cmpxchg(&n->state, val, new) != val); //do的时候已经被人修改了的话，那么这里就直接退出了
 
-	return !(val & NAPIF_STATE_SCHED);
+	return !(val & NAPIF_STATE_SCHED); //如果已经被别人sched了，那么这里就prepare失败
 }
 EXPORT_SYMBOL(napi_schedule_prep);
 
@@ -6411,6 +6411,8 @@ void __napi_schedule_irqoff(struct napi_struct *n)
 }
 EXPORT_SYMBOL(__napi_schedule_irqoff);
 
+//做一些napi的收尾工作，标记该napi complete了
+//其中work_done 表示是否所有工作都完成了？
 bool napi_complete_done(struct napi_struct *n, int work_done)
 {
 	unsigned long flags, val, new, timeout = 0;
