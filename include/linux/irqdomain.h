@@ -159,6 +159,14 @@ struct irq_domain_chip_generic;
  * @revmap_tree: Radix map tree for hwirqs that don't fit in the linear map
  * @linear_revmap: Linear table of hwirq->virq reverse mappings
  */
+//The irq_domain maintains a radix tree map from hwirq numbers to Linux IRQs. When an hwirq is mapped, an irq_desc is allocated and the hwirq is used as the lookup key for the radix tree.  The tree map is a good choice if the hwirq number can be very large since it doesn’t need to allocate a table as large as the largest hwirq number.
+//
+//
+//一个irq domain 对应着一个中断控制器，用于将该中断控制器内部的hw interrupt number翻译为Linux 内部使用的IRQs号，既然是翻译，就有映射，映射有多种方式:
+//- linear: irq_domain_add_linear()
+//- radix tree: irq_domain_add_tree()
+//- no map: irq_domain_add_nomap()
+//在中断控制器的driver中，会注册这个结构
 struct irq_domain {
 	struct list_head link;
 	const char *name;
@@ -184,7 +192,7 @@ struct irq_domain {
 	unsigned int revmap_size;
 	struct radix_tree_root revmap_tree;
 	struct mutex revmap_tree_mutex;
-	unsigned int linear_revmap[];
+	unsigned int linear_revmap[]; //这里就是记录了映射关系 hw_irq -> irq
 };
 
 /* Irq domain flags */

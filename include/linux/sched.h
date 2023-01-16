@@ -295,7 +295,7 @@ struct sched_info {
 	unsigned long			pcount;
 
 	/* Time spent waiting on a runqueue: */
-	unsigned long long		run_delay;
+	unsigned long long		run_delay; //整个生命周期总的调度延迟
 
 	/* Timestamps: */
 

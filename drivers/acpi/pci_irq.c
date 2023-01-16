@@ -394,7 +394,7 @@ static inline bool acpi_pci_irq_valid(struct pci_dev *dev, u8 pin)
 
 int acpi_pci_irq_enable(struct pci_dev *dev)
 {
-	struct acpi_prt_entry *entry;
+	struct acpi_prt_entry *entry; //存储的是ACPI中的中断路由信息，ACPI的DSDT表中
 	int gsi;
 	u8 pin;
 	int triggering = ACPI_LEVEL_SENSITIVE;
@@ -411,7 +411,7 @@ int acpi_pci_irq_enable(struct pci_dev *dev)
 	char link_desc[16];
 	int rc;
 
-	pin = dev->pin;
+	pin = dev->pin; //首先要知道设备用哪个引脚发中断，这样才能知道这个引脚连接到IOAPIC的哪个引脚，即得到一个GSI号 # MSI/MSI-X 中断没有这些乱七八糟的
 	if (!pin) {
 		ACPI_DEBUG_PRINT((ACPI_DB_INFO,
 				  "No interrupt pin configured for device %s\n",
@@ -422,7 +422,7 @@ int acpi_pci_irq_enable(struct pci_dev *dev)
 	if (dev->irq_managed && dev->irq > 0)
 		return 0;
 
-	entry = acpi_pci_irq_lookup(dev, pin);
+	entry = acpi_pci_irq_lookup(dev, pin); //用设备和它的引脚去ACPI表中找一个保存了中断路由信息的entry
 	if (!entry) {
 		/*
 		 * IDE legacy mode controller IRQs are magic. Why do compat
@@ -433,6 +433,7 @@ int acpi_pci_irq_enable(struct pci_dev *dev)
 			return 0;
 	}
 
+	//有了中断路由信息，可以知道IOAPIC的一个引脚了，即得到一个GSI号
 	if (entry) {
 		if (entry->link)
 			gsi = acpi_pci_link_allocate_irq(entry->link,
@@ -462,6 +463,7 @@ int acpi_pci_irq_enable(struct pci_dev *dev)
 		return 0;
 	}
 
+	//有了gsi号后，用来注册分配irq了
 	rc = acpi_register_gsi(&dev->dev, gsi, triggering, polarity);
 	if (rc < 0) {
 		dev_warn(&dev->dev, "PCI INT %c: failed to register GSI\n",

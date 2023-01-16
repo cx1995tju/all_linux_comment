@@ -524,6 +524,7 @@ static void negotiate_os_control(struct acpi_pci_root *root, int *no_aspm,
 	}
 }
 
+//有几个Host 主桥就被调用几次
 static int acpi_pci_root_add(struct acpi_device *device,
 			     const struct acpi_device_id *not_used)
 {
@@ -608,7 +609,7 @@ static int acpi_pci_root_add(struct acpi_device *device,
 	 * thus the root bridge's pci_dev does not exist).
 	 */
 	//这里开始枚举总线树，构建整个树状结构了
-	root->bus = pci_acpi_scan_root(root); //enable 了acpi就使用这个扫描。否则使用pcibios_scan_root 函数来美剧PCI设备
+	root->bus = pci_acpi_scan_root(root); //enable 了acpi就使用这个扫描。否则使用pcibios_scan_root 函数来枚举PCI设备
 	if (!root->bus) {
 		dev_err(&device->dev,
 			"Bus %04x:%02x not present in PCI namespace\n",
@@ -950,6 +951,7 @@ out_release_info:
 	return NULL;
 }
 
+//基于acpi的总线枚举
 void __init acpi_pci_root_init(void)
 {
 	acpi_hest_init();

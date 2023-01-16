@@ -1812,6 +1812,7 @@ static int do_pci_enable_device(struct pci_dev *dev, int bars)
 	if (bridge)
 		pcie_aspm_powersave_config_link(bridge);
 
+	//bars 是一个bitmask，指示有那些bar
 	err = pcibios_enable_device(dev, bars);
 	if (err < 0)
 		return err;
@@ -1821,9 +1822,9 @@ static int do_pci_enable_device(struct pci_dev *dev, int bars)
 		return 0;
 
 	pci_read_config_byte(dev, PCI_INTERRUPT_PIN, &pin);
-	if (pin) {
+	if (pin) { //如果设置了
 		pci_read_config_word(dev, PCI_COMMAND, &cmd);
-		if (cmd & PCI_COMMAND_INTX_DISABLE)
+		if (cmd & PCI_COMMAND_INTX_DISABLE) //设置pci的引脚
 			pci_write_config_word(dev, PCI_COMMAND,
 					      cmd & ~PCI_COMMAND_INTX_DISABLE);
 	}
@@ -1853,7 +1854,7 @@ static void pci_enable_bridge(struct pci_dev *dev)
 
 	bridge = pci_upstream_bridge(dev);
 	if (bridge)
-		pci_enable_bridge(bridge);
+		pci_enable_bridge(bridge); //递归向上
 
 	if (pci_is_enabled(dev)) {
 		if (!dev->is_busmaster)
@@ -1889,7 +1890,9 @@ static int pci_enable_device_flags(struct pci_dev *dev, unsigned long flags)
 	if (atomic_inc_return(&dev->enable_cnt) > 1)
 		return 0;		/* already enabled */
 
-	bridge = pci_upstream_bridge(dev);
+	//这里递归向上enable，这要其某个祖先曾经enable过了，这里的递归就会返回了
+	//那么显然一个bridge下面的bus，只要第一个设备probe后，其他设备就不需要继续递归向上enable 了
+	bridge = pci_upstream_bridge(dev); //dev 如果不是挂在root bus上的，那么就必然有一个upstream bridge
 	if (bridge)
 		pci_enable_bridge(bridge);
 
@@ -1899,7 +1902,7 @@ static int pci_enable_device_flags(struct pci_dev *dev, unsigned long flags)
 			bars |= (1 << i);
 	for (i = PCI_BRIDGE_RESOURCES; i < DEVICE_COUNT_RESOURCE; i++)
 		if (dev->resource[i].flags & flags)
-			bars |= (1 << i);
+			bars |= (1 << i); //记录有那些bar咯？
 
 	err = do_pci_enable_device(dev, bars);
 	if (err < 0)
@@ -1946,6 +1949,7 @@ EXPORT_SYMBOL(pci_enable_device_mem);
  * Note we don't actually enable the device many times if we call
  * this function repeatedly (we just increment the count).
  */
+//这里是在probe的时候初始化，枚举已经完成了
 int pci_enable_device(struct pci_dev *dev)
 {
 	return pci_enable_device_flags(dev, IORESOURCE_MEM | IORESOURCE_IO);

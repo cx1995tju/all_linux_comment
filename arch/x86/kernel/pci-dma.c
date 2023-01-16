@@ -119,6 +119,9 @@ static __init int iommu_setup(char *p)
 }
 early_param("iommu", iommu_setup);
 
+//iommu 配置:
+//- Intel VT-D
+//- AMD 的 IOMMU
 static int __init pci_iommu_init(void)
 {
 	struct iommu_table_entry *p;

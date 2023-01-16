@@ -54,7 +54,7 @@ struct irq_router_handler {
 	int (*probe)(struct irq_router *r, struct pci_dev *router, u16 device);
 };
 
-int (*pcibios_enable_irq)(struct pci_dev *dev) = pirq_enable_irq;
+int (*pcibios_enable_irq)(struct pci_dev *dev) = pirq_enable_irq;	// %acpi_pci_irq_enable
 void (*pcibios_disable_irq)(struct pci_dev *dev) = pirq_disable_irq;
 
 /*

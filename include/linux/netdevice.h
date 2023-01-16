@@ -332,7 +332,7 @@ struct napi_struct {
 	struct list_head	poll_list; // 一般挂到softnet_data 中
 
 	unsigned long		state;	// %NAPI_STATE_* %napi_disable_pending
-	int			weight;
+	int			weight; // refer to %napi_poll 就是调用poll函数时的budget
 	int			defer_hard_irqs_count;
 	unsigned long		gro_bitmask;
 	int			(*poll)(struct napi_struct *, int);

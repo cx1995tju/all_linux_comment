@@ -379,6 +379,10 @@ static void __irq_disable(struct irq_desc *desc, bool mask)
  * be used for devices which cannot disable the interrupt at the
  * device level under certain circumstances and have to use
  * disable_irq[_nosync] instead.
+ *
+ * 中断处理控制器，支持mask的话，就会在硬件mask
+ *
+ * 不支持的话，就是kernel 软件mask了，即硬件还是就继续发中断，kernel 就是lazy 处理的。
  */
 void irq_disable(struct irq_desc *desc)
 {

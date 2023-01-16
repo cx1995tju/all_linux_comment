@@ -454,6 +454,8 @@ error_resize:
 }
 EXPORT_SYMBOL(pci_resize_resource);
 
+//mask 是一个指示有那些 bar 空间的bitmask
+//这里就是enable bar空间
 int pci_enable_resources(struct pci_dev *dev, int mask)
 {
 	u16 cmd, old_cmd;

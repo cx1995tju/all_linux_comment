@@ -35,7 +35,7 @@ int noioapicreroute = 1;
 #endif
 int pcibios_last_bus = -1;
 unsigned long pirq_table_addr;
-const struct pci_raw_ops *__read_mostly raw_pci_ops;
+const struct pci_raw_ops *__read_mostly raw_pci_ops; // refer to: %pci_direct_probe
 const struct pci_raw_ops *__read_mostly raw_pci_ext_ops;
 
 int raw_pci_read(unsigned int domain, unsigned int bus, unsigned int devfn,
@@ -509,7 +509,7 @@ int __init pcibios_init(void)
 	}
 
 	pcibios_set_cache_line_size();
-	pcibios_resource_survey();
+	pcibios_resource_survey(); //核心工作
 
 	if (pci_bf_sort >= pci_force_bf)
 		pci_sort_breadthfirst();

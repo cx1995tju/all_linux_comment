@@ -659,6 +659,7 @@ static void __init __pci_mmcfg_init(int early)
 
 static int __initdata known_bridge;
 
+//mmconf方式访问的时候，有一些early init工作
 void __init pci_mmcfg_early_init(void)
 {
 	if (pci_probe & PCI_PROBE_MMCONF) {

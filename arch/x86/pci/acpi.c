@@ -323,6 +323,7 @@ static struct acpi_pci_root_ops acpi_pci_root_ops = {
 	.prepare_resources = pci_acpi_root_prepare_resources,
 };
 
+//root 表示host bridge
 struct pci_bus *pci_acpi_scan_root(struct acpi_pci_root *root)
 {
 	int domain = root->segment;
@@ -340,7 +341,7 @@ struct pci_bus *pci_acpi_scan_root(struct acpi_pci_root *root)
 		return NULL;
 	}
 
-	bus = pci_find_bus(domain, busnum);
+	bus = pci_find_bus(domain, busnum); //找到这个domain的这个bus
 	if (bus) {
 		/*
 		 * If the desired bus has been scanned already, replace
@@ -375,7 +376,7 @@ struct pci_bus *pci_acpi_scan_root(struct acpi_pci_root *root)
 	 */
 	if (bus) {
 		struct pci_bus *child;
-		list_for_each_entry(child, &bus->children, node)
+		list_for_each_entry(child, &bus->children, node) //找到一个bus后，设置其所有的children
 			pcie_bus_configure_settings(child);
 	}
 

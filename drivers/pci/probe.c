@@ -321,8 +321,9 @@ out:
 	return (res->flags & IORESOURCE_MEM_64) ? 1 : 0;
 }
 
-/* 函数访问 PCI 设备的 BAR 空间和 ROM 空间， 并构建pci_dev->resources 结构 */
+/* 函数访问 PCI 设备的 BAR 空间和 ROM 空间， 并构建pci_dev->resources 结构, 这里构建的BAR空间的值，可能是BIOS设置的，也可能是设备上电复位的值，后续可能还需要调整 */
 /* XXX: 这里有一个细节需要提醒读者注意， 在 pci_dev→resource 参数中存放的 BAR 空间的基地 址属于存储器域， 而在 PCI 设备的 BAR 寄存器中存放的基地址属于 PCI 总线域。 */
+// refer to %pcibios_assign_resources
 static void pci_read_bases(struct pci_dev *dev, unsigned int howmany, int rom)
 {
 	unsigned int pos, reg;
@@ -1490,7 +1491,6 @@ static void pci_read_irq(struct pci_dev *dev)
 	dev->irq = irq;
 }
 
-//主要是处理PCIe Extended Cap结构, 并将其保存到pci_dev->pcie_type 参数中
 void set_pcie_port_type(struct pci_dev *pdev)
 {
 	int pos;
@@ -1820,6 +1820,7 @@ int pci_setup_device(struct pci_dev *dev)
 	 */
 	dev->dma_mask = 0xffffffff;
 
+	//给Domain:BDF号了
 	dev_set_name(&dev->dev, "%04x:%02x:%02x.%d", pci_domain_nr(dev->bus),
 		     dev->bus->number, PCI_SLOT(dev->devfn),
 		     PCI_FUNC(dev->devfn));
@@ -1846,7 +1847,7 @@ int pci_setup_device(struct pci_dev *dev)
 	/* Early fixups, before probing the BARs */
 	pci_fixup_device(pci_fixup_early, dev);
 
-	pci_info(dev, "[%04x:%04x] type %02x class %#08x\n",
+	pci_info(dev, "[%04x:%04x] type %02x class %#08x\n", //dmesg 中有这个信息
 		 dev->vendor, dev->device, dev->hdr_type, dev->class);
 
 	/* Device class may be changed after fixup */
@@ -2358,7 +2359,6 @@ EXPORT_SYMBOL(pci_bus_read_dev_vendor_id);
  * Read the config data for a PCI device, sanity-check it,
  * and fill in the dev structure.
  */
-//PCI硬件相关的配置，对硬件的初始化操作
 static struct pci_dev *pci_scan_device(struct pci_bus *bus, int devfn)
 {
 	struct pci_dev *dev;
@@ -2367,7 +2367,7 @@ static struct pci_dev *pci_scan_device(struct pci_bus *bus, int devfn)
 	if (!pci_bus_read_dev_vendor_id(bus, devfn, &l, 60*1000))
 		return NULL;
 
-	dev = pci_alloc_dev(bus);
+	dev = pci_alloc_dev(bus); //分配重要结构
 	if (!dev)
 		return NULL;
 
@@ -2528,7 +2528,7 @@ struct pci_dev *pci_scan_single_device(struct pci_bus *bus, int devfn)
 {
 	struct pci_dev *dev;
 
-	dev = pci_get_slot(bus, devfn);
+	dev = pci_get_slot(bus, devfn); //check这个设备是不是已经被处理过了
 	if (dev) {
 		pci_dev_put(dev);
 		return dev;
@@ -2619,7 +2619,7 @@ int pci_scan_slot(struct pci_bus *bus, int devfn)
 	if (!pci_dev_is_added(dev))
 		nr++;
 
-	for (fn = next_fn(bus, dev, 0); fn > 0; fn = next_fn(bus, dev, fn)) {
+	for (fn = next_fn(bus, dev, 0); fn > 0; fn = next_fn(bus, dev, fn)) { //逐func的处理
 		dev = pci_scan_single_device(bus, devfn + fn);
 		if (dev) {
 			if (!pci_dev_is_added(dev))
@@ -2830,7 +2830,7 @@ static unsigned int pci_scan_child_bus_extend(struct pci_bus *bus,
 	dev_dbg(&bus->dev, "scanning bus\n");
 
 	/* Go find them, Rover! */
-	for (devfn = 0; devfn < 256; devfn += 8) {
+	for (devfn = 0; devfn < 256; devfn += 8) { //逐func / 逐slot的枚举，扫描
 		nr_devs = pci_scan_slot(bus, devfn); //一条PCI总线最多32个设备，每个设备最多8个VF，每个function都需要调用一次该函数
 
 		/*
@@ -2878,7 +2878,7 @@ static unsigned int pci_scan_child_bus_extend(struct pci_bus *bus,
 	 * unless they are misconfigured (which will be done in the second
 	 * scan below).
 	 */
-	for_each_pci_bridge(dev, bus) {
+	for_each_pci_bridge(dev, bus) { //处理bus上的所有bridge, 注意这里bridge作为pci设备已经在前面被处理过一次的
 		cmax = max;
 		max = pci_scan_bridge_extend(bus, dev, max, 0, 0);
 

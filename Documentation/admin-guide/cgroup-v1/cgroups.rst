@@ -208,7 +208,7 @@ comma-separated list of subsystems to mount as the filesystem mount
 options.  By default, mounting the cgroup filesystem attempts to
 mount a hierarchy containing all registered subsystems.
 
-If an active hierarchy with exactly the same set of subsystems already
+If an active hierarchy with exactly the same set of subsystems already    _重要_
 exists, it will be reused for the new mount. If no existing hierarchy
 matches, and any of the requested subsystems are in use in an existing
 hierarchy, the mount will fail with -EBUSY. Otherwise, a new hierarchy

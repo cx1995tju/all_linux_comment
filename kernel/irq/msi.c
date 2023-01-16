@@ -26,6 +26,7 @@
  * If @affinity is not NULL then an affinity array[@nvec] is allocated
  * and the affinity masks and flags from @affinity are copied.
  */
+//affinity 可以为NULL
 struct msi_desc *alloc_msi_entry(struct device *dev, int nvec,
 				 const struct irq_affinity_desc *affinity)
 {

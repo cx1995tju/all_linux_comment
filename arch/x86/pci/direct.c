@@ -280,6 +280,12 @@ void __init pci_direct_init(int type)
 	raw_pci_ops = &pci_direct_conf2;
 }
 
+/* x86 有三种方式访问PCI的配置空间:
+ * - conf1 就是0xcf8 0xcfc 这种方式
+ * - conf2 不使用了 refer to: pci_conf2_read/write
+ * - ecam方式 pci_mmcfg_read/write
+ * */
+// 主要是设置pci配置空间的访问函数
 int __init pci_direct_probe(void)
 {
 	if ((pci_probe & PCI_PROBE_CONF1) == 0)
@@ -302,7 +308,7 @@ int __init pci_direct_probe(void)
 	if (!request_region(0xC000, 0x1000, "PCI conf2"))
 		goto fail2;
 
-	if (pci_check_type2()) {
+	if (pci_check_type2()) { // type2 的处理
 		raw_pci_ops = &pci_direct_conf2;
 		port_cf9_safe = true;
 		return 2;

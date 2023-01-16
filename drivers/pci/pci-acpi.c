@@ -1342,6 +1342,7 @@ struct irq_domain *pci_host_bridge_acpi_msi_domain(struct pci_bus *bus)
 	return irq_find_matching_fwnode(fwnode, DOMAIN_BUS_PCI_MSI);
 }
 
+//基于acpi的pci初始化，从acpi获取一些信息，配置来做初始化
 static int __init acpi_pci_init(void)
 {
 	int ret;

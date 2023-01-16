@@ -220,10 +220,12 @@ struct irq_domain * __init native_create_pci_msi_domain(void)
 	if (disable_apic)
 		return NULL;
 
-	fn = irq_domain_alloc_named_fwnode("PCI-MSI");
+	//分配fn结构
+	fn = irq_domain_alloc_named_fwnode("PCI-MSI"); // refer to: cat /proc/interrupts
 	if (!fn)
 		return NULL;
 
+	//创建一个PCI-MSI irq domain
 	d = pci_msi_create_irq_domain(fn, &pci_msi_domain_info,
 				      x86_vector_domain);
 	if (!d) {
@@ -237,7 +239,7 @@ struct irq_domain * __init native_create_pci_msi_domain(void)
 
 void __init x86_create_pci_msi_domain(void)
 {
-	x86_pci_msi_default_domain = x86_init.irqs.create_pci_msi_domain();
+	x86_pci_msi_default_domain = x86_init.irqs.create_pci_msi_domain(); // %native_create_pci_msi_domain
 }
 
 #ifdef CONFIG_IRQ_REMAP

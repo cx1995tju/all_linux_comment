@@ -5,6 +5,7 @@
 #include <linux/kobject.h>
 #include <linux/list.h>
 
+//这个是要写到设备的bar空间的结构
 struct msi_msg {
 	u32	address_lo;	/* low 32 bits of msi message address */
 	u32	address_hi;	/* high 32 bits of msi message address */
@@ -82,6 +83,7 @@ struct ti_sci_inta_msi_desc {
  * @fsl_mc:	[fsl-mc]    FSL MC device specific msi descriptor data
  * @inta:	[INTA]	    TISCI based INTA specific msi descriptor data
  */
+//用来描述MSI 中断的
 struct msi_desc {
 	/* Shared device/bus type independent data */
 	struct list_head		list;

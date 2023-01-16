@@ -348,16 +348,16 @@ static void pcibios_allocate_rom_resources(struct pci_bus *bus)
 
 		child = dev->subordinate;
 		if (child)
-			pcibios_allocate_rom_resources(child);
+			pcibios_allocate_rom_resources(child); //递归
 	}
 }
 
-//主要处理PCI设备使用的ROM空间和PCI设备使员工的存储器以及IO资源
+//主要处理PCI设备使用的ROM空间和PCI设备使用的存储器以及IO资源
 static int __init pcibios_assign_resources(void)
 {
 	struct pci_bus *bus;
 
-	if (!(pci_probe & PCI_ASSIGN_ROMS))
+	if (!(pci_probe & PCI_ASSIGN_ROMS)) //一般是这个路径
 		list_for_each_entry(bus, &pci_root_buses, node)
 			pcibios_allocate_rom_resources(bus);
 

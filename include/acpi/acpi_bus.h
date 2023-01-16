@@ -576,8 +576,8 @@ int acpi_unbind_one(struct device *dev);
 struct acpi_pci_root {
 	struct acpi_device * device;
 	struct pci_bus *bus;
-	u16 segment;
-	struct resource secondary;	/* downstream bus range */
+	u16 segment;			// 表示是第几个Host bridge么？ 0000？ 0001？ BDF前面的domain
+	struct resource secondary;	/* downstream bus range, 即就是PCI 0号总线 */
 
 	u32 osc_support_set;	/* _OSC state of support bits */
 	u32 osc_control_set;	/* _OSC state of control bits */

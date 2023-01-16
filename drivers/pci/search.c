@@ -122,7 +122,7 @@ static struct pci_bus *pci_do_find_bus(struct pci_bus *bus, unsigned char busnr)
 		return bus;
 
 	list_for_each_entry(tmp, &bus->children, node) {
-		child = pci_do_find_bus(tmp, busnr);
+		child = pci_do_find_bus(tmp, busnr); //深搜枚举
 		if (child)
 			return child;
 	}
@@ -138,6 +138,7 @@ static struct pci_bus *pci_do_find_bus(struct pci_bus *bus, unsigned char busnr)
  * in the global list of PCI buses.  If the bus is found, a pointer to its
  * data structure is returned.  If no bus is found, %NULL is returned.
  */
+//找到这个domain的这个bus
 struct pci_bus *pci_find_bus(int domain, int busnr)
 {
 	struct pci_bus *bus = NULL;

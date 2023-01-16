@@ -308,7 +308,7 @@ struct pci_p2pdma;
 /* The pci_dev structure describes PCI devices */
 /*  pci_dev 结构在 Linux 系统对 PCI 总线枚举时建立。 在加载 Capric 卡驱动程序之前， 这些 pci_dev 结构已经存在。 */
 //这里面的大部分结构，都是系统初始化枚举的时候，建立的
-struct pci_dev {
+struct pci_dev { // convention var name: dev
 	struct list_head bus_list;	/* Node in per-bus list */
 	struct pci_bus	*bus;		/* Bus this device is on */
 	struct pci_bus	*subordinate;	/* Bus this device bridges to */
@@ -609,7 +609,7 @@ struct pci_bus {
 	struct pci_bus	*parent;	/* Parent bus this bridge is on */
 	struct list_head children;	/* List of child buses */
 	struct list_head devices;	/* List of devices on this bus */
-	struct pci_dev	*self;		/* Bridge device as seen by parent */
+	struct pci_dev	*self;		/* Bridge device as seen by parent */ //pci bus自己也是一个pci 设备
 	struct list_head slots;		/* List of slots on this bus;
 					   protected by pci_slot_mutex */
 	struct resource *resource[PCI_BRIDGE_RESOURCE_NUM];

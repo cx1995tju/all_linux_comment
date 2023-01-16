@@ -521,6 +521,8 @@ void __init acpi_numa_fixup(void)
  * success: return IRQ number (>=0)
  * failure: return < 0
  */
+//有了gsi号
+//分配一个irq号，设置IOACPI 的REDIR_TBL表，建立GSI -> Vector 的映射
 int acpi_register_gsi(struct device *dev, u32 gsi, int triggering, int polarity)
 {
 	if (acpi_irq_model == ACPI_IRQ_MODEL_PLATFORM)

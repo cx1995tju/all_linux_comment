@@ -496,7 +496,7 @@ struct device {
 	struct dev_pin_info	*pins;
 #endif
 #ifdef CONFIG_GENERIC_MSI_IRQ
-	struct list_head	msi_list;
+	struct list_head	msi_list; // refer to %msix_setup_entries()
 #endif
 #ifdef CONFIG_DMA_OPS
 	const struct dma_map_ops *dma_ops;
@@ -639,7 +639,7 @@ static inline void set_dev_node(struct device *dev, int node)
 static inline struct irq_domain *dev_get_msi_domain(const struct device *dev)
 {
 #ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
-	return dev->msi_domain;
+	return dev->msi_domain; //%pcibios_add_device
 #else
 	return NULL;
 #endif

@@ -31,16 +31,18 @@ int pci_msi_ignore_mask;
 
 #define msix_table_size(flags)	((flags & PCI_MSIX_FLAGS_QSIZE) + 1)
 
-#ifdef CONFIG_PCI_MSI_IRQ_DOMAIN
+#ifdef CONFIG_PCI_MSI_IRQ_DOMAIN	// 一般开启的
+// dev_to_msi_list(&dev->dev) 保存了需要设置msi 的信息
 static int pci_msi_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
 {
 	struct irq_domain *domain;
 
+	//%x86_create_pci_msi_domain
 	domain = dev_get_msi_domain(&dev->dev);
 	if (domain && irq_domain_is_hierarchy(domain))
 		return msi_domain_alloc_irqs(domain, &dev->dev, nvec);
 
-	return arch_setup_msi_irqs(dev, nvec, type);
+	return arch_setup_msi_irqs(dev, nvec, type); //取决于具体的处理器架构
 }
 
 static void pci_msi_teardown_msi_irqs(struct pci_dev *dev)
@@ -62,10 +64,10 @@ static void pci_msi_teardown_msi_irqs(struct pci_dev *dev)
 /* Arch hooks */
 int __weak arch_setup_msi_irq(struct pci_dev *dev, struct msi_desc *desc)
 {
-	struct msi_controller *chip = dev->bus->msi;
+	struct msi_controller *chip = dev->bus->msi; // %refer to %pci_msi_controller 
 	int err;
 
-	if (!chip || !chip->setup_irq)
+	if (!chip || !chip->setup_irq) // 没有 setup_irq 函数
 		return -EINVAL;
 
 	err = chip->setup_irq(chip, dev, desc);
@@ -102,6 +104,7 @@ int __weak arch_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
 	if (type == PCI_CAP_ID_MSI && nvec > 1)
 		return 1;
 
+	//遍历dev->dev->msi_list 中的每个描述中断的msi_desc 描述符
 	for_each_pci_msi_entry(entry, dev) {
 		ret = arch_setup_msi_irq(dev, entry);
 		if (ret < 0)
@@ -621,6 +624,7 @@ static int msi_verify_entries(struct pci_dev *dev)
  * an error, and a positive return value indicates the number of interrupts
  * which could have been allocated.
  */
+//对msi capa做一些设置了
 static int msi_capability_init(struct pci_dev *dev, int nvec,
 			       struct irq_affinity *affd)
 {
@@ -630,7 +634,7 @@ static int msi_capability_init(struct pci_dev *dev, int nvec,
 
 	pci_msi_set_enable(dev, 0);	/* Disable MSI during set up 配置过程，disable MSI */
 
-	entry = msi_setup_entry(dev, nvec, affd); //核心
+	entry = msi_setup_entry(dev, nvec, affd); //核心, 获得一个描述MSI中断的entry
 	if (!entry)
 		return -ENOMEM;
 
@@ -638,10 +642,10 @@ static int msi_capability_init(struct pci_dev *dev, int nvec,
 	mask = msi_mask(entry->msi_attrib.multi_cap);
 	msi_mask_irq(entry, mask, mask);
 
-	list_add_tail(&entry->list, dev_to_msi_list(&dev->dev));
+	list_add_tail(&entry->list, dev_to_msi_list(&dev->dev)); //将这个entry保存起来
 
 	/* Configure MSI capability structure */
-	ret = pci_msi_setup_msi_irqs(dev, nvec, PCI_CAP_ID_MSI);
+	ret = pci_msi_setup_msi_irqs(dev, nvec, PCI_CAP_ID_MSI); //使用保存的entry 来设置硬件了
 	if (ret) {
 		msi_mask_irq(entry, mask, ~mask);
 		free_msi_irqs(dev);
@@ -692,19 +696,20 @@ static void __iomem *msix_map_region(struct pci_dev *dev, unsigned nr_entries)
 	return ioremap(phys_addr, nr_entries * PCI_MSIX_ENTRY_SIZE);
 }
 
+//设置MSIX的tables, base 是table的地址
 static int msix_setup_entries(struct pci_dev *dev, void __iomem *base,
 			      struct msix_entry *entries, int nvec,
 			      struct irq_affinity *affd)
 {
 	struct irq_affinity_desc *curmsk, *masks = NULL;
-	struct msi_desc *entry;
+	struct msi_desc *entry; //entry用来描述中断
 	int ret, i;
 	int vec_count = pci_msix_vec_count(dev);
 
 	if (affd)
 		masks = irq_create_affinity_masks(nvec, affd);
 
-	for (i = 0, curmsk = masks; i < nvec; i++) {
+	for (i = 0, curmsk = masks; i < nvec; i++) { //重要是分配nvec个描述中断的结构 msi_desc, 然后将其挂到设备的list中
 		entry = alloc_msi_entry(&dev->dev, 1, curmsk);
 		if (!entry) {
 			if (!i)
@@ -726,7 +731,7 @@ static int msix_setup_entries(struct pci_dev *dev, void __iomem *base,
 		entry->msi_attrib.is_virtual =
 			entry->msi_attrib.entry_nr >= vec_count;
 
-		entry->msi_attrib.default_irq	= dev->irq;
+		entry->msi_attrib.default_irq	= dev->irq; //这设置MSI之前，kernel在probe的时候就已经给每个设备分配好了irq？？？
 		entry->mask_base		= base;
 
 		list_add_tail(&entry->list, dev_to_msi_list(&dev->dev));
@@ -772,6 +777,7 @@ static void msix_program_entries(struct pci_dev *dev,
  * single MSI-X IRQ. A return of zero indicates the successful setup of
  * requested MSI-X entries with allocated IRQs or non-zero for otherwise.
  **/
+//entries 可以为NULL
 static int msix_capability_init(struct pci_dev *dev, struct msix_entry *entries,
 				int nvec, struct irq_affinity *affd)
 {
@@ -780,14 +786,15 @@ static int msix_capability_init(struct pci_dev *dev, struct msix_entry *entries,
 	void __iomem *base;
 
 	/* Ensure MSI-X is disabled while it is set up */
-	pci_msix_clear_and_set_ctrl(dev, PCI_MSIX_FLAGS_ENABLE, 0);
+	pci_msix_clear_and_set_ctrl(dev, PCI_MSIX_FLAGS_ENABLE, 0); //配置空间操作
 
 	pci_read_config_word(dev, dev->msix_cap + PCI_MSIX_FLAGS, &control);
 	/* Request & Map MSI-X table region */
-	base = msix_map_region(dev, msix_table_size(control));
+	base = msix_map_region(dev, msix_table_size(control)); //映射bar空间的MSI-X table
 	if (!base)
 		return -ENOMEM;
 
+	//分配了一些描述中断的msi_desc, 挂到了dev->dev->msi_list 中
 	ret = msix_setup_entries(dev, base, entries, nvec, affd);
 	if (ret)
 		return ret;
@@ -898,6 +905,7 @@ static int pci_msi_supported(struct pci_dev *dev, int nvec)
  * and returns a power of two, up to a maximum of 2^5 (32), according to the
  * MSI specification.
  **/
+//一个硬件能发送多少msi中断
 int pci_msi_vec_count(struct pci_dev *dev)
 {
 	int ret;
@@ -956,6 +964,7 @@ EXPORT_SYMBOL(pci_disable_msi);
  * It returns a negative errno if the device is not capable of sending MSI-X
  * interrupts.
  **/
+ //通过dev的MSI cap 获取其需要的entries数目
 int pci_msix_vec_count(struct pci_dev *dev)
 {
 	u16 control;
@@ -968,6 +977,7 @@ int pci_msix_vec_count(struct pci_dev *dev)
 }
 EXPORT_SYMBOL(pci_msix_vec_count);
 
+//entries 可以为NULL
 static int __pci_enable_msix(struct pci_dev *dev, struct msix_entry *entries,
 			     int nvec, struct irq_affinity *affd, int flags)
 {
@@ -1087,14 +1097,14 @@ static int __pci_enable_msi_range(struct pci_dev *dev, int minvec, int maxvec,
 	if (nvec > maxvec)
 		nvec = maxvec;
 
-	for (;;) {
+	for (;;) { //对每一个vector都做msi capa的初始化，成功几个就返回几个
 		if (affd) {
 			nvec = irq_calc_affinity_vectors(minvec, nvec, affd);
 			if (nvec < minvec)
 				return -ENOSPC;
 		}
 
-		rc = msi_capability_init(dev, nvec, affd);
+		rc = msi_capability_init(dev, nvec, affd); //需要用msi中断，当然要对msi capa做一些设置了
 		if (rc == 0)
 			return nvec;
 
@@ -1117,6 +1127,7 @@ int pci_enable_msi(struct pci_dev *dev)
 }
 EXPORT_SYMBOL(pci_enable_msi);
 
+//entries 可以为NULL的
 static int __pci_enable_msix_range(struct pci_dev *dev,
 				   struct msix_entry *entries, int minvec,
 				   int maxvec, struct irq_affinity *affd,

@@ -1845,6 +1845,7 @@ dump:
 	pci_bus_dump_resources(bus);
 }
 
+//设置PCI设备的存储器和IO资源, 在x86中，BIOS已经将PCI设备使用的存储器和IO资源设置完毕
 void __init pci_assign_unassigned_resources(void)
 {
 	struct pci_bus *root_bus;

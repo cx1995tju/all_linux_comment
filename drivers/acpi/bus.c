@@ -898,6 +898,7 @@ static int acpi_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 	return __acpi_device_uevent_modalias(to_acpi_device(dev), env);
 }
 
+//这里的dev应该是指host bridge
 static int acpi_device_probe(struct device *dev)
 {
 	struct acpi_device *acpi_dev = to_acpi_device(dev);
@@ -958,7 +959,7 @@ static int acpi_device_remove(struct device *dev)
 struct bus_type acpi_bus_type = {
 	.name		= "acpi",
 	.match		= acpi_bus_match,
-	.probe		= acpi_device_probe,
+	.probe		= acpi_device_probe, // acpi_bus_register_driver
 	.remove		= acpi_device_remove,
 	.uevent		= acpi_device_uevent,
 };
