@@ -14,7 +14,7 @@
  */
 TRACE_EVENT(kfree_skb,
 
-	TP_PROTO(struct sk_buff *skb, void *location),
+	TP_PROTO(struct sk_buff *skb, void *location), 	// location 是 kfree 被调用的位置
 
 	TP_ARGS(skb, location),
 

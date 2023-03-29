@@ -2304,6 +2304,7 @@ EXPORT_SYMBOL_GPL(dev_nit_active);
  *	taps currently in use.
  */
 
+// nit: network interface
 void dev_queue_xmit_nit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct packet_type *ptype;

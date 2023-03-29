@@ -349,7 +349,7 @@ static int ip_rcv_finish_core(struct net *net, struct sock *sk,
 	 *	Initialise the virtual path cache for the packet. It describes
 	 *	how the packet travels inside Linux networking.
 	 */
-	if (!skb_valid_dst(skb)) {
+	if (!skb_valid_dst(skb)) {	// 重要，input 路由
 		err = ip_route_input_noref(skb, iph->daddr, iph->saddr,
 					   iph->tos, dev);
 		if (unlikely(err))
@@ -370,7 +370,7 @@ static int ip_rcv_finish_core(struct net *net, struct sock *sk,
 	if (iph->ihl > 5 && ip_rcv_options(skb, dev))
 		goto drop;
 
-	rt = skb_rtable(skb);
+	rt = skb_rtable(skb); // input 路由
 	if (rt->rt_type == RTN_MULTICAST) {
 		__IP_UPD_PO_STATS(net, IPSTATS_MIB_INMCAST, skb->len);
 	} else if (rt->rt_type == RTN_BROADCAST) {
