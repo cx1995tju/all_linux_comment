@@ -1696,7 +1696,7 @@ static int search_binary_handler(struct linux_binprm *bprm)
  retry:
 	read_lock(&binfmt_lock);
 	list_for_each_entry(fmt, &formats, lh) {
-		if (!try_module_get(fmt->module))
+		if (!try_module_get(fmt->module)) // 脚本文件的开头是 #!
 			continue;
 		read_unlock(&binfmt_lock);
 
@@ -1741,14 +1741,14 @@ static int exec_binprm(struct linux_binprm *bprm)
 		if (depth > 5)
 			return -ELOOP;
 
-		ret = search_binary_handler(bprm);
+		ret = search_binary_handler(bprm); // 核心
 		if (ret < 0)
 			return ret;
 		if (!bprm->interpreter)
 			break;
 
 		exec = bprm->file;
-		bprm->file = bprm->interpreter;
+		bprm->file = bprm->interpreter; // 如果是执行 脚本文件的话，这里已经在 load_script 中被替换为真正需要执行的 interpreter。然后重新执行这个循环，去加载整整的解释器来执行
 		bprm->interpreter = NULL;
 
 		allow_write_access(exec);

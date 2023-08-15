@@ -2300,7 +2300,7 @@ static int hardware_enable(void)
 	    !hv_get_vp_assist_page(cpu))
 		return -EFAULT;
 
-	r = kvm_cpu_vmxon(phys_addr);
+	r = kvm_cpu_vmxon(phys_addr); // VMXON
 	if (r)
 		return r;
 

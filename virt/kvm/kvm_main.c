@@ -410,7 +410,7 @@ static void kvm_vcpu_init(struct kvm_vcpu *vcpu, struct kvm *kvm, unsigned id)
 	kvm_vcpu_set_dy_eligible(vcpu, false);
 	vcpu->preempted = false;
 	vcpu->ready = false;
-	preempt_notifier_init(&vcpu->preempt_notifier, &kvm_preempt_ops);
+	preempt_notifier_init(&vcpu->preempt_notifier, &kvm_preempt_ops); // vcpu 的调度是需要一些额外工作的。这个就是 linux 调度机制提供的接口，可以在 调度对应线程的时候，做一些 hook
 }
 
 void kvm_vcpu_destroy(struct kvm_vcpu *vcpu)
@@ -734,7 +734,7 @@ void __weak kvm_arch_pre_destroy_vm(struct kvm *kvm)
 {
 }
 
-static struct kvm *kvm_create_vm(unsigned long type)
+static struct kvm *kvm_create_vm(unsigned long type) // type is 0
 {
 	struct kvm *kvm = kvm_arch_alloc_vm();
 	int r = -ENOMEM;
@@ -744,9 +744,9 @@ static struct kvm *kvm_create_vm(unsigned long type)
 		return ERR_PTR(-ENOMEM);
 
 	spin_lock_init(&kvm->mmu_lock);
-	mmgrab(current->mm);
+	mmgrab(current->mm); // 因为 vm 的内存就是 qemu 进程的虚拟内存。后续相关的 kthread 可能会操作的，所以 mm 需要引用计数++
 	kvm->mm = current->mm;
-	kvm_eventfd_init(kvm);
+	kvm_eventfd_init(kvm); // 为后续的 eventfd 机制做准备
 	mutex_init(&kvm->lock);
 	mutex_init(&kvm->irq_lock);
 	mutex_init(&kvm->slots_lock);
@@ -761,7 +761,7 @@ static struct kvm *kvm_create_vm(unsigned long type)
 
 	refcount_set(&kvm->users_count, 1);
 	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
-		struct kvm_memslots *slots = kvm_alloc_memslots();
+		struct kvm_memslots *slots = kvm_alloc_memslots(); // 内存虚拟化相关
 
 		if (!slots)
 			goto out_err_no_arch_destroy_vm;
@@ -772,18 +772,18 @@ static struct kvm *kvm_create_vm(unsigned long type)
 
 	for (i = 0; i < KVM_NR_BUSES; i++) {
 		rcu_assign_pointer(kvm->buses[i],
-			kzalloc(sizeof(struct kvm_io_bus), GFP_KERNEL_ACCOUNT));
+			kzalloc(sizeof(struct kvm_io_bus), GFP_KERNEL_ACCOUNT)); // 设备模拟相关
 		if (!kvm->buses[i])
 			goto out_err_no_arch_destroy_vm;
 	}
 
 	kvm->max_halt_poll_ns = halt_poll_ns;
 
-	r = kvm_arch_init_vm(kvm, type);
+	r = kvm_arch_init_vm(kvm, type); // 架构相关, init kvm.arch 成员
 	if (r)
 		goto out_err_no_arch_destroy_vm;
 
-	r = hardware_enable_all();
+	r = hardware_enable_all(); // 开启 VMX 模式
 	if (r)
 		goto out_err_no_disable;
 
@@ -791,7 +791,7 @@ static struct kvm *kvm_create_vm(unsigned long type)
 	INIT_HLIST_HEAD(&kvm->irq_ack_notifier_list);
 #endif
 
-	r = kvm_init_mmu_notifier(kvm);
+	r = kvm_init_mmu_notifier(kvm); //  注册 notifier，关注 mmu 事件。linux 内存子系统的一些事件会通知到这里
 	if (r)
 		goto out_err_no_mmu_notifier;
 
@@ -3107,7 +3107,7 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 
 	r = kvm_arch_vcpu_precreate(kvm, id);
 	if (r)
-		goto vcpu_decrement;
+		goto vcpu_decrement; // 因为前面已经 ++ 了
 
 	vcpu = kmem_cache_zalloc(kvm_vcpu_cache, GFP_KERNEL);
 	if (!vcpu) {
@@ -3121,9 +3121,9 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 		r = -ENOMEM;
 		goto vcpu_free;
 	}
-	vcpu->run = page_address(page);
+	vcpu->run = page_address(page); // 保存的一些 kvm run 信息，让 QEMU 通过 ioctl 获取的
 
-	kvm_vcpu_init(vcpu, kvm, id);
+	kvm_vcpu_init(vcpu, kvm, id); // 初始化 vcpu 结构
 
 	r = kvm_arch_vcpu_create(vcpu);
 	if (r)
@@ -4077,9 +4077,9 @@ static int hardware_enable_all(void)
 	raw_spin_lock(&kvm_count_lock);
 
 	kvm_usage_count++;
-	if (kvm_usage_count == 1) {
+	if (kvm_usage_count == 1) { // 只会进入一次的
 		atomic_set(&hardware_enable_failed, 0);
-		on_each_cpu(hardware_enable_nolock, NULL, 1);
+		on_each_cpu(hardware_enable_nolock, NULL, 1); // 每个 cpu 都调用了 这个函数
 
 		if (atomic_read(&hardware_enable_failed)) {
 			hardware_disable_all_nolock();

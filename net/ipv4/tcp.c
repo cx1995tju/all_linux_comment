@@ -942,8 +942,8 @@ int tcp_send_mss(struct sock *sk, int *size_goal, int flags)
 {
 	int mss_now;
 
-	mss_now = tcp_current_mss(sk);
-	*size_goal = tcp_xmit_size_goal(sk, mss_now, !(flags & MSG_OOB));
+	mss_now = tcp_current_mss(sk); // 首先获取当前探测的 mss
+	*size_goal = tcp_xmit_size_goal(sk, mss_now, !(flags & MSG_OOB)); // 然后根据是否支持 tso，来计算一个size_goal。这里的 flag 只要没有 MSG_OOB 标志，就允许 large。即大部分情况都是允许的
 
 	return mss_now;
 }
@@ -1266,7 +1266,7 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 	copied = 0;
 
 restart:
-	mss_now = tcp_send_mss(sk, &size_goal, flags);
+	mss_now = tcp_send_mss(sk, &size_goal, flags); // 一般是 tp->gso_segs * mss_now
 
 	err = -EPIPE;
 	if (sk->sk_err || (sk->sk_shutdown & SEND_SHUTDOWN))

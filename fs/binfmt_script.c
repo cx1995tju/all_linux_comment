@@ -31,14 +31,18 @@ static inline const char *next_terminator(const char *first, const char *last)
 	return NULL;
 }
 
+// 更新下 bprm 结构，然后返回0。让其退出到, exec_binprm 中加载新的解释器，继续执行
+// refer to: exec_binprm
 static int load_script(struct linux_binprm *bprm)
 {
+	// i_name 是  #!后跟着的真实的解释器的 path
+	// i_arg 是 解释器后面可能跟着的 参数
 	const char *i_name, *i_sep, *i_arg, *i_end, *buf_end;
 	struct file *file;
 	int retval;
 
 	/* Not ours to exec if we don't start with "#!". */
-	if ((bprm->buf[0] != '#') || (bprm->buf[1] != '!'))
+	if ((bprm->buf[0] != '#') || (bprm->buf[1] != '!')) // magic-num: #!
 		return -ENOEXEC;
 
 	/*
@@ -106,19 +110,19 @@ static int load_script(struct linux_binprm *bprm)
 	retval = remove_arg_zero(bprm);
 	if (retval)
 		return retval;
-	retval = copy_string_kernel(bprm->interp, bprm);
+	retval = copy_string_kernel(bprm->interp, bprm); // 这里的 interp 还是脚本的path，还没有被替换掉。这里将脚本 path 作为参数传递进去了, 注意这里是逆序处理的，这个就是最后一个参数
 	if (retval < 0)
 		return retval;
 	bprm->argc++;
 	*((char *)i_end) = '\0';
 	if (i_arg) {
 		*((char *)i_sep) = '\0';
-		retval = copy_string_kernel(i_arg, bprm);
+		retval = copy_string_kernel(i_arg, bprm);	// 解析出来的解释器参数，是第二个参数
 		if (retval < 0)
 			return retval;
 		bprm->argc++;
 	}
-	retval = copy_string_kernel(i_name, bprm);
+	retval = copy_string_kernel(i_name, bprm); // i_name 是真实的解释器的path, 也作为新程序的参数传递了, 即新的 argv[0]
 	if (retval)
 		return retval;
 	bprm->argc++;

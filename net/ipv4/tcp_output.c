@@ -1821,13 +1821,13 @@ EXPORT_SYMBOL(tcp_sync_mss);
 unsigned int tcp_current_mss(struct sock *sk)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
-	const struct dst_entry *dst = __sk_dst_get(sk);
+	const struct dst_entry *dst = __sk_dst_get(sk); // refer to: ipv4_sk_update_pmtu, sk_setup_caps 
 	u32 mss_now;
 	unsigned int header_len;
 	struct tcp_out_options opts;
 	struct tcp_md5sig_key *md5;
 
-	mss_now = tp->mss_cache;
+	mss_now = tp->mss_cache; // refer to: tcp_sync_mss(), 三次握手，pmtu 探测, tcp mtu probing等都会更新 mss_now
 
 	if (dst) {
 		u32 mtu = dst_mtu(dst);

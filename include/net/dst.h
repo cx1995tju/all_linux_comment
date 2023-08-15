@@ -195,7 +195,7 @@ dst_feature(const struct dst_entry *dst, u32 feature)
 
 static inline u32 dst_mtu(const struct dst_entry *dst)
 {
-	return dst->ops->mtu(dst);
+	return dst->ops->mtu(dst); // refer to: %ipv4_dst_ops
 }
 
 /* RTT metrics are stored in milliseconds for user ABI, but used as jiffies */
