@@ -259,7 +259,8 @@ struct kvm_mmio_fragment {
 	unsigned len;
 };
 
-struct kvm_vcpu {
+// 在 generic kvm 层表示一个 vcpu
+struct kvm_vcpu { // refer to: struct vcpu_vmx
 	struct kvm *kvm;
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	struct preempt_notifier preempt_notifier;
@@ -269,7 +270,7 @@ struct kvm_vcpu {
 	int vcpu_idx; /* index in kvm->vcpus array */
 	int srcu_idx;
 	int mode;
-	u64 requests;
+	u64 requests; // kvm_inject_nmi() -> kvm_make_request(), %vcpu_enter_guest()
 	unsigned long guest_debug;
 
 	int pre_pcpu;
@@ -443,7 +444,7 @@ struct kvm_memslots {
 	struct kvm_memory_slot memslots[];
 };
 
-struct kvm {
+struct kvm { // per vm 的结构
 	spinlock_t mmu_lock;
 	struct mutex slots_lock;
 	struct mm_struct *mm; /* userspace tied to this vm */

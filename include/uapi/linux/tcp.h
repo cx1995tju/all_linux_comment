@@ -30,7 +30,7 @@ struct tcphdr {
 #if defined(__LITTLE_ENDIAN_BITFIELD)
 	__u16	res1:4,
 		doff:4,
-		fin:1,
+		fin:1,	// 低bit，小端机器存储在低位置，网卡发送的时候会先发送
 		syn:1,
 		rst:1,
 		psh:1,
@@ -48,7 +48,7 @@ struct tcphdr {
 		psh:1,
 		rst:1,
 		syn:1,
-		fin:1;
+		fin:1; // 高bit, 大端机器存储在低位置，网卡发送的时候会先发送
 #else
 #error	"Adjust your <asm/byteorder.h> defines"
 #endif	

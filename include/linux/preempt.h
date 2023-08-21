@@ -313,6 +313,7 @@ void preempt_notifier_dec(void);
 void preempt_notifier_register(struct preempt_notifier *notifier);
 void preempt_notifier_unregister(struct preempt_notifier *notifier);
 
+// 目前只有 KVM 模块使用了这个机制
 static inline void preempt_notifier_init(struct preempt_notifier *notifier,
 				     struct preempt_ops *ops)
 {

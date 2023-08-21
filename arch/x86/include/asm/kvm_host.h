@@ -1083,7 +1083,7 @@ static inline u16 kvm_lapic_irq_dest_mode(bool dest_mode_logical)
 	return dest_mode_logical ? APIC_DEST_LOGICAL : APIC_DEST_PHYSICAL;
 }
 
-struct kvm_x86_ops {
+struct kvm_x86_ops { // %vmx.c:vmx_x86_ops 
 	int (*hardware_enable)(void);
 	void (*hardware_disable)(void);
 	void (*hardware_unsetup)(void);
@@ -1317,7 +1317,7 @@ struct kvm_arch_async_pf {
 
 extern u64 __read_mostly host_efer;
 extern bool __read_mostly allow_smaller_maxphyaddr;
-extern struct kvm_x86_ops kvm_x86_ops;
+extern struct kvm_x86_ops kvm_x86_ops; // refer to: %kvm_arch_hardware_setup, %vmx.c:vmx_x86_ops 
 
 #define __KVM_HAVE_ARCH_VM_ALLOC
 static inline struct kvm *kvm_arch_alloc_vm(void)

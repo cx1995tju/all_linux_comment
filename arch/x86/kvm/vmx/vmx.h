@@ -177,8 +177,9 @@ struct nested_vmx {
 	struct hv_enlightened_vmcs *hv_evmcs;
 };
 
+// 在 arch-spec 层表示一个 vcpu
 struct vcpu_vmx {
-	struct kvm_vcpu       vcpu;
+	struct kvm_vcpu       vcpu; // 不是指针？？？, kvm_init 初始化的时候传入了 vcpu_vmx 的大小，用的这个大小来创建一个 kemem cache 的
 	u8                    fail;
 	u8		      msr_bitmap_mode;
 

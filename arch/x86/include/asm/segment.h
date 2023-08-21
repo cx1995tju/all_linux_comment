@@ -376,6 +376,8 @@ static inline void __loadsegment_fs(unsigned short value)
 /*
  * Save a segment register away:
  */
+// "=r (value)" 表示 %0 可以是任意的寄存器
+// 另外 %0 需要与 value 结合，即gcc 需要插入一个 mov 指令，将 %0 的值保存到 value 中
 #define savesegment(seg, value)				\
 	asm("mov %%" #seg ",%0":"=r" (value) : : "memory")
 

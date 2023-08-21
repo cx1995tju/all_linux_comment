@@ -665,10 +665,11 @@ bool kvm_inject_emulated_page_fault(struct kvm_vcpu *vcpu,
 }
 EXPORT_SYMBOL_GPL(kvm_inject_emulated_page_fault);
 
+// 设置下 flag 就好，VCPU run 的时候，在通过 vmcs 来注入
 void kvm_inject_nmi(struct kvm_vcpu *vcpu)
 {
-	atomic_inc(&vcpu->arch.nmi_queued);
-	kvm_make_request(KVM_REQ_NMI, vcpu);
+	atomic_inc(&vcpu->arch.nmi_queued); // 增加一个计数
+	kvm_make_request(KVM_REQ_NMI, vcpu); // 修改下 vcpu 结构
 }
 EXPORT_SYMBOL_GPL(kvm_inject_nmi);
 
@@ -2028,7 +2029,7 @@ static atomic_t kvm_guest_has_master_clock = ATOMIC_INIT(0);
 #endif
 
 static DEFINE_PER_CPU(unsigned long, cpu_tsc_khz);
-static unsigned long max_tsc_khz;
+static unsigned long max_tsc_khz; // tsc 校准如果失败了，这个值就是0
 
 static u32 adjust_tsc_khz(u32 khz, s32 ppm)
 {
@@ -2079,7 +2080,7 @@ static int kvm_set_tsc_khz(struct kvm_vcpu *vcpu, u32 user_tsc_khz)
 	int use_scaling = 0;
 
 	/* tsc_khz can be zero if TSC calibration fails */
-	if (user_tsc_khz == 0) {
+	if (user_tsc_khz == 0) { // TSC 校准失败了
 		/* set tsc_scaling_ratio to a safe value */
 		vcpu->arch.tsc_scaling_ratio = kvm_default_tsc_scaling_ratio;
 		return -1;
@@ -3917,6 +3918,9 @@ static bool need_emulate_wbinvd(struct kvm_vcpu *vcpu)
 	return kvm_arch_has_noncoherent_dma(vcpu->kvm);
 }
 
+// 主要是将 vmcs 与当前的 cpu 绑定
+// 建立软件层面的数据结构
+// 执行 vmptrld 命令
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	/* Address WBINVD may be executed by guest */
@@ -3928,7 +3932,7 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 					wbinvd_ipi, NULL, 1);
 	}
 
-	kvm_x86_ops.vcpu_load(vcpu, cpu);
+	kvm_x86_ops.vcpu_load(vcpu, cpu); // %vmx_vcpu_load, 核心
 
 	/* Save host pkru register if supported */
 	vcpu->arch.host_pkru = read_pkru();
@@ -3940,7 +3944,7 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 		kvm_make_request(KVM_REQ_CLOCK_UPDATE, vcpu);
 	}
 
-	if (unlikely(vcpu->cpu != cpu) || kvm_check_tsc_unstable()) {
+	if (unlikely(vcpu->cpu != cpu) || kvm_check_tsc_unstable()) { // 修正 tsc
 		s64 tsc_delta = !vcpu->arch.last_host_tsc ? 0 :
 				rdtsc() - vcpu->arch.last_host_tsc;
 		if (tsc_delta < 0)
@@ -4107,7 +4111,7 @@ static int kvm_vcpu_ioctl_nmi(struct kvm_vcpu *vcpu)
 
 static int kvm_vcpu_ioctl_smi(struct kvm_vcpu *vcpu)
 {
-	kvm_make_request(KVM_REQ_SMI, vcpu);
+	kvm_make_request(KVM_REQ_SMI, vcpu); // 简单设置下 flga 就好
 
 	return 0;
 }
@@ -4682,7 +4686,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 	case KVM_NMI: {
-		r = kvm_vcpu_ioctl_nmi(vcpu);
+		r = kvm_vcpu_ioctl_nmi(vcpu); // 没有额外参数
 		break;
 	}
 	case KVM_SMI: {
@@ -7841,7 +7845,7 @@ static struct notifier_block pvclock_gtod_notifier = {
 
 int kvm_arch_init(void *opaque)
 {
-	struct kvm_x86_init_ops *ops = opaque;
+	struct kvm_x86_init_ops *ops = opaque; // %vmx_init_ops
 	int r;
 
 	if (kvm_x86_ops.hardware_enable) {
@@ -8748,7 +8752,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	bool req_immediate_exit = false;
 
-	if (kvm_request_pending(vcpu)) {
+	if (kvm_request_pending(vcpu)) { // 进入之前需要处理一些 request, 可能来自于用户态 qemu 的要求，譬如：注入中断
 		if (kvm_check_request(KVM_REQ_GET_NESTED_STATE_PAGES, vcpu)) {
 			if (unlikely(!kvm_x86_ops.nested_ops->get_nested_state_pages(vcpu))) {
 				r = 0;
@@ -8886,7 +8890,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	preempt_disable();
 
-	kvm_x86_ops.prepare_guest_switch(vcpu);
+	// 主要是保存 host_state
+	kvm_x86_ops.prepare_guest_switch(vcpu); // vmx.c:vmx_x86_ops %vmx_prepare_switch_to_guest
 
 	/*
 	 * Disable IRQs before setting IN_GUEST_MODE.  Posted interrupt
@@ -8950,7 +8955,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		vcpu->arch.switch_db_regs &= ~KVM_DEBUGREG_RELOAD;
 	}
 
-	exit_fastpath = kvm_x86_ops.run(vcpu);
+	exit_fastpath = kvm_x86_ops.run(vcpu);	// 关键，这里进入 non-root 模式 , %vmx_vcpu_run
+	// 返回时，说明 vmexit 了
 
 	/*
 	 * Do this here before restoring debug registers on the host.  And
@@ -8982,7 +8988,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	vcpu->mode = OUTSIDE_GUEST_MODE;
 	smp_wmb();
 
-	kvm_x86_ops.handle_exit_irqoff(vcpu);
+	kvm_x86_ops.handle_exit_irqoff(vcpu); // 处理可能的外部中断,  进入 guest 的时候关闭了中断，这样会让中断发生的时候，触发 vm-exit
 
 	/*
 	 * Consume any pending interrupts, including the possible source of
@@ -9024,7 +9030,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	if (vcpu->arch.apic_attention)
 		kvm_lapic_sync_from_vapic(vcpu);
 
-	r = kvm_x86_ops.handle_exit(vcpu, exit_fastpath);
+	r = kvm_x86_ops.handle_exit(vcpu, exit_fastpath); // 处理 vmexit , %vmx_handle_exit 
 	return r;
 
 cancel_injection:
@@ -9075,8 +9081,9 @@ static inline bool kvm_vcpu_running(struct kvm_vcpu *vcpu)
 	if (is_guest_mode(vcpu))
 		kvm_x86_ops.nested_ops->check_events(vcpu);
 
+	// mp state 就绪了
 	return (vcpu->arch.mp_state == KVM_MP_STATE_RUNNABLE &&
-		!vcpu->arch.apf.halted);
+		!vcpu->arch.apf.halted); // apf.halted 表示虚拟机中是否有需要访问却被宿主机 swap 出去的内存页
 }
 
 static int vcpu_run(struct kvm_vcpu *vcpu)
@@ -9087,7 +9094,7 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 	vcpu->srcu_idx = srcu_read_lock(&kvm->srcu);
 	vcpu->arch.l1tf_flush_l1d = true;
 
-	for (;;) {
+	for (;;) { // 这里如果退出的话，说明 kvm 处理不了 vm-exit 要退出到用户空间，让 qemu 处理
 		if (kvm_vcpu_running(vcpu)) {
 			r = vcpu_enter_guest(vcpu);
 		} else {
@@ -9095,7 +9102,7 @@ static int vcpu_run(struct kvm_vcpu *vcpu)
 		}
 
 		if (r <= 0)
-			break;
+			break; // 回用户态，让 qemu 处理了
 
 		kvm_clear_request(KVM_REQ_PENDING_TIMER, vcpu);
 		if (kvm_cpu_has_pending_timer(vcpu))
@@ -9254,10 +9261,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 	struct kvm_run *kvm_run = vcpu->run;
 	int r;
 
-	vcpu_load(vcpu);
-	kvm_sigset_activate(vcpu);
+	vcpu_load(vcpu); // 将 vcpu 和 cpu 之间的绑定关系建立起来(软硬件两个层面)
+	kvm_sigset_activate(vcpu); // 控制下信号处理, 外部 ioctl 设置的
 	kvm_load_guest_fpu(vcpu);
 
+	// refer to: %kvm_arch_vcpu_ioctl_set_mpstate
 	if (unlikely(vcpu->arch.mp_state == KVM_MP_STATE_UNINITIALIZED)) {
 		if (kvm_run->immediate_exit) {
 			r = -EINTR;
@@ -9306,7 +9314,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 	if (kvm_run->immediate_exit)
 		r = -EINTR;
 	else
-		r = vcpu_run(vcpu);
+		r = vcpu_run(vcpu); // 一切就绪，切换状态到 non-root 模式。函数返回时，说明发生了 vm-exit
 
 out:
 	kvm_put_guest_fpu(vcpu);
@@ -9835,6 +9843,7 @@ static void fx_init(struct kvm_vcpu *vcpu)
 
 int kvm_arch_vcpu_precreate(struct kvm *kvm, unsigned int id)
 {
+	// tsc unstable 会有什么问题？
 	if (kvm_check_tsc_unstable() && atomic_read(&kvm->online_vcpus) != 0)
 		pr_warn_once("kvm: SMP vm created on host with unstable TSC; "
 			     "guest TSC will not be reliable\n");
@@ -9872,7 +9881,7 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
 	page = alloc_page(GFP_KERNEL | __GFP_ZERO);
 	if (!page)
 		goto fail_free_lapic;
-	vcpu->arch.pio_data = page_address(page);
+	vcpu->arch.pio_data = page_address(page); // 用于 pio
 
 	vcpu->arch.mce_banks = kzalloc(KVM_MAX_MCE_BANKS * sizeof(u64) * 4,
 				       GFP_KERNEL_ACCOUNT);
@@ -9914,7 +9923,7 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
 
 	kvm_hv_vcpu_init(vcpu);
 
-	r = kvm_x86_ops.vcpu_create(vcpu);
+	r = kvm_x86_ops.vcpu_create(vcpu); // %vmx_create_vcpu	_重点_
 	if (r)
 		goto free_guest_fpu;
 
@@ -10191,7 +10200,8 @@ int kvm_arch_hardware_setup(void *opaque)
 	if (r != 0)
 		return r;
 
-	memcpy(&kvm_x86_ops, ops->runtime_ops, sizeof(kvm_x86_ops));
+	// %vmx_init_ops %
+	memcpy(&kvm_x86_ops, ops->runtime_ops, sizeof(kvm_x86_ops)); // 这里给 kvm_x86_ops 赋值了
 
 	if (!kvm_cpu_cap_has(X86_FEATURE_XSAVES))
 		supported_xss = 0;

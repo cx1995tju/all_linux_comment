@@ -466,7 +466,7 @@ So, to sum up:
 	to dereference RCU-protected pointers.
 
 -	Use some solid scheme (such as locks or semaphores) to
-	keep concurrent updates from interfering with each other.
+	keep concurrent updates from interfering with each other. // writer 之间需要额外的同步机制
 
 -	Use rcu_assign_pointer() to update an RCU-protected pointer.
 	This primitive protects concurrent readers from the updater,

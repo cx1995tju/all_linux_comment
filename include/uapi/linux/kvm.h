@@ -563,6 +563,8 @@ struct kvm_vapic_addr {
 /* for KVM_SET_MP_STATE */
 
 /* not all states are valid on all architectures */
+// 多处理器场景下，首先是 BSP 初始化，然后 BSP 发送 IPI 信号到其他处理器, 接着其他处理器再初始化。
+// 所以在BSP初始化的时候,这个mp-state 是KKVM_MP_STATE_RUNNNABLE, 但是其他处理器只有在接收到IPI信号之后才会将这个值设置为 KVM_MP_STATE_RUNNABLE
 #define KVM_MP_STATE_RUNNABLE          0
 #define KVM_MP_STATE_UNINITIALIZED     1
 #define KVM_MP_STATE_INIT_RECEIVED     2

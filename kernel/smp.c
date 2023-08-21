@@ -460,6 +460,7 @@ void flush_smp_call_function_from_idle(void)
  *
  * Returns 0 on success, else a negative status code.
  */
+// 考虑内核抢占的情况
 int smp_call_function_single(int cpu, smp_call_func_t func, void *info,
 			     int wait)
 {

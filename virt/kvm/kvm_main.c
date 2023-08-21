@@ -203,8 +203,8 @@ void vcpu_load(struct kvm_vcpu *vcpu)
 {
 	int cpu = get_cpu();
 
-	__this_cpu_write(kvm_running_vcpu, vcpu);
-	preempt_notifier_register(&vcpu->preempt_notifier);
+	__this_cpu_write(kvm_running_vcpu, vcpu); // 一个 per-cpu 变量
+	preempt_notifier_register(&vcpu->preempt_notifier); // 发生调度的时候，会调用这个函数
 	kvm_arch_vcpu_load(vcpu, cpu);
 	put_cpu();
 }
@@ -410,7 +410,7 @@ static void kvm_vcpu_init(struct kvm_vcpu *vcpu, struct kvm *kvm, unsigned id)
 	kvm_vcpu_set_dy_eligible(vcpu, false);
 	vcpu->preempted = false;
 	vcpu->ready = false;
-	preempt_notifier_init(&vcpu->preempt_notifier, &kvm_preempt_ops); // vcpu 的调度是需要一些额外工作的。这个就是 linux 调度机制提供的接口，可以在 调度对应线程的时候，做一些 hook
+	preempt_notifier_init(&vcpu->preempt_notifier, &kvm_preempt_ops); // vcpu 的调度是需要一些额外工作的。这个就是 linux 调度机制提供的接口，可以在 调度对应线程的时候，做一些 hook, %prepare_task_switch
 }
 
 void kvm_vcpu_destroy(struct kvm_vcpu *vcpu)
@@ -3086,6 +3086,9 @@ static void kvm_create_vcpu_debugfs(struct kvm_vcpu *vcpu)
 
 /*
  * Creates some virtual cpus.  Good luck creating more than one.
+ * 参数就是一个 cpu id
+ * 返回值是一个 fd，用来和 QEMU share vcpu context 的 
+ * kvm 是 create vm 时 得到的 file, 是 per-vm 的结构
  */
 static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 {
@@ -3103,13 +3106,13 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 	}
 
 	kvm->created_vcpus++;
-	mutex_unlock(&kvm->lock);
+	mutex_unlock(&kvm->lock); // 锁上了，避免同时 create 多个 vcpu
 
-	r = kvm_arch_vcpu_precreate(kvm, id);
+	r = kvm_arch_vcpu_precreate(kvm, id); // 不检查 id 是否重复？
 	if (r)
 		goto vcpu_decrement; // 因为前面已经 ++ 了
 
-	vcpu = kmem_cache_zalloc(kvm_vcpu_cache, GFP_KERNEL);
+	vcpu = kmem_cache_zalloc(kvm_vcpu_cache, GFP_KERNEL); // 这里分配的实际大小是 sizeof(vcpu_vmx)
 	if (!vcpu) {
 		r = -ENOMEM;
 		goto vcpu_decrement;
@@ -3121,11 +3124,11 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 		r = -ENOMEM;
 		goto vcpu_free;
 	}
-	vcpu->run = page_address(page); // 保存的一些 kvm run 信息，让 QEMU 通过 ioctl 获取的
+	vcpu->run = page_address(page); // 保存的一些 vcpu run ctx，让 QEMU 通过 ioctl 获取的
 
 	kvm_vcpu_init(vcpu, kvm, id); // 初始化 vcpu 结构
 
-	r = kvm_arch_vcpu_create(vcpu);
+	r = kvm_arch_vcpu_create(vcpu); // _重点_
 	if (r)
 		goto vcpu_free_run_page;
 
@@ -3139,8 +3142,8 @@ static int kvm_vm_ioctl_create_vcpu(struct kvm *kvm, u32 id)
 	BUG_ON(kvm->vcpus[vcpu->vcpu_idx]);
 
 	/* Now it's all set up, let userspace reach it */
-	kvm_get_kvm(kvm);
-	r = create_vcpu_fd(vcpu);
+	kvm_get_kvm(kvm); // 增加引用计数
+	r = create_vcpu_fd(vcpu); // fd 搞起来
 	if (r < 0) {
 		kvm_put_kvm_no_destroy(kvm);
 		goto unlock_vcpu_destroy;
@@ -3211,12 +3214,12 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	if (mutex_lock_killable(&vcpu->mutex))
 		return -EINTR;
 	switch (ioctl) {
-	case KVM_RUN: {
+	case KVM_RUN: { // fd 是 CREATE_VCPU 拿到的，这里就是要进入 non-root 模式了
 		struct pid *oldpid;
 		r = -EINVAL;
-		if (arg)
+		if (arg) // arg 必须是 0
 			goto out;
-		oldpid = rcu_access_pointer(vcpu->pid);
+		oldpid = rcu_access_pointer(vcpu->pid); // 第一次 进入的时候 oldpid 是 NULL
 		if (unlikely(oldpid != task_pid(current))) {
 			/* The thread running this VCPU changed. */
 			struct pid *newpid;
@@ -3226,7 +3229,7 @@ static long kvm_vcpu_ioctl(struct file *filp,
 				break;
 
 			newpid = get_task_pid(current, PIDTYPE_PID);
-			rcu_assign_pointer(vcpu->pid, newpid);
+			rcu_assign_pointer(vcpu->pid, newpid); // 更新
 			if (oldpid)
 				synchronize_rcu();
 			put_pid(oldpid);
@@ -3682,11 +3685,11 @@ static long kvm_vm_ioctl(struct file *filp,
 	void __user *argp = (void __user *)arg;
 	int r;
 
-	if (kvm->mm != current->mm)
+	if (kvm->mm != current->mm) // 哪个进程持有这个fd，谁才能创建 vcpu。线程之间是共享这个 mm 的
 		return -EIO;
 	switch (ioctl) {
 	case KVM_CREATE_VCPU:
-		r = kvm_vm_ioctl_create_vcpu(kvm, arg);
+		r = kvm_vm_ioctl_create_vcpu(kvm, arg); // 参数是 vcpu id, 返回值是一个 fd，后续qemu 使用 mmap(fd) 和 kvm 共享信息
 		break;
 	case KVM_ENABLE_CAP: {
 		struct kvm_enable_cap cap;
@@ -3972,15 +3975,15 @@ static long kvm_dev_ioctl(struct file *filp,
 	case KVM_CHECK_EXTENSION:
 		r = kvm_vm_ioctl_check_extension_generic(NULL, arg);
 		break;
-	case KVM_GET_VCPU_MMAP_SIZE:
+	case KVM_GET_VCPU_MMAP_SIZE: // 返回值是 memory size
 		if (arg)
 			goto out;
-		r = PAGE_SIZE;     /* struct kvm_run */
+		r = PAGE_SIZE;     /* struct kvm_run */ // page 1 for kvm_run
 #ifdef CONFIG_X86
-		r += PAGE_SIZE;    /* pio data page */
+		r += PAGE_SIZE;    /* pio data page */ // page 2 for pio
 #endif
 #ifdef CONFIG_KVM_MMIO
-		r += PAGE_SIZE;    /* coalesced mmio ring page */
+		r += PAGE_SIZE;    /* coalesced mmio ring page */ // page 2 for coalesced mmio
 #endif
 		break;
 	case KVM_TRACE_ENABLE:
@@ -4765,6 +4768,8 @@ static void check_processor_compat(void *data)
 	*c->ret = kvm_arch_check_processor_compat(c->opaque);
 }
 
+// vcpu_size: sizeof(struct vcpu_vmx)
+// size 用来创建 kmem cache
 int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 		  struct module *module)
 {
@@ -4772,7 +4777,7 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
 	int r;
 	int cpu;
 
-	r = kvm_arch_init(opaque);
+	r = kvm_arch_init(opaque); // %vmx_init_ops
 	if (r)
 		goto out_fail;
 

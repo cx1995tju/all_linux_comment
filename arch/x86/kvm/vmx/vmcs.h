@@ -66,8 +66,8 @@ struct loaded_vmcs {
 	int soft_vnmi_blocked;
 	ktime_t entry_time;
 	s64 vnmi_blocked_time;
-	unsigned long *msr_bitmap;
-	struct list_head loaded_vmcss_on_cpu_link;
+	unsigned long *msr_bitmap; // 指向一个 4KB 大小的 msr bitmap
+	struct list_head loaded_vmcss_on_cpu_link; // 用于link 到 per_cpu(loaded_vmcss_on_cpu, cpu) , %vmx_vcpu_load_vmcs
 	struct vmcs_host_state host_state;
 	struct vmcs_controls_shadow controls_shadow;
 };

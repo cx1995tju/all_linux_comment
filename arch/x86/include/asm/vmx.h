@@ -153,6 +153,22 @@ static inline int vmx_misc_mseg_revid(u64 vmx_misc)
 }
 
 /* VMCS Encodings */
+// vmcs 的 每个 field 都和一个 32b 的值关联，即这里定义的
+// 这32b 的值是有一个编码规律的
+/* 0			Access type (0 = full; 1 = high); must be full for 16-bit, 32-bit, and natural-width fields
+ * 9:1			Index
+ * 11:10		Type: 0: control; 1: VM-exit information; 2: guest state; 3: host state
+ * 12			Rsvd must be 0
+ * 14:13		Width: 0 for 16b; 1 for 64b; 2 for 32b; 3: natural-width(64 位系统是64，32位系统是32)
+ * 31:35		Rsvd must be 0
+ * */
+
+
+
+/* %MSR_LINK_POINER:
+/*	If the “VMCS shadowing” VM-execution control is 1, the VMREAD and VMWRITE */
+/*	instructions access the VMCS referenced by this pointer (see Section 24.10). Otherwise, software should set */
+/*	this field to FFFFFFFF_FFFFFFFFH to avoid VM-entry failures (see Section 26.3.1.5). */
 enum vmcs_field {
 	VIRTUAL_PROCESSOR_ID            = 0x00000000,
 	POSTED_INTR_NV                  = 0x00000002,
@@ -177,8 +193,8 @@ enum vmcs_field {
 	IO_BITMAP_A_HIGH                = 0x00002001,
 	IO_BITMAP_B                     = 0x00002002,
 	IO_BITMAP_B_HIGH                = 0x00002003,
-	MSR_BITMAP                      = 0x00002004,
-	MSR_BITMAP_HIGH                 = 0x00002005,
+	MSR_BITMAP                      = 0x00002004, // MSR_BITMAP field 写的是一个地址，地址里保存的是4KB 的 msr bitmap。控制哪些 bitmap 会产生 vm-exit, 对应的 bit 为1 才会 vm-exit, width is 64b
+	MSR_BITMAP_HIGH                 = 0x00002005, // VMWRITE / VMREAD 使用这个 作为参数的话，可以仅仅访问高32 b, 使用前面的做参数，就要访问整个 64b
 	VM_EXIT_MSR_STORE_ADDR          = 0x00002006,
 	VM_EXIT_MSR_STORE_ADDR_HIGH     = 0x00002007,
 	VM_EXIT_MSR_LOAD_ADDR           = 0x00002008,
@@ -311,7 +327,7 @@ enum vmcs_field {
 	GUEST_CR0                       = 0x00006800,
 	GUEST_CR3                       = 0x00006802,
 	GUEST_CR4                       = 0x00006804,
-	GUEST_ES_BASE                   = 0x00006806,
+	GUEST_ES_BASE                   = 0x00006806, // 各种段寄存器
 	GUEST_CS_BASE                   = 0x00006808,
 	GUEST_SS_BASE                   = 0x0000680a,
 	GUEST_DS_BASE                   = 0x0000680c,

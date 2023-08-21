@@ -48,7 +48,7 @@ SYM_FUNC_START(vmx_vmenter)
 	/* EFLAGS.ZF is set if VMCS.LAUNCHED == 0 */
 	je 2f
 
-1:	vmresume
+1:	vmresume	// here it is, 退出的时候会跳到 vmx_vmexit
 	ret
 
 2:	vmlaunch
@@ -89,7 +89,7 @@ SYM_FUNC_START(vmx_vmexit)
 	pop %_ASM_AX
 .Lvmexit_skip_rsb:
 #endif
-	ret
+	ret // refer to %vmx_vcpu_enter_exit
 SYM_FUNC_END(vmx_vmexit)
 
 /**

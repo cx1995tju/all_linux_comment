@@ -223,6 +223,7 @@ static const struct {
 #define L1D_CACHE_ORDER 4
 static void *vmx_l1d_flush_pages;
 
+// level 1 data cache
 static int vmx_setup_l1d_flush(enum vmx_l1d_flush_state l1tf)
 {
 	struct page *page;
@@ -419,7 +420,7 @@ static DEFINE_PER_CPU(struct list_head, loaded_vmcss_on_cpu);
 static DECLARE_BITMAP(vmx_vpid_bitmap, VMX_NR_VPIDS);
 static DEFINE_SPINLOCK(vmx_vpid_lock);
 
-struct vmcs_config vmcs_config;
+struct vmcs_config vmcs_config; // refer to: %vmx_check_processor_compat
 struct vmx_capability vmx_capability;
 
 #define VMX_SEGMENT_FIELD(seg)					\
@@ -726,9 +727,9 @@ static void __loaded_vmcs_clear(void *arg)
 	if (loaded_vmcs->cpu != cpu)
 		return; /* vcpu migration can race with cpu offline */
 	if (per_cpu(current_vmcs, cpu) == loaded_vmcs->vmcs)
-		per_cpu(current_vmcs, cpu) = NULL;
+		per_cpu(current_vmcs, cpu) = NULL; // 软件上将 vmcs 和 当前 cpu 的关系断开
 
-	vmcs_clear(loaded_vmcs->vmcs);
+	vmcs_clear(loaded_vmcs->vmcs); // 调用 vmclear 指令, cpu 解除和当前 vmcs 的关系
 	if (loaded_vmcs->shadow_vmcs && loaded_vmcs->launched)
 		vmcs_clear(loaded_vmcs->shadow_vmcs);
 
@@ -752,7 +753,7 @@ void loaded_vmcs_clear(struct loaded_vmcs *loaded_vmcs)
 	int cpu = loaded_vmcs->cpu;
 
 	if (cpu != -1)
-		smp_call_function_single(cpu,
+		smp_call_function_single(cpu, // 在其 loaded 的 cpu 上 run 一下 __loaded_vmcs_clear
 			 __loaded_vmcs_clear, loaded_vmcs, 1);
 }
 
@@ -1195,7 +1196,7 @@ void vmx_set_host_fs_gs(struct vmcs_host_state *host, u16 fs_sel, u16 gs_sel,
 void vmx_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	struct vmcs_host_state *host_state;
+	struct vmcs_host_state *host_state; // 为进入 non-root 做准备，主要是保存 host 状态
 #ifdef CONFIG_X86_64
 	int cpu = raw_smp_processor_id();
 #endif
@@ -1234,7 +1235,7 @@ void vmx_prepare_switch_to_guest(struct kvm_vcpu *vcpu)
 	host_state->ldt_sel = kvm_read_ldt();
 
 #ifdef CONFIG_X86_64
-	savesegment(ds, host_state->ds_sel);
+	savesegment(ds, host_state->ds_sel); // ds 寄存器保存到 host_state 的 ds_sel 中
 	savesegment(es, host_state->es_sel);
 
 	gs_base = cpu_kernelmode_gs_base(cpu);
@@ -1326,11 +1327,11 @@ void vmx_vcpu_load_vmcs(struct kvm_vcpu *vcpu, int cpu,
 			struct loaded_vmcs *buddy)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
-	bool already_loaded = vmx->loaded_vmcs->cpu == cpu;
+	bool already_loaded = vmx->loaded_vmcs->cpu == cpu; // %alloc_loaded_vmcs, 初始 cpu 为 -1
 	struct vmcs *prev;
 
-	if (!already_loaded) {
-		loaded_vmcs_clear(vmx->loaded_vmcs);
+	if (!already_loaded) { // vmx 这个 vcpu 之前是绑定在别的 cpu 上，或者说没有绑定。 需要做一下迁移
+		loaded_vmcs_clear(vmx->loaded_vmcs); // 第一次进入的时候，cpu == -1, 这里就是一个空函数
 		local_irq_disable();
 
 		/*
@@ -1346,10 +1347,10 @@ void vmx_vcpu_load_vmcs(struct kvm_vcpu *vcpu, int cpu,
 		local_irq_enable();
 	}
 
-	prev = per_cpu(current_vmcs, cpu);
-	if (prev != vmx->loaded_vmcs->vmcs) {
+	prev = per_cpu(current_vmcs, cpu); // 这个 cpu 之前 run 的 vmcs
+	if (prev != vmx->loaded_vmcs->vmcs) { // 这个 cpu 上之前的 vmcs 不是这个, 需要在软硬件层面建立一下连接
 		per_cpu(current_vmcs, cpu) = vmx->loaded_vmcs->vmcs;
-		vmcs_load(vmx->loaded_vmcs->vmcs);
+		vmcs_load(vmx->loaded_vmcs->vmcs); // 当前 cpu 加载下 vmcs
 
 		/*
 		 * No indirect branch prediction barrier needed when switching
@@ -1360,7 +1361,7 @@ void vmx_vcpu_load_vmcs(struct kvm_vcpu *vcpu, int cpu,
 			indirect_branch_prediction_barrier();
 	}
 
-	if (!already_loaded) {
+	if (!already_loaded) { // vcpu 的迁移还需要做一些 arch-spec 的工作
 		void *gdt = get_current_gdt_ro();
 		unsigned long sysenter_esp;
 
@@ -2548,7 +2549,7 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	if (((vmx_msr_high >> 18) & 15) != 6)
 		return -EIO;
 
-	vmcs_conf->size = vmx_msr_high & 0x1fff;
+	vmcs_conf->size = vmx_msr_high & 0x1fff; // msr 寄存器里拿到的 vmcs size
 	vmcs_conf->order = get_order(vmcs_conf->size);
 	vmcs_conf->basic_cap = vmx_msr_high & ~0x1fff;
 
@@ -2574,14 +2575,14 @@ struct vmcs *alloc_vmcs_cpu(bool shadow, int cpu, gfp_t flags)
 	struct page *pages;
 	struct vmcs *vmcs;
 
-	pages = __alloc_pages_node(node, flags, vmcs_config.order);
+	pages = __alloc_pages_node(node, flags, vmcs_config.order); // 分配一个 page, 从对应 cpu 的node 上分配
 	if (!pages)
 		return NULL;
 	vmcs = page_address(pages);
-	memset(vmcs, 0, vmcs_config.size);
+	memset(vmcs, 0, vmcs_config.size); // vmcs 全部 set 0
 
 	/* KVM supports Enlightened VMCS v1 only */
-	if (static_branch_unlikely(&enable_evmcs))
+	if (static_branch_unlikely(&enable_evmcs)) // spec 规定，需要设置一下这个版本号
 		vmcs->hdr.revision_id = KVM_EVMCS_VERSION;
 	else
 		vmcs->hdr.revision_id = vmcs_config.revision_id;
@@ -2613,11 +2614,11 @@ void free_loaded_vmcs(struct loaded_vmcs *loaded_vmcs)
 
 int alloc_loaded_vmcs(struct loaded_vmcs *loaded_vmcs)
 {
-	loaded_vmcs->vmcs = alloc_vmcs(false);
+	loaded_vmcs->vmcs = alloc_vmcs(false); // 先分配
 	if (!loaded_vmcs->vmcs)
 		return -ENOMEM;
 
-	vmcs_clear(loaded_vmcs->vmcs);
+	vmcs_clear(loaded_vmcs->vmcs); // 分配完，按照硬件的 spec 需要clear 一下
 
 	loaded_vmcs->shadow_vmcs = NULL;
 	loaded_vmcs->hv_timer_soft_disabled = false;
@@ -2629,7 +2630,7 @@ int alloc_loaded_vmcs(struct loaded_vmcs *loaded_vmcs)
 				__get_free_page(GFP_KERNEL_ACCOUNT);
 		if (!loaded_vmcs->msr_bitmap)
 			goto out_vmcs;
-		memset(loaded_vmcs->msr_bitmap, 0xff, PAGE_SIZE);
+		memset(loaded_vmcs->msr_bitmap, 0xff, PAGE_SIZE); // 初始化为全1，这样所有的msr 访问都会 vm-exit
 
 		if (IS_ENABLED(CONFIG_HYPERV) &&
 		    static_branch_unlikely(&enable_evmcs) &&
@@ -2685,10 +2686,10 @@ static __init int alloc_kvm_area(void)
 		 * still be marked with revision_id reported by
 		 * physical CPU.
 		 */
-		if (static_branch_unlikely(&enable_evmcs))
+		if (static_branch_unlikely(&enable_evmcs)) 
 			vmcs->hdr.revision_id = vmcs_config.revision_id;
 
-		per_cpu(vmxarea, cpu) = vmcs;
+		per_cpu(vmxarea, cpu) = vmcs; // 这里分配的 vmcs 是 vmxon 指令的时候需要使用 %kvm_cpu_vmxon。创建 vcpu 的时候，也会分配对应的 vmcs 的
 	}
 	return 0;
 }
@@ -4290,18 +4291,20 @@ static void ept_set_mmio_spte_mask(void)
  * Noting that the initialization of Guest-state Area of VMCS is in
  * vmx_vcpu_reset().
  */
+
+// 照着 spec 的规定，write 就是了
 static void init_vmcs(struct vcpu_vmx *vmx)
 {
 	if (nested)
 		nested_vmx_set_vmcs_shadowing_bitmap();
 
 	if (cpu_has_vmx_msr_bitmap())
-		vmcs_write64(MSR_BITMAP, __pa(vmx->vmcs01.msr_bitmap));
+		vmcs_write64(MSR_BITMAP, __pa(vmx->vmcs01.msr_bitmap)); // alloc_loaded_vmcs() 的时候分配了一个 page
 
 	vmcs_write64(VMCS_LINK_POINTER, -1ull); /* 22.3.1.5 */
 
 	/* Control */
-	pin_controls_set(vmx, vmx_pin_based_exec_ctrl(vmx));
+	pin_controls_set(vmx, vmx_pin_based_exec_ctrl(vmx)); // 控制一些异步事件的处理
 
 	exec_controls_set(vmx, vmx_exec_control(vmx));
 
@@ -6585,7 +6588,7 @@ static fastpath_t vmx_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
 {
 	switch (to_vmx(vcpu)->exit_reason) {
 	case EXIT_REASON_MSR_WRITE:
-		return handle_fastpath_set_msr_irqoff(vcpu);
+		return handle_fastpath_set_msr_irqoff(vcpu); // msr write kvm。自己就处理了，qemu 已经将相关信息，注册到了 kvm 中
 	case EXIT_REASON_PREEMPTION_TIMER:
 		return handle_fastpath_preemption_timer(vcpu);
 	default:
@@ -6593,7 +6596,7 @@ static fastpath_t vmx_exit_handlers_fastpath(struct kvm_vcpu *vcpu)
 	}
 }
 
-bool __vmx_vcpu_run(struct vcpu_vmx *vmx, unsigned long *regs, bool launched);
+bool __vmx_vcpu_run(struct vcpu_vmx *vmx, unsigned long *regs, bool launched); // vmenter.S
 
 static noinstr void vmx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 					struct vcpu_vmx *vmx)
@@ -6627,6 +6630,7 @@ static noinstr void vmx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 	if (vcpu->arch.cr2 != native_read_cr2())
 		native_write_cr2(vcpu->arch.cr2);
 
+	// vmx_vmexit 中会执行 ret 指令，然后就相当于这个函数退出了
 	vmx->fail = __vmx_vcpu_run(vmx, (unsigned long *)&vcpu->arch.regs,
 				   vmx->loaded_vmcs->launched);
 
@@ -6683,7 +6687,7 @@ reenter_guest:
 	if (kvm_register_is_dirty(vcpu, VCPU_REGS_RSP))
 		vmcs_writel(GUEST_RSP, vcpu->arch.regs[VCPU_REGS_RSP]);
 	if (kvm_register_is_dirty(vcpu, VCPU_REGS_RIP))
-		vmcs_writel(GUEST_RIP, vcpu->arch.regs[VCPU_REGS_RIP]);
+		vmcs_writel(GUEST_RIP, vcpu->arch.regs[VCPU_REGS_RIP]); // 核心, 这里设置了 RIP, 进入后，从这里开始执行
 
 	cr3 = __get_current_cr3_fast();
 	if (unlikely(cr3 != vmx->loaded_vmcs->host_state.cr3)) {
@@ -6725,7 +6729,7 @@ reenter_guest:
 	x86_spec_ctrl_set_guest(vmx->spec_ctrl, 0);
 
 	/* The actual VMENTER/EXIT is in the .noinstr.text section. */
-	vmx_vcpu_enter_exit(vcpu, vmx);
+	vmx_vcpu_enter_exit(vcpu, vmx);	// 这里, vmcs 的进入与退出都是这里, refer to: %vmx_set_constant_host_state, %vmenter.S:vmx_vmexit, 
 
 	/*
 	 * We do not use IBRS in the kernel. If this vCPU has used the
@@ -6786,7 +6790,7 @@ reenter_guest:
 		return EXIT_FASTPATH_NONE;
 	}
 
-	vmx->exit_reason = vmcs_read32(VM_EXIT_REASON);
+	vmx->exit_reason = vmcs_read32(VM_EXIT_REASON); // 读取出 vcpu 退出的原因
 	if (unlikely((u16)vmx->exit_reason == EXIT_REASON_MCE_DURING_VMENTRY))
 		kvm_machine_check();
 
@@ -6804,7 +6808,7 @@ reenter_guest:
 	if (is_guest_mode(vcpu))
 		return EXIT_FASTPATH_NONE;
 
-	exit_fastpath = vmx_exit_handlers_fastpath(vcpu);
+	exit_fastpath = vmx_exit_handlers_fastpath(vcpu); // 处理 vm-exit 的快速路径, 这里处理一部分 vmexit
 	if (exit_fastpath == EXIT_FASTPATH_REENTER_GUEST) {
 		if (!kvm_vcpu_exit_request(vcpu)) {
 			/*
@@ -6833,6 +6837,7 @@ static void vmx_free_vcpu(struct kvm_vcpu *vcpu)
 	free_loaded_vmcs(vmx->loaded_vmcs);
 }
 
+// vmcs 相关了
 static int vmx_create_vcpu(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx;
@@ -6843,7 +6848,7 @@ static int vmx_create_vcpu(struct kvm_vcpu *vcpu)
 
 	err = -ENOMEM;
 
-	vmx->vpid = allocate_vpid();
+	vmx->vpid = allocate_vpid(); // ept 中需要使用
 
 	/*
 	 * If PML is turned on, failure on enabling PML just results in failure
@@ -6851,7 +6856,7 @@ static int vmx_create_vcpu(struct kvm_vcpu *vcpu)
 	 * avoiding dealing with cases, such as enabling PML partially on vcpus
 	 * for the guest), etc.
 	 */
-	if (enable_pml) {
+	if (enable_pml) { // page modification logging, 热迁移的时候使用。在硬件层面做脏页标记
 		vmx->pml_pg = alloc_page(GFP_KERNEL_ACCOUNT | __GFP_ZERO);
 		if (!vmx->pml_pg)
 			goto free_vpid;
@@ -6887,7 +6892,7 @@ static int vmx_create_vcpu(struct kvm_vcpu *vcpu)
 		++vmx->nr_uret_msrs;
 	}
 
-	err = alloc_loaded_vmcs(&vmx->vmcs01);
+	err = alloc_loaded_vmcs(&vmx->vmcs01); //  分配 vmcs
 	if (err < 0)
 		goto free_pml;
 
@@ -6912,9 +6917,9 @@ static int vmx_create_vcpu(struct kvm_vcpu *vcpu)
 
 	vmx->loaded_vmcs = &vmx->vmcs01;
 	cpu = get_cpu();
-	vmx_vcpu_load(vcpu, cpu);
+	vmx_vcpu_load(vcpu, cpu); // 设置 vmcs，按照 spec，这里需要load 一下
 	vcpu->cpu = cpu;
-	init_vmcs(vmx);
+	init_vmcs(vmx); // 按照 spec 的说法，这里需要 vmwrite vmcs
 	vmx_vcpu_put(vcpu);
 	put_cpu();
 	if (cpu_need_virtualize_apic_accesses(vcpu)) {
