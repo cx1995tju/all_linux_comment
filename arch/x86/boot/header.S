@@ -25,7 +25,7 @@
 #include "voffset.h"
 #include "zoffset.h"
 
-BOOTSEG		= 0x07C0		/* original address of boot-sector */ //注意需要 << 4, 即 0x7c00 // boot loader entry point
+BOOTSEG		= 0x07C0		/* original address of boot-sector */ //注意需要 << 4, 即 0x7c00, 0x7c00 是加载 boot loader 的地方
 SYSSEG		= 0x1000		/* historical load address >> 4 */ //同上，0x10000, header.S 一般加载到这个位置
 
 #ifndef SVGA_MODE
@@ -40,17 +40,17 @@ SYSSEG		= 0x1000		/* historical load address >> 4 */ //同上，0x10000, header.
 	.section ".bstext", "ax"
 
 	.global bootsect_start
-bootsect_start:				# vmlinux 第一个512Bytes代码开始位置, 一般会加载到0x10000 位置
+bootsect_start:
 #ifdef CONFIG_EFI_STUB
 	# "MZ", MS-DOS header
-	.word	MZ_MAGIC  # 会加载到0x10000位置
+	.word	MZ_MAGIC
 #endif
 
-	# Normalize the start address
-	ljmp	$BOOTSEG, $start2 # 跳到start2
+	# Normalize the start address, 为了设置下 CS 寄存器, CS <- $BOOTSEG, IP <- $start2
+	ljmp	$BOOTSEG, $start2 # 跳到start2, Linux早期自带的 boot loader
 
 start2:
-	movw	%cs, %ax # 此时cs应该是0x07c0
+	movw	%cs, %ax # 此时cs应该是0x07c0, 见前文的 ljmp 指令
 	movw	%ax, %ds
 	movw	%ax, %es
 	movw	%ax, %ss
@@ -95,7 +95,7 @@ bugger_off_msg:
 	.byte	0
 
 #ifdef CONFIG_EFI_STUB
-pe_header:
+pe_header: // 这部分是为了支持 UEFI boot，将 CS 设置为了 0x07c0
 	.long	PE_MAGIC
 
 coff_header:
@@ -581,7 +581,7 @@ kernel_info_offset:	.long 0			# Filled in by build.c
 # End of setup header #####################################################
 
 	.section ".entrytext", "ax"
-start_of_setup:
+start_of_setup:		// kenerl 真正开始的位置
 # Force %es = %ds
 	movw	%ds, %ax
 	movw	%ax, %es

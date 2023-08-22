@@ -183,6 +183,7 @@ sectors (1K) and then examine the bootup sector size.
 
 The header looks like:
 
+// 这里的 offset 指的是从header.S 开头位置开始计算，即 "MZ" magic num 位置
 ===========	========	=====================	============================================
 Offset/Size	Proto		Name			Meaning
 ===========	========	=====================	============================================
