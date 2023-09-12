@@ -59,7 +59,7 @@ struct kvm_lapic {
 	 * the guest 1:1, because it is accessed by the vmx microcode.
 	 * Note: Only one register, the TPR, is used by the microcode.
 	 */
-	void *regs;
+	void *regs; // 硬件直接模拟 APIC 的时候，需要的信息
 	gpa_t vapic_addr;
 	struct gfn_to_hva_cache vapic_cache;
 	unsigned long pending_events;

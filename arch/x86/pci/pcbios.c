@@ -421,7 +421,7 @@ EXPORT_SYMBOL(pcibios_set_irq_routing);
 
 void __init pci_pcbios_init(void)
 {
-	if ((pci_probe & PCI_PROBE_BIOS)  //这里表示会使用BIOS的枚举结果, 默认值会使用
+	if ((pci_probe & PCI_PROBE_BIOS)  //这里表示会使用BIOS的枚举结果, 默认值会使用。当然前提是编译的时候开启了 CONFIG_PCI_BIOS 选项，默认是不会开启的, 即默认情况下，不会链接这个函数的
 		&& ((raw_pci_ops = pci_find_bios()))) {
 		pci_bios_present = 1;
 	}

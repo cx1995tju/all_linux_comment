@@ -47,7 +47,7 @@ bootsect_start:
 #endif
 
 	# Normalize the start address, 为了设置下 CS 寄存器, CS <- $BOOTSEG, IP <- $start2
-	ljmp	$BOOTSEG, $start2 # 跳到start2, Linux早期自带的 boot loader
+	ljmp	$BOOTSEG, $start2 # 跳到start2, Linux早期自带的 boot loader, grub 场景下不会执行这部分代码了
 
 start2:
 	movw	%cs, %ax # 此时cs应该是0x07c0, 见前文的 ljmp 指令
@@ -616,7 +616,7 @@ start_of_setup:		// kenerl 真正开始的位置
 
 # We will have entered with %cs = %ds+0x20, normalize %cs so
 # it is on par with the other segments.
-	pushw	%ds
+	pushw	%ds // which pushes the value of ds to the stack, followed by the address of the 6 label and executes the lretw instruction. When the lretw instruction is called, it loads the address of label 6 into the instruction pointer register and loads cs with the value of ds. Afterward, ds and cs will have the same values.
 	pushw	$6f
 	lretw
 6:

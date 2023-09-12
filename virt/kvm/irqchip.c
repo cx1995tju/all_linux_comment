@@ -86,7 +86,7 @@ int kvm_set_irq(struct kvm *kvm, int irq_source_id, u32 irq, int level,
 
 	while (i--) {
 		int r;
-		r = irq_set[i].set(&irq_set[i], kvm, irq_source_id, level,
+		r = irq_set[i].set(&irq_set[i], kvm, irq_source_id, level, // 根据模拟的中断芯片来做一些设置
 				   line_status);
 		if (r < 0)
 			continue;
@@ -166,6 +166,10 @@ bool __weak kvm_arch_can_set_irq_routing(struct kvm *kvm)
 	return true;
 }
 
+
+// 根据 kvm_irq_routing_entry 结构，构造 kvm_kernel_irq_routing_entry 结构
+// 不同的中断源会记录下不同的信息，设置不同的中断注入callback函数
+// 最终构建的这些信息保存到 kvm->irq_routing 中
 int kvm_set_irq_routing(struct kvm *kvm,
 			const struct kvm_irq_routing_entry *ue,
 			unsigned nr,
@@ -201,7 +205,7 @@ int kvm_set_irq_routing(struct kvm *kvm,
 
 		r = -EINVAL;
 		switch (ue->type) {
-		case KVM_IRQ_ROUTING_MSI:
+		case KVM_IRQ_ROUTING_MSI: // 中断路由和 msi 中断没有关系。这里退出
 			if (ue->flags & ~KVM_MSI_VALID_DEVID)
 				goto free_entry;
 			break;

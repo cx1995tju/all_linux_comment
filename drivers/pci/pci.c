@@ -1950,6 +1950,7 @@ EXPORT_SYMBOL(pci_enable_device_mem);
  * this function repeatedly (we just increment the count).
  */
 //这里是在probe的时候初始化，枚举已经完成了
+//按照 pci spec 的固定，操作 bar 空间，enable device
 int pci_enable_device(struct pci_dev *dev)
 {
 	return pci_enable_device_flags(dev, IORESOURCE_MEM | IORESOURCE_IO);

@@ -2485,7 +2485,7 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 				&_vmexit_control) < 0)
 		return -EIO;
 
-	min = PIN_BASED_EXT_INTR_MASK | PIN_BASED_NMI_EXITING;
+	min = PIN_BASED_EXT_INTR_MASK | PIN_BASED_NMI_EXITING;	// 外部中断发生的时候要退出
 	opt = PIN_BASED_VIRTUAL_NMIS | PIN_BASED_POSTED_INTR |
 		 PIN_BASED_VMX_PREEMPTION_TIMER;
 	if (adjust_vmx_controls(min, opt, MSR_IA32_VMX_PINBASED_CTLS,
@@ -4135,7 +4135,7 @@ u32 vmx_exec_control(struct vcpu_vmx *vmx)
 	}
 	if (!enable_ept)
 		exec_control |= CPU_BASED_CR3_STORE_EXITING |
-				CPU_BASED_CR3_LOAD_EXITING  |
+				CPU_BASED_CR3_LOAD_EXITING  | // RDTSC_EXITING 是 0，没有设置为1
 				CPU_BASED_INVLPG_EXITING;
 	if (kvm_mwait_in_guest(vmx->vcpu.kvm))
 		exec_control &= ~(CPU_BASED_MWAIT_EXITING |
@@ -4461,7 +4461,7 @@ static void vmx_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		vmcs_write64(VIRTUAL_APIC_PAGE_ADDR, 0);
 		if (cpu_need_tpr_shadow(vcpu))
 			vmcs_write64(VIRTUAL_APIC_PAGE_ADDR,
-				     __pa(vcpu->arch.apic->regs));
+				     __pa(vcpu->arch.apic->regs)); // 硬件模拟 apic 的时候，需要写入这个 virtual apic page 的地址
 		vmcs_write32(TPR_THRESHOLD, 0);
 	}
 
@@ -4496,11 +4496,12 @@ static void enable_nmi_window(struct kvm_vcpu *vcpu)
 	exec_controls_setbit(to_vmx(vcpu), CPU_BASED_NMI_WINDOW_EXITING);
 }
 
+// 注入中断, 注入的本质就是写一下 vmcs，等到后续 vmcs 被调度的时候，才会发挥作用
 static void vmx_inject_irq(struct kvm_vcpu *vcpu)
 {
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	uint32_t intr;
-	int irq = vcpu->arch.interrupt.nr;
+	int irq = vcpu->arch.interrupt.nr; // 首先获取中断号, 应该是 用户态 VMM 填入的
 
 	trace_kvm_inj_virq(irq);
 
@@ -4514,12 +4515,12 @@ static void vmx_inject_irq(struct kvm_vcpu *vcpu)
 	}
 	intr = irq | INTR_INFO_VALID_MASK;
 	if (vcpu->arch.interrupt.soft) {
-		intr |= INTR_TYPE_SOFT_INTR;
+		intr |= INTR_TYPE_SOFT_INTR; // 注入异常
 		vmcs_write32(VM_ENTRY_INSTRUCTION_LEN,
 			     vmx->vcpu.arch.event_exit_inst_len);
 	} else
-		intr |= INTR_TYPE_EXT_INTR;
-	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD, intr);
+		intr |= INTR_TYPE_EXT_INTR; // 注入外部中断
+	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD, intr); // 将其写入 vmcs
 
 	vmx_clear_hlt(vcpu);
 }
@@ -4888,6 +4889,7 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 
 static __always_inline int handle_external_interrupt(struct kvm_vcpu *vcpu)
 {
+	// handle_exit_irqoff 里已经处理完了，所以这里只需要更新下统计
 	++vcpu->stat.irq_exits;
 	return 1;
 }
@@ -5323,17 +5325,17 @@ static int handle_ept_violation(struct kvm_vcpu *vcpu)
 			(exit_qualification & INTR_INFO_UNBLOCK_NMI))
 		vmcs_set_bits(GUEST_INTERRUPTIBILITY_INFO, GUEST_INTR_STATE_NMI);
 
-	gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
+	gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS); // 获取 异常的 gpa
 	trace_kvm_page_fault(gpa, exit_qualification);
 
 	/* Is it a read fault? */
 	error_code = (exit_qualification & EPT_VIOLATION_ACC_READ)
-		     ? PFERR_USER_MASK : 0;
+		     ? PFERR_USER_MASK : 0; // PF: page fault
 	/* Is it a write fault? */
 	error_code |= (exit_qualification & EPT_VIOLATION_ACC_WRITE)
 		      ? PFERR_WRITE_MASK : 0;
 	/* Is it a fetch fault? */
-	error_code |= (exit_qualification & EPT_VIOLATION_ACC_INSTR)
+	error_code |= (exit_qualification & EPT_VIOLATION_ACC_INSTR) // 取指令时ept 异常
 		      ? PFERR_FETCH_MASK : 0;
 	/* ept page table entry is present? */
 	error_code |= (exit_qualification &
@@ -6354,7 +6356,7 @@ static void vmx_apicv_post_state_restore(struct kvm_vcpu *vcpu)
 	memset(vmx->pi_desc.pir, 0, sizeof(vmx->pi_desc.pir));
 }
 
-void vmx_do_interrupt_nmi_irqoff(unsigned long entry);
+void vmx_do_interrupt_nmi_irqoff(unsigned long entry); // vmenter.S
 
 static void handle_interrupt_nmi_irqoff(struct kvm_vcpu *vcpu, u32 intr_info)
 {

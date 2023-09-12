@@ -279,6 +279,7 @@ static int vga_probe(void)
 	return mode_count[adapter];
 }
 
+// refer to: setup.ld
 static __videocard video_vga = {
 	.card_name	= "VGA",
 	.probe		= vga_probe,

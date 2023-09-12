@@ -250,6 +250,7 @@ static const struct pci_device_id pci_device_id_any = {
  * system is in its list of supported devices.  Returns the matching
  * pci_device_id structure or %NULL if there is no match.
  */
+// 用 vendor id / device id 做比较
 static const struct pci_device_id *pci_match_device(struct pci_driver *drv,
 						    struct pci_dev *dev)
 {
@@ -1598,9 +1599,9 @@ static int pci_dma_configure(struct device *dev)
 
 struct bus_type pci_bus_type = {
 	.name		= "pci",
-	.match		= pci_bus_match,
+	.match		= pci_bus_match,	// 极其重要的函数
 	.uevent		= pci_uevent,
-	.probe		= pci_device_probe,
+	.probe		= pci_device_probe, // 设备插入的时候，执行这个函数，最终执行到 driver 的 probe 函数
 	.remove		= pci_device_remove,
 	.shutdown	= pci_device_shutdown,
 	.dev_groups	= pci_dev_groups,
@@ -1645,6 +1646,7 @@ static int __init pci_driver_init(void)
 {
 	int ret;
 
+	// bus 注册咯
 	ret = bus_register(&pci_bus_type);
 	if (ret)
 		return ret;

@@ -667,7 +667,7 @@ static void kvm_ioapic_reset(struct kvm_ioapic *ioapic)
 
 	cancel_delayed_work_sync(&ioapic->eoi_inject);
 	for (i = 0; i < IOAPIC_NUM_PINS; i++)
-		ioapic->redirtbl[i].fields.mask = 1;
+		ioapic->redirtbl[i].fields.mask = 1; // ioapic 有一个 redir_tbl 表记录了 引脚和 中断向量的映射
 	ioapic->base_address = IOAPIC_DEFAULT_BASE_ADDRESS;
 	ioapic->ioregsel = 0;
 	ioapic->irr = 0;
@@ -697,7 +697,7 @@ int kvm_ioapic_init(struct kvm *kvm)
 	kvm_iodevice_init(&ioapic->dev, &ioapic_mmio_ops);
 	ioapic->kvm = kvm;
 	mutex_lock(&kvm->slots_lock);
-	ret = kvm_io_bus_register_dev(kvm, KVM_MMIO_BUS, ioapic->base_address,
+	ret = kvm_io_bus_register_dev(kvm, KVM_MMIO_BUS, ioapic->base_address, // 挂在 MMIO bus 了
 				      IOAPIC_MEM_LENGTH, &ioapic->dev);
 	mutex_unlock(&kvm->slots_lock);
 	if (ret < 0) {

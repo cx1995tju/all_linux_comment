@@ -454,7 +454,7 @@ static int vaddr_get_pfn(struct mm_struct *mm, unsigned long vaddr,
 
 	mmap_read_lock(mm);
 	ret = pin_user_pages_remote(mm, vaddr, 1, flags | FOLL_LONGTERM,
-				    page, NULL, NULL);
+				    page, NULL, NULL); // 这里面分配了 page ？？？
 	if (ret == 1) {
 		*pfn = page_to_pfn(page[0]);
 		ret = 0;
@@ -1296,6 +1296,7 @@ static bool vfio_iommu_iova_dma_valid(struct vfio_iommu *iommu,
 	return list_empty(iova);
 }
 
+// 用户传入的参数是 process va 以及 iova
 static int vfio_dma_do_map(struct vfio_iommu *iommu,
 			   struct vfio_iommu_type1_dma_map *map)
 {
@@ -1480,7 +1481,7 @@ static int vfio_iommu_replay(struct vfio_iommu *iommu,
 				size_t n = dma->iova + dma->size - iova;
 				long npage;
 
-				npage = vfio_pin_pages_remote(dma, vaddr,
+				npage = vfio_pin_pages_remote(dma, vaddr, // 将 va 对应的 phy page pin 住
 							      n >> PAGE_SHIFT,
 							      &pfn, limit);
 				if (npage <= 0) {
@@ -2983,7 +2984,7 @@ static int vfio_iommu_type1_dma_rw(void *iommu_data, dma_addr_t user_iova,
 static const struct vfio_iommu_driver_ops vfio_iommu_driver_ops_type1 = {
 	.name			= "vfio-iommu-type1",
 	.owner			= THIS_MODULE,
-	.open			= vfio_iommu_type1_open,
+	.open			= vfio_iommu_type1_open, // %vfio_ioctl_set_iommu
 	.release		= vfio_iommu_type1_release,
 	.ioctl			= vfio_iommu_type1_ioctl,
 	.attach_group		= vfio_iommu_type1_attach_group,

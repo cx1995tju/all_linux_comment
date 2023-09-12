@@ -1272,7 +1272,7 @@ int pci_irq_vector(struct pci_dev *dev, unsigned int nr)
 		struct msi_desc *entry;
 		int i = 0;
 
-		for_each_pci_msi_entry(entry, dev) {
+		for_each_pci_msi_entry(entry, dev) { // 为一个设备分配 vector 的时候，也分配了 linux irq。现在反回去就可以了。等到中断触发的时候，linux geneirc handler 通过 vector 以及这个 entry 又可以拿到 irq 的。就可以从 irq_desc 中找到 request_irq() 注册的 handler 了。
 			if (i == nr)
 				return entry->irq;
 			i++;

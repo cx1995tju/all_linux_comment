@@ -36,7 +36,10 @@ static void copy_boot_params(void)
 		(const struct old_cmdline *)OLD_CL_ADDRESS;
 
 	BUILD_BUG_ON(sizeof(boot_params) != 4096);
-	memcpy(&boot_params.hdr, &hdr, sizeof(hdr));
+	// struct setup_header hdr
+	// refer to: arch/x86/boot/copy.S
+	// sizeof(hdr) 怎么来的???
+	memcpy(&boot_params.hdr, &hdr, sizeof(hdr)); // refer to: arch/x86/boot/header.S, 就是从 vmlinuz 中提取出的 header.S
 
 	if (!boot_params.hdr.cmd_line_ptr &&
 	    oldcmd->cl_magic == OLD_CL_MAGIC) {
@@ -107,8 +110,8 @@ static void set_bios_mode(void)
 
 	initregs(&ireg);
 	ireg.ax = 0xec00;
-	ireg.bx = 2;
-	intcall(0x15, &ireg, NULL);
+	ireg.bx = 2; // 告诉 bios，要用 long mode:  https://en.wikipedia.org/wiki/Long_mode
+	intcall(0x15, &ireg, NULL); // 会执行 bios 的int 15 中断
 #endif
 }
 
@@ -117,13 +120,13 @@ static void init_heap(void)
 	char *stack_end;
 
 	if (boot_params.hdr.loadflags & CAN_USE_HEAP) {
-		asm("leal %P1(%%esp),%0"
-		    : "=r" (stack_end) : "i" (-STACK_SIZE));
+		asm("leal %P1(%%esp),%0"			// esp - STACK_SIZE 的值，赋给 stack_end 变量
+		    : "=r" (stack_end) : "i" (-STACK_SIZE)); // 增长了 1kB 的栈空间
 
 		heap_end = (char *)
-			((size_t)boot_params.hdr.heap_end_ptr + 0x200);
+			((size_t)boot_params.hdr.heap_end_ptr + 0x200); // refer to boot.rst
 		if (heap_end > stack_end)
-			heap_end = stack_end;
+			heap_end = stack_end; // 避免 heap 比 stack 地址更大
 	} else {
 		/* Boot protocol 2.00 only, no heap available */
 		puts("WARNING: Ancient bootloader, some functionality "
@@ -133,6 +136,7 @@ static void init_heap(void)
 
 void main(void)
 {
+	// 利用 bios 提供的 int handler，获取很多信息
 	/* First, copy the boot header into the "zeropage" */
 	copy_boot_params();
 
@@ -161,20 +165,23 @@ void main(void)
 	keyboard_init();
 
 	/* Query Intel SpeedStep (IST) information */
+	// https://en.wikipedia.org/wiki/SpeedStep
 	query_ist();
 
 	/* Query APM information */
 #if defined(CONFIG_APM) || defined(CONFIG_APM_MODULE)
-	query_apm_bios();
+	query_apm_bios(); // https://en.wikipedia.org/wiki/Advanced_Power_Management , 后来被 acpi 取代了
 #endif
 
-	/* Query EDD information */
+	/* Query EDD information */ // enhanced disk drive
 #if defined(CONFIG_EDD) || defined(CONFIG_EDD_MODULE)
 	query_edd();
 #endif
 
 	/* Set the video mode */
 	set_video();
+
+	// 前面的代码都是在 real-mode 执行的
 
 	/* Do the last things and invoke protected mode */
 	go_to_protected_mode();

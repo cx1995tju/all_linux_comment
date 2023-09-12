@@ -93,7 +93,7 @@ struct vfio_group {
 struct vfio_device {
 	struct kref			kref;
 	struct device			*dev;
-	const struct vfio_device_ops	*ops;
+	const struct vfio_device_ops	*ops; // % vfio_pci_ops
 	struct vfio_group		*group;
 	struct list_head		group_next;
 	void				*device_data;
@@ -339,13 +339,13 @@ static struct vfio_group *vfio_create_group(struct iommu_group *iommu_group)
 	atomic_set(&group->container_users, 0);
 	atomic_set(&group->opened, 0);
 	init_waitqueue_head(&group->container_q);
-	group->iommu_group = iommu_group;
+	group->iommu_group = iommu_group; // vfio_group 需要和一个 iommu_group 关联到一起的
 #ifdef CONFIG_VFIO_NOIOMMU
 	group->noiommu = (iommu_group_get_iommudata(iommu_group) == &noiommu);
 #endif
 	BLOCKING_INIT_NOTIFIER_HEAD(&group->notifier);
 
-	group->nb.notifier_call = vfio_iommu_group_notifier;
+	group->nb.notifier_call = vfio_iommu_group_notifier; // 重点
 
 	/*
 	 * blocking notifiers acquire a rwsem around registering and hold
@@ -354,7 +354,7 @@ static struct vfio_group *vfio_create_group(struct iommu_group *iommu_group)
 	 * do anything unless it can find the group in vfio.group_list, so
 	 * no harm in registering early.
 	 */
-	ret = iommu_group_register_notifier(iommu_group, &group->nb);
+	ret = iommu_group_register_notifier(iommu_group, &group->nb); // 这个 iommu_group 上注册了一个 vfio-group 的 notifier，这样，如果 iommu_group 上又什么事件发生的时候，vfio_group 也可以感知到, refer to: %iommu_group_add_device
 	if (ret) {
 		kfree(group);
 		return ERR_PTR(ret);
@@ -377,6 +377,7 @@ static struct vfio_group *vfio_create_group(struct iommu_group *iommu_group)
 		return ERR_PTR(minor);
 	}
 
+	// 创建一个 /dev/vfio/${group_id} 作为用户态的接口
 	dev = device_create(vfio.class, NULL,
 			    MKDEV(MAJOR(vfio.group_devt), minor),
 			    group, "%s%d", group->noiommu ? "noiommu-" : "",
@@ -802,7 +803,7 @@ static int vfio_iommu_group_notifier(struct notifier_block *nb,
  * VFIO driver API
  */
 int vfio_add_group_dev(struct device *dev,
-		       const struct vfio_device_ops *ops, void *device_data)
+		       const struct vfio_device_ops *ops, void *device_data) // device_data: %vfio_pci_device 
 {
 	struct iommu_group *iommu_group;
 	struct vfio_group *group;
@@ -813,13 +814,13 @@ int vfio_add_group_dev(struct device *dev,
 		return -EINVAL;
 
 	group = vfio_group_get_from_iommu(iommu_group);
-	if (!group) {
+	if (!group) { // iommu_group 还没有关联一个 vfio_group
 		group = vfio_create_group(iommu_group);
 		if (IS_ERR(group)) {
 			iommu_group_put(iommu_group);
 			return PTR_ERR(group);
 		}
-	} else {
+	} else { // 底层的 iommu_group 已经和一个 vfio group 关联起来了。一个 group 里可能对应多个设备。只有第一次添加设备的时候会创建group，后续直接使用就可以了
 		/*
 		 * A found vfio_group already holds a reference to the
 		 * iommu_group.  A created vfio_group keeps the reference.
@@ -827,8 +828,8 @@ int vfio_add_group_dev(struct device *dev,
 		iommu_group_put(iommu_group);
 	}
 
-	device = vfio_group_get_device(group, dev);
-	if (device) {
+	device = vfio_group_get_device(group, dev); // 从 iommu_group 里拿到 vfio_device
+	if (device) { // 拿到了说明不正常
 		dev_WARN(dev, "Device already exists on group %d\n",
 			 iommu_group_id(iommu_group));
 		vfio_device_put(device);
@@ -836,7 +837,8 @@ int vfio_add_group_dev(struct device *dev,
 		return -EBUSY;
 	}
 
-	device = vfio_group_create_device(group, dev, ops, device_data);
+	// 没有拿到才是正常的，需要为该dev 创建 vfio_device device
+	device = vfio_group_create_device(group, dev, ops, device_data); // 简单的结构创建，并和 vfio_group group 互相建立关系
 	if (IS_ERR(device)) {
 		vfio_group_put(group);
 		return PTR_ERR(device);
@@ -886,7 +888,7 @@ static struct vfio_device *vfio_device_get_from_name(struct vfio_group *group,
 		int ret;
 
 		if (it->ops->match) {
-			ret = it->ops->match(it->device_data, buf);
+			ret = it->ops->match(it->device_data, buf); // %vfio_pci_match
 			if (ret < 0) {
 				device = ERR_PTR(ret);
 				break;
@@ -1449,7 +1451,7 @@ static int vfio_group_get_device_fd(struct vfio_group *group, char *buf)
 	if (IS_ERR(device))
 		return PTR_ERR(device);
 
-	ret = device->ops->open(device->device_data);
+	ret = device->ops->open(device->device_data); // %vfio_pci_open
 	if (ret) {
 		vfio_device_put(device);
 		return ret;
@@ -1467,7 +1469,7 @@ static int vfio_group_get_device_fd(struct vfio_group *group, char *buf)
 	}
 
 	filep = anon_inode_getfile("[vfio-device]", &vfio_device_fops,
-				   device, O_RDWR);
+				   device, O_RDWR); // device 作为了 file 的 priv 了
 	if (IS_ERR(filep)) {
 		put_unused_fd(ret);
 		ret = PTR_ERR(filep);
@@ -1548,7 +1550,7 @@ static long vfio_group_fops_unl_ioctl(struct file *filep,
 	{
 		char *buf;
 
-		buf = strndup_user((const char __user *)arg, PAGE_SIZE);
+		buf = strndup_user((const char __user *)arg, PAGE_SIZE); // 参数就是 name 咯, 譬如：BDF
 		if (IS_ERR(buf))
 			return PTR_ERR(buf);
 
@@ -1681,6 +1683,8 @@ static int vfio_device_fops_mmap(struct file *filep, struct vm_area_struct *vma)
 	return device->ops->mmap(device->device_data, vma);
 }
 
+// refer to:  vfio_device_fops
+// file 的 private 会指向 vfio_device 结构, 进而可以找到这个 op
 static const struct file_operations vfio_device_fops = {
 	.owner		= THIS_MODULE,
 	.release	= vfio_device_fops_release,

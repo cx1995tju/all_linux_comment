@@ -678,7 +678,7 @@ files are there, and which are missing.
  ide          Directory containing info about the IDE subsystem
  interrupts   Interrupt usage
  iomem 	      Memory map					(2.4)
- ioports      I/O port usage
+ ioports      I/O port usage                                                            // https://bochs.sourceforge.io/techspec/PORTS.LST  
  irq 	      Masks for irq to cpu affinity			(2.4)(smp?)
  isapnp       ISA PnP (Plug&Play) Info				(2.4)
  kcore        Kernel core image (can be ELF or A.OUT(deprecated in 2.4))

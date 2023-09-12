@@ -20,6 +20,7 @@
 
 /*
  * void protected_mode_jump(u32 entrypoint, u32 bootparams);
+ x86/boot/pm.c
  */
 SYM_FUNC_START_NOALIGN(protected_mode_jump)
 	movl	%edx, %esi		# Pointer to boot_params table
@@ -35,11 +36,11 @@ SYM_FUNC_START_NOALIGN(protected_mode_jump)
 	movw	$__BOOT_TSS, %di
 
 	movl	%cr0, %edx
-	orb	$X86_CR0_PE, %dl	# Protected mode
+	orb	$X86_CR0_PE, %dl	# Protected mode // 开启保护模式了, _Here it is_
 	movl	%edx, %cr0
 
 	# Transition to 32-bit mode
-	.byte	0x66, 0xea		# ljmpl opcode
+	.byte	0x66, 0xea		# ljmpl opcode, 这里有一个 long jump
 2:	.long	.Lin_pm32		# offset
 	.word	__BOOT_CS		# segment
 SYM_FUNC_END(protected_mode_jump)
@@ -71,5 +72,5 @@ SYM_FUNC_START_LOCAL_NOALIGN(.Lin_pm32)
 	# Set up LDTR to make Intel VT happy
 	lldt	%cx
 
-	jmpl	*%eax			# Jump to the 32-bit entrypoint
+	jmpl	*%eax			# Jump to the 32-bit entrypoint, code32_start, 默认就是 0x100000 位置 2^20 = 1MB. refer to x86/boot.rst
 SYM_FUNC_END(.Lin_pm32)

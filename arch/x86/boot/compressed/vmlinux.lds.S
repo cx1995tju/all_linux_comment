@@ -21,10 +21,10 @@ SECTIONS
 	/* Be careful parts of head_64.S assume startup_32 is at
 	 * address 0.
 	 */
-	. = 0;
+	. = 0; 	// 用于设置当前地址，此处说明将当前地址设置为0。 . 是一个特殊变量，表示当前地址
 	.head.text : {
 		_head = . ;
-		HEAD_TEXT
+		HEAD_TEXT	// refer to asm-generic/vmlinux.lds.h
 		_ehead = . ;
 	}
 	.rodata..compressed : {

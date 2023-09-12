@@ -289,7 +289,7 @@ int kvm_set_routing_entry(struct kvm *kvm,
 		case KVM_IRQCHIP_PIC_MASTER:
 			if (ue->u.irqchip.pin >= PIC_NUM_PINS / 2)
 				return -EINVAL;
-			e->set = kvm_set_pic_irq;
+			e->set = kvm_set_pic_irq; // 不同类型的中断有不同类型的 中断注入函数
 			break;
 		case KVM_IRQCHIP_IOAPIC:
 			if (ue->u.irqchip.pin >= KVM_IOAPIC_NUM_PINS)
@@ -351,15 +351,17 @@ EXPORT_SYMBOL_GPL(kvm_intr_is_single_vcpu);
 
 #define IOAPIC_ROUTING_ENTRY(irq) \
 	{ .gsi = irq, .type = KVM_IRQ_ROUTING_IRQCHIP,	\
-	  .u.irqchip = { .irqchip = KVM_IRQCHIP_IOAPIC, .pin = (irq) } }
+	  .u.irqchip = { .irqchip = KVM_IRQCHIP_IOAPIC, .pin = (irq) } } // 对于 IOAPIC 来说，gsi 号就是 irq，也就是引脚号
 #define ROUTING_ENTRY1(irq) IOAPIC_ROUTING_ENTRY(irq)
 
 #define PIC_ROUTING_ENTRY(irq) \
 	{ .gsi = irq, .type = KVM_IRQ_ROUTING_IRQCHIP,	\
-	  .u.irqchip = { .irqchip = SELECT_PIC(irq), .pin = (irq) % 8 } }
+	  .u.irqchip = { .irqchip = SELECT_PIC(irq), .pin = (irq) % 8 } } // PIC 只有 8 个引脚，所以要 %8
 #define ROUTING_ENTRY2(irq) \
 	IOAPIC_ROUTING_ENTRY(irq), PIC_ROUTING_ENTRY(irq)
 
+// 这里 只涉及 master pic，slave pic，ioapic 的中断引脚
+// 没有 msi 中断的事情
 static const struct kvm_irq_routing_entry default_routing[] = {
 	ROUTING_ENTRY2(0), ROUTING_ENTRY2(1),
 	ROUTING_ENTRY2(2), ROUTING_ENTRY2(3),
@@ -368,13 +370,15 @@ static const struct kvm_irq_routing_entry default_routing[] = {
 	ROUTING_ENTRY2(8), ROUTING_ENTRY2(9),
 	ROUTING_ENTRY2(10), ROUTING_ENTRY2(11),
 	ROUTING_ENTRY2(12), ROUTING_ENTRY2(13),
-	ROUTING_ENTRY2(14), ROUTING_ENTRY2(15),
-	ROUTING_ENTRY1(16), ROUTING_ENTRY1(17),
+	ROUTING_ENTRY2(14), ROUTING_ENTRY2(15), // 前 16 个中断是 IOAPIC / PIC 都支持的
+	ROUTING_ENTRY1(16), ROUTING_ENTRY1(17),	// 后 8 个中断，只有 IOAPIC 才支持
 	ROUTING_ENTRY1(18), ROUTING_ENTRY1(19),
 	ROUTING_ENTRY1(20), ROUTING_ENTRY1(21),
 	ROUTING_ENTRY1(22), ROUTING_ENTRY1(23),
 };
 
+// 中断路由: pci 设备的哪个引脚(GSI) 连接到 IO APIC 的那个引脚, 该引脚触发中断的时候对应的是哪个中断向量(中断门 id)
+// MSI 中断没有中断路由的概念
 int kvm_setup_default_irq_routing(struct kvm *kvm)
 {
 	return kvm_set_irq_routing(kvm, default_routing,

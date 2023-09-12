@@ -376,7 +376,7 @@ BUILD_CONTROLS_SHADOW(secondary_exec, SECONDARY_VM_EXEC_CONTROL)
 
 static inline void vmx_register_cache_reset(struct kvm_vcpu *vcpu)
 {
-	vcpu->arch.regs_avail = ~((1 << VCPU_REGS_RIP) | (1 << VCPU_REGS_RSP)
+	vcpu->arch.regs_avail = ~((1 << VCPU_REGS_RIP) | (1 << VCPU_REGS_RSP) // 刚开始时，这些 reg 都是 0
 				  | (1 << VCPU_EXREG_RFLAGS)
 				  | (1 << VCPU_EXREG_PDPTR)
 				  | (1 << VCPU_EXREG_SEGMENTS)
@@ -428,8 +428,8 @@ static inline unsigned long vmx_get_exit_qual(struct kvm_vcpu *vcpu)
 	struct vcpu_vmx *vmx = to_vmx(vcpu);
 
 	if (!kvm_register_is_available(vcpu, VCPU_EXREG_EXIT_INFO_1)) {
-		kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_1);
-		vmx->exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+		kvm_register_mark_available(vcpu, VCPU_EXREG_EXIT_INFO_1); // 每次 run 之前会 reset 这些 bits，所以确保 vmx->exit_qualification 中的是最新值
+		vmx->exit_qualification = vmcs_readl(EXIT_QUALIFICATION); // cache 了一些信息
 	}
 	return vmx->exit_qualification;
 }

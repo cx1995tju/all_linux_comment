@@ -40,7 +40,7 @@ void probe_cards(int unsafe)
 
 	for (card = video_cards; card < video_cards_end; card++) {
 		if (card->unsafe == unsafe) {
-			if (card->probe)
+			if (card->probe) // %vga_probe()
 				card->nmodes = card->probe();
 			else
 				card->nmodes = 0;
@@ -87,7 +87,7 @@ static int raw_set_mode(u16 mode, u16 *real_mode)
 			    mode == mi->mode ||
 			    mode == (mi->y << 8)+mi->x) {
 				*real_mode = mi->mode;
-				return card->set_mode(mi);
+				return card->set_mode(mi); // %vga_set_mode
 			}
 
 			if (visible)

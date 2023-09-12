@@ -24,6 +24,7 @@
 
 #define OLD_CL_MAGIC		0xA33F
 #define OLD_CL_ADDRESS		0x020	/* Relative to real mode data */
+// cmd_line_ptr 放在 header.S 该 offset 位置, refer to: boot.rst
 #define NEW_CL_POINTER		0x228	/* Relative to real mode data */
 
 #ifndef __ASSEMBLY__

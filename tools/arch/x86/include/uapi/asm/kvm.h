@@ -108,7 +108,7 @@ struct kvm_ioapic_state {
 #define KVM_IRQCHIP_PIC_MASTER   0
 #define KVM_IRQCHIP_PIC_SLAVE    1
 #define KVM_IRQCHIP_IOAPIC       2
-#define KVM_NR_IRQCHIPS          3
+#define KVM_NR_IRQCHIPS          3 // 三个芯片： master PIC, slave PIC, IO APIC
 
 #define KVM_RUN_X86_SMM		 (1 << 0)
 

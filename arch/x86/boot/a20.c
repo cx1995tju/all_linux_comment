@@ -125,6 +125,8 @@ static void enable_a20_fast(void)
 
 #define A20_ENABLE_LOOPS 255	/* Number of times to try */
 
+// try enable a20 with multi methods
+// 保护模式下要打开 a20, 历史原因
 int enable_a20(void)
 {
        int loops = A20_ENABLE_LOOPS;

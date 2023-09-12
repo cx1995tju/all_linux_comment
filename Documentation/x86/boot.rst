@@ -143,7 +143,7 @@ For a modern bzImage kernel with boot protocol version >= 2.02, a
 memory layout like the following is suggested::
 
 		~                        ~
-		|  Protected-mode kernel |
+		|  Protected-mode kernel |      // vmlinux 去除头部后剩下的部分, 最开始位置是: arch/x86/boot/compressed/head_64.S。 这部分应该是没有被压缩的。real-mode 最后的几条代码会跳转到这里
 	100000  +------------------------+      # code32_start
 		|  I/O memory hole	 |
 	0A0000	+------------------------+
@@ -153,8 +153,8 @@ memory layout like the following is suggested::
 	X+10000	+------------------------+
 		|  Stack/heap		 |	For use by the kernel real-mode code.
 	X+08000	+------------------------+
-		|  Kernel setup		 |	The kernel real-mode code.
-		|  Kernel boot sector	 |	The kernel legacy boot sector. // header.S
+		|  Kernel setup		 |	The kernel real-mode code. // 即 vmlinuz 的头部部分
+		|  Kernel boot sector	 |	The kernel legacy boot sector. // arch/x86/boot/header.S
 	X       +------------------------+
 		|  Boot loader		 |	<- Boot sector entry point 0000:7C00 //MBR 以及 stage2 grub等
 	001000	+------------------------+
@@ -1208,7 +1208,7 @@ much a requirement for these kernels to load the real-mode part at
 Special Command Line Options
 ============================
 
-If the command line provided by the boot loader is entered by the
+If the command line provided by the boot loader is entered by the // 用户在 boot loader 输入了一些 cmdline, bootloader 会将这些参数 传递给 kernel
 user, the user may expect the following command line options to work.
 They should normally not be deleted from the kernel command line even
 though not all of them are actually meaningful to the kernel.  Boot

@@ -147,6 +147,7 @@ static void parse_console_uart8250(void)
 
 void console_init(void)
 {
+	// 尝试处理 earlyprintk 选项
 	parse_earlyprintk();
 
 	if (!early_serial_base)

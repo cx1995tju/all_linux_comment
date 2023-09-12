@@ -340,11 +340,11 @@ static inline int kvm_vcpu_exiting_guest_mode(struct kvm_vcpu *vcpu)
 #define KVM_MEM_MAX_NR_PAGES ((1UL << 31) - 1)
 
 struct kvm_memory_slot {
-	gfn_t base_gfn;
+	gfn_t base_gfn; // guest frame number
 	unsigned long npages;
 	unsigned long *dirty_bitmap;
 	struct kvm_arch_memory_slot arch;
-	unsigned long userspace_addr;
+	unsigned long userspace_addr; // HVA ???
 	u32 flags;
 	short id;
 	u16 as_id;
@@ -404,14 +404,15 @@ struct kvm_kernel_irq_routing_entry {
 };
 
 #ifdef CONFIG_HAVE_KVM_IRQ_ROUTING
+// 中断路由表
 struct kvm_irq_routing_table {
-	int chip[KVM_NR_IRQCHIPS][KVM_IRQCHIP_NUM_PINS];
-	u32 nr_rt_entries;
+	int chip[KVM_NR_IRQCHIPS][KVM_IRQCHIP_NUM_PINS]; // chip的一个元素，表示某个中断芯片的某个引脚, 注意，这里不涉及 MSI 中断。只记录三个中断芯片: master PIC, slave PIC, IOAPIC
+	u32 nr_rt_entries; // 这个引脚上(hlist_head map) 上挂在了多少 kvm_kernel_irq_routing_entry 结构。
 	/*
 	 * Array indexed by gsi. Each entry contains list of irq chips
 	 * the gsi is connected to.
 	 */
-	struct hlist_head map[];
+	struct hlist_head map[];	// map 的 index 是 gsi
 };
 #endif
 
@@ -435,10 +436,13 @@ static inline int kvm_arch_vcpu_memslots_id(struct kvm_vcpu *vcpu)
  * memslots are not sorted by id anymore, please use id_to_memslot()
  * to get the memslot by its id.
  */
+
+// slots 内部的 slot 是按照 gfn(guest frame number) 的大小来排序的
+// refer to: update_memslots
 struct kvm_memslots {
 	u64 generation;
 	/* The mapping table from slot id to the index in memslots[]. */
-	short id_to_index[KVM_MEM_SLOTS_NUM];
+	short id_to_index[KVM_MEM_SLOTS_NUM]; // slot_id -> index of following memslots
 	atomic_t lru_slot;
 	int used_slots;
 	struct kvm_memory_slot memslots[];

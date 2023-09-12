@@ -351,7 +351,7 @@ static void __irq_disable(struct irq_desc *desc, bool mask)
 			mask_irq(desc);
 	} else {
 		irq_state_set_disabled(desc);
-		if (desc->irq_data.chip->irq_disable) {
+		if (desc->irq_data.chip->irq_disable) { // disable_8259A_irq
 			desc->irq_data.chip->irq_disable(&desc->irq_data);
 			irq_state_set_masked(desc);
 		} else if (mask) {

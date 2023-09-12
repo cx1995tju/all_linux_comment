@@ -15,6 +15,7 @@ struct kvm_vcpu;
 #define IOAPIC_EDGE_TRIG  0
 #define IOAPIC_LEVEL_TRIG 1
 
+// cat /proc/iomem
 #define IOAPIC_DEFAULT_BASE_ADDRESS  0xfec00000
 #define IOAPIC_MEM_LENGTH            0x100
 
@@ -58,32 +59,34 @@ struct rtc_status {
 	struct dest_map dest_map;
 };
 
+// 表示 ioapic 内部的 redir_tbl, guest os  设置的
 union kvm_ioapic_redirect_entry {
 	u64 bits;
 	struct {
-		u8 vector;
-		u8 delivery_mode:3;
-		u8 dest_mode:1;
-		u8 delivery_status:1;
-		u8 polarity:1;
+		u8 vector; // 中断向量
+		u8 delivery_mode:3; // APIC_DM_LOWEST(投递给优先级最低的 cpu), APIC_DM_FIXED(直接发送到 dst id 的cpu), APIC_DM_NMI
+		u8 dest_mode:1; // 决定如何解释 dest id
+		u8 delivery_status:1; // 中断状态，0 表示空闲，1表示pending
+		u8 polarity:1; // 高电平还是低电平触发
 		u8 remote_irr:1;
-		u8 trig_mode:1;
-		u8 mask:1;
+		u8 trig_mode:1; // level or edge
+		u8 mask:1; // 是否屏蔽
 		u8 reserve:7;
 		u8 reserved[4];
-		u8 dest_id;
+		u8 dest_id; // 目的 lapic id, 如果 dest_mode 为 1的话，可能表示的是一组 cpu
 	} fields;
 };
 
+// kvm 模拟 ioapic 使用, %kvm_ioapic_init()
 struct kvm_ioapic {
-	u64 base_address;
+	u64 base_address; // io apic 的 mmio 地址
 	u32 ioregsel;
 	u32 id;
 	u32 irr;
 	u32 pad;
-	union kvm_ioapic_redirect_entry redirtbl[IOAPIC_NUM_PINS];
+	union kvm_ioapic_redirect_entry redirtbl[IOAPIC_NUM_PINS]; // ioapic 的 redir_tbl 表。即一个 ioapic 的引脚对应的是哪个中断向量。每个 ioapic 有 24 个引脚
 	unsigned long irq_states[IOAPIC_NUM_PINS];
-	struct kvm_io_device dev;
+	struct kvm_io_device dev; // IO APIC 对应的设备
 	struct kvm *kvm;
 	void (*ack_notifier)(void *opaque, int irq);
 	spinlock_t lock;

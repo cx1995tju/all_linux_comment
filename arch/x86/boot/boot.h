@@ -72,7 +72,7 @@ static inline u32 inl(u16 port)
 static inline void io_delay(void)
 {
 	const u16 DELAY_PORT = 0x80;
-	asm volatile("outb %%al,%0" : : "dN" (DELAY_PORT));
+	asm volatile("outb %%al,%0" : : "dN" (DELAY_PORT)); // 会 delay 1ms
 }
 
 /* These functions are used to reference data in other segments. */
@@ -189,22 +189,27 @@ static inline bool memcmp_gs(const void *s1, addr_t s2, size_t len)
 }
 
 /* Heap -- available for dynamic lists. */
-extern char _end[];
-extern char *HEAP;
-extern char *heap_end;
-#define RESET_HEAP() ((void *)( HEAP = _end ))
+extern char _end[]; // _end 需要参考链接器 setup.ld。在这里作为 HEAP / heap_end 的初始值
+extern char *HEAP; // HAEP start pointer。 HEAP 是会 大于 heap_end 的
+extern char *heap_end; // refer to: init_heap()。 
+#define RESET_HEAP() ((void *)( HEAP = _end )) // 将 HEAP 清0了
+// s is size of element
+// n is number of element
+// a is align for HEAP
+// 本质就是在 heap 上分配了 n 个 s 大小的元素，其中起始地址需要 align 到 a Bytes
 static inline char *__get_heap(size_t s, size_t a, size_t n)
 {
 	char *tmp;
 
-	HEAP = (char *)(((size_t)HEAP+(a-1)) & ~(a-1));
-	tmp = HEAP;
-	HEAP += s*n;
-	return tmp;
+	HEAP = (char *)(((size_t)HEAP+(a-1)) & ~(a-1)); // aligned HEAP first, 向上扩充
+	tmp = HEAP; // 然后将值赋给 tmp
+	HEAP += s*n; // 然后 将 HEAP 扩充需要的大小
+	return tmp; // 最后将指针返回
 }
 #define GET_HEAP(type, n) \
 	((type *)__get_heap(sizeof(type),__alignof__(type),(n)))
 
+// 检查 heap 中是否还有这么多的 free 空间可用
 static inline bool heap_free(size_t n)
 {
 	return (int)(heap_end-HEAP) >= (int)n;

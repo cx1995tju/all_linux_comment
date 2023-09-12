@@ -7,11 +7,11 @@
 
 /* Posted-Interrupt Descriptor */
 struct pi_desc {
-	u32 pir[8];     /* Posted interrupt requested */
+	u32 pir[8];     /* Posted interrupt requested */ // 每一位是一个 interrupt vector
 	union {
 		struct {
 				/* bit 256 - Outstanding Notification */
-			u16	on	: 1,
+			u16	on	: 1,	// 表示有 posted interrupt 需要处理
 				/* bit 257 - Suppress Notification */
 				sn	: 1,
 				/* bit 271:258 - Reserved */

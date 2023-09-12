@@ -689,6 +689,8 @@
 #define PCI_EXP_SLTSTA2		58	/* Slot Status 2 */
 
 /* Extended Capabilities (PCI-X 2.0 and Express) */
+// 注意这里的ID定义可能与 PCI_CAP_ID_* 重叠的，但是PCIe extended cap 都是在0x100之后，所以是可以区分的
+// EXT: Extended
 #define PCI_EXT_CAP_ID(header)		(header & 0x0000ffff)
 #define PCI_EXT_CAP_VER(header)		((header >> 16) & 0xf)
 #define PCI_EXT_CAP_NEXT(header)	((header >> 20) & 0xffc)

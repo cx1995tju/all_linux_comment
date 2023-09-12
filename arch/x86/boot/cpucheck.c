@@ -107,6 +107,7 @@ static int check_cpuflags(void)
  *
  * *err_flags_ptr is set to the flags error array if there are flags missing.
  */
+// 通过 msr 寄存器，check cpu flags
 int check_cpu(int *cpu_level_ptr, int *req_level_ptr, u32 **err_flags_ptr)
 {
 	int err;

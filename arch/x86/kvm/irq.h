@@ -25,6 +25,7 @@
 struct kvm;
 struct kvm_vcpu;
 
+// 应该是用来表示一个 pic 的
 struct kvm_kpic_state {
 	u8 last_irr;	/* edge detection */
 	u8 irr;		/* interrupt request register */
@@ -53,9 +54,9 @@ struct kvm_pic {
 	struct kvm *kvm;
 	struct kvm_kpic_state pics[2]; /* 0 is master pic, 1 is slave pic */
 	int output;		/* intr from master PIC */
-	struct kvm_io_device dev_master;
-	struct kvm_io_device dev_slave;
-	struct kvm_io_device dev_eclr;
+	struct kvm_io_device dev_master; // %picdev_master_ops
+	struct kvm_io_device dev_slave; // %picdev_slave_ops
+	struct kvm_io_device dev_eclr; // 控制中断触发方式的寄存器  // %picdev_eclr_ops
 	void (*ack_notifier)(void *opaque, int irq);
 	unsigned long irq_states[PIC_NUM_PINS];
 };

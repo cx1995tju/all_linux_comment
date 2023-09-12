@@ -609,7 +609,7 @@ struct pci_bus {
 	struct pci_bus	*parent;	/* Parent bus this bridge is on */
 	struct list_head children;	/* List of child buses */
 	struct list_head devices;	/* List of devices on this bus */
-	struct pci_dev	*self;		/* Bridge device as seen by parent */ //pci bus自己也是一个pci 设备
+	struct pci_dev	*self;		/* Bridge device as seen by parent */ //pci bus自己也是一个pci 设备。 用于 PCI 桥的上游总线访问 PCI 桥，此时 PCI 桥被当作一个设备。每个 bus 肯定是从一个 bridge 上连下来的。这个 pci_bus 就是接在 pci_dev 对应的 bridge 上的。此时 bridge 被看作一个 device
 	struct list_head slots;		/* List of slots on this bus;
 					   protected by pci_slot_mutex */
 	struct resource *resource[PCI_BRIDGE_RESOURCE_NUM];

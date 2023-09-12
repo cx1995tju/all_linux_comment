@@ -22,7 +22,7 @@
 #include <asm/irqdomain.h>
 
 //这里是默认值，Boot loader 譬如Grub在引导linux内核的时候，如果加上了`pci=xxx`的参数的话就不会使用默认值了
-unsigned int pci_probe = PCI_PROBE_BIOS | PCI_PROBE_CONF1 | PCI_PROBE_CONF2 |
+unsigned int pci_probe = PCI_PROBE_BIOS | PCI_PROBE_CONF1 | PCI_PROBE_CONF2 | // refer to: %pcibios_setup
 				PCI_PROBE_MMCONF;
 
 static int pci_bf_sort;

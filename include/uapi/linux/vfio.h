@@ -203,7 +203,7 @@ struct vfio_device_info {
 #define VFIO_DEVICE_FLAGS_AP	(1 << 5)	/* vfio-ap device */
 #define VFIO_DEVICE_FLAGS_FSL_MC (1 << 6)	/* vfio-fsl-mc device */
 #define VFIO_DEVICE_FLAGS_CAPS	(1 << 7)	/* Info supports caps */
-	__u32	num_regions;	/* Max region index + 1 */
+	__u32	num_regions;	/* Max region index + 1 */ // bar 空间 + pci 配置空间 + VGA 配置空间, refer to: VFIO_PCI_NUM_REGIONS
 	__u32	num_irqs;	/* Max IRQ index + 1 */
 	__u32   cap_offset;	/* Offset within info struct of first cap */
 };
@@ -243,16 +243,16 @@ struct vfio_device_info {
  * Return: 0 on success, -errno on failure.
  */
 struct vfio_region_info {
-	__u32	argsz;
-	__u32	flags;
+	__u32	argsz; // 输入参数大小
+	__u32	flags; // 输出参数
 #define VFIO_REGION_INFO_FLAG_READ	(1 << 0) /* Region supports read */
 #define VFIO_REGION_INFO_FLAG_WRITE	(1 << 1) /* Region supports write */
 #define VFIO_REGION_INFO_FLAG_MMAP	(1 << 2) /* Region supports mmap */
 #define VFIO_REGION_INFO_FLAG_CAPS	(1 << 3) /* Info supports caps */
-	__u32	index;		/* Region index */
+	__u32	index;		/* Region index */ // 输入参数
 	__u32	cap_offset;	/* Offset within info struct of first cap */
 	__u64	size;		/* Region size (bytes) */
-	__u64	offset;		/* Region offset from start of device fd */
+	__u64	offset;		/* Region offset from start of device fd */ // 输出参数
 };
 #define VFIO_DEVICE_GET_REGION_INFO	_IO(VFIO_TYPE, VFIO_BASE + 8)
 

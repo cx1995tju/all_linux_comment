@@ -85,7 +85,7 @@ static bool __read_mostly force_flush_and_sync_on_reuse;
 module_param_named(flush_on_reuse, force_flush_and_sync_on_reuse, bool, 0644);
 
 /*
- * When setting this variable to true it enables Two-Dimensional-Paging
+ * When setting this variable to true it enables Two-Dimensional-Paging, 即使用EPT呗，不用影子页表
  * where the hardware walks 2 page tables:
  * 1. the guest-virtual to guest-physical
  * 2. while doing 1. it walks guest-physical to host-physical
@@ -2858,6 +2858,7 @@ void disallowed_hugepage_adjust(u64 spte, gfn_t gfn, int cur_level,
 	}
 }
 
+// 建立 EPT 页表
 static int __direct_map(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 			int map_writable, int max_level, kvm_pfn_t pfn,
 			bool prefault, bool is_tdp)
@@ -3642,6 +3643,7 @@ static bool kvm_arch_setup_async_pf(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 				  kvm_vcpu_gfn_to_hva(vcpu, gfn), &arch);
 }
 
+// 尝试异步处理 page fault。即当 EPT 页表已经建立好后, 暂时不分配 物理页
 static bool try_async_pf(struct kvm_vcpu *vcpu, bool prefault, gfn_t gfn,
 			 gpa_t cr2_or_gpa, kvm_pfn_t *pfn, bool write,
 			 bool *writable)
@@ -3675,22 +3677,23 @@ static bool try_async_pf(struct kvm_vcpu *vcpu, bool prefault, gfn_t gfn,
 	return false;
 }
 
+// max_level: %PG_LEVEL_4K
 static int direct_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 			     bool prefault, int max_level, bool is_tdp)
 {
 	bool write = error_code & PFERR_WRITE_MASK;
 	bool map_writable;
 
-	gfn_t gfn = gpa >> PAGE_SHIFT;
+	gfn_t gfn = gpa >> PAGE_SHIFT; // guest frame number, 即 GPA
 	unsigned long mmu_seq;
-	kvm_pfn_t pfn;
+	kvm_pfn_t pfn; // host frame number, 即 HPA
 	int r;
 
 	if (page_fault_handle_page_track(vcpu, error_code, gfn))
 		return RET_PF_EMULATE;
 
 	if (!is_tdp_mmu_root(vcpu->kvm, vcpu->arch.mmu->root_hpa)) {
-		r = fast_page_fault(vcpu, gpa, error_code);
+		r = fast_page_fault(vcpu, gpa, error_code); // ept 页表存在，且写保护产生的异常在这里处理
 		if (r != RET_PF_INVALID)
 			return r;
 	}
@@ -3702,7 +3705,7 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 	mmu_seq = vcpu->kvm->mmu_notifier_seq;
 	smp_rmb();
 
-	if (try_async_pf(vcpu, prefault, gfn, gpa, &pfn, write, &map_writable))
+	if (try_async_pf(vcpu, prefault, gfn, gpa, &pfn, write, &map_writable)) // 这里获取或分配 host pa（pfn）
 		return RET_PF_RETRY;
 
 	if (handle_abnormal_pfn(vcpu, is_tdp ? 0 : gpa, gfn, pfn, ACC_ALL, &r))
@@ -3720,7 +3723,7 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 		r = kvm_tdp_mmu_map(vcpu, gpa, error_code, map_writable, max_level,
 				    pfn, prefault);
 	else
-		r = __direct_map(vcpu, gpa, error_code, map_writable, max_level, pfn,
+		r = __direct_map(vcpu, gpa, error_code, map_writable, max_level, pfn, // 此时 已经有 gpa 对应的 pfn 了
 				 prefault, is_tdp);
 
 out_unlock:
@@ -3779,9 +3782,9 @@ int kvm_tdp_page_fault(struct kvm_vcpu *vcpu, gpa_t gpa, u32 error_code,
 
 	for (max_level = KVM_MAX_HUGEPAGE_LEVEL;
 	     max_level > PG_LEVEL_4K;
-	     max_level--) {
+	     max_level--) { // hugepage 的处理路径
 		int page_num = KVM_PAGES_PER_HPAGE(max_level);
-		gfn_t base = (gpa >> PAGE_SHIFT) & ~(page_num - 1);
+		gfn_t base = (gpa >> PAGE_SHIFT) & ~(page_num - 1); // guest frame number
 
 		if (kvm_mtrr_check_gfn_range_consistency(vcpu, base, page_num))
 			break;
@@ -4478,6 +4481,7 @@ kvm_calc_tdp_mmu_root_page_role(struct kvm_vcpu *vcpu, bool base_only)
 	return role;
 }
 
+// 设置好各种cb，这些 cb 就是 mmu 的具体实现
 static void init_kvm_tdp_mmu(struct kvm_vcpu *vcpu)
 {
 	struct kvm_mmu *context = &vcpu->arch.root_mmu;
@@ -4502,12 +4506,12 @@ static void init_kvm_tdp_mmu(struct kvm_vcpu *vcpu)
 		context->nx = false;
 		context->gva_to_gpa = nonpaging_gva_to_gpa;
 		context->root_level = 0;
-	} else if (is_long_mode(vcpu)) {
+	} else if (is_long_mode(vcpu)) { // 常态
 		context->nx = is_nx(vcpu);
 		context->root_level = is_la57_mode(vcpu) ?
 				PT64_ROOT_5LEVEL : PT64_ROOT_4LEVEL;
 		reset_rsvds_bits_mask(vcpu, context);
-		context->gva_to_gpa = paging64_gva_to_gpa;
+		context->gva_to_gpa = paging64_gva_to_gpa; // %paging_tmpl.h:FNAME(gva_to_gpa)
 	} else if (is_pae(vcpu)) {
 		context->nx = is_nx(vcpu);
 		context->root_level = PT32E_ROOT_LEVEL;
@@ -4757,9 +4761,9 @@ void kvm_init_mmu(struct kvm_vcpu *vcpu, bool reset_roots)
 
 	if (mmu_is_nested(vcpu))
 		init_kvm_nested_mmu(vcpu);
-	else if (tdp_enabled)
+	else if (tdp_enabled) // 常态, EPT
 		init_kvm_tdp_mmu(vcpu);
-	else
+	else // 影子页表
 		init_kvm_softmmu(vcpu);
 }
 EXPORT_SYMBOL_GPL(kvm_init_mmu);
@@ -5039,6 +5043,7 @@ int kvm_mmu_unprotect_page_virt(struct kvm_vcpu *vcpu, gva_t gva)
 }
 EXPORT_SYMBOL_GPL(kvm_mmu_unprotect_page_virt);
 
+// 在 page fault 中建立 EPT 表
 int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u64 error_code,
 		       void *insn, int insn_len)
 {
@@ -5313,6 +5318,7 @@ static int __kvm_mmu_create(struct kvm_vcpu *vcpu, struct kvm_mmu *mmu)
 	return 0;
 }
 
+// 创建 mmu, 分配各种结构咯
 int kvm_mmu_create(struct kvm_vcpu *vcpu)
 {
 	int ret;

@@ -584,7 +584,7 @@ static const struct kvm_io_device_ops picdev_eclr_ops = {
 
 int kvm_pic_init(struct kvm *kvm)
 {
-	struct kvm_pic *s;
+	struct kvm_pic *s; // 应该是用来表示一个 pic 的
 	int ret;
 
 	s = kzalloc(sizeof(struct kvm_pic), GFP_KERNEL_ACCOUNT);
@@ -598,28 +598,28 @@ int kvm_pic_init(struct kvm *kvm)
 	s->pics[1].pics_state = s;
 
 	/*
-	 * Initialize PIO device
+	 * Initialize PIO device, 8259A 是两个 PIC 串联的，一个是 master，一个是slave
 	 */
-	kvm_iodevice_init(&s->dev_master, &picdev_master_ops);
+	kvm_iodevice_init(&s->dev_master, &picdev_master_ops); // 创建一个 PIO 设备
 	kvm_iodevice_init(&s->dev_slave, &picdev_slave_ops);
 	kvm_iodevice_init(&s->dev_eclr, &picdev_eclr_ops);
 	mutex_lock(&kvm->slots_lock);
-	ret = kvm_io_bus_register_dev(kvm, KVM_PIO_BUS, 0x20, 2,
+	ret = kvm_io_bus_register_dev(kvm, KVM_PIO_BUS, 0x20, 2, // 0x20 0x21 是 pic1 使用的, cat /proc/ioports
 				      &s->dev_master);
 	if (ret < 0)
 		goto fail_unlock;
 
-	ret = kvm_io_bus_register_dev(kvm, KVM_PIO_BUS, 0xa0, 2, &s->dev_slave);
+	ret = kvm_io_bus_register_dev(kvm, KVM_PIO_BUS, 0xa0, 2, &s->dev_slave); // pic2 使用
 	if (ret < 0)
 		goto fail_unreg_2;
 
-	ret = kvm_io_bus_register_dev(kvm, KVM_PIO_BUS, 0x4d0, 2, &s->dev_eclr);
+	ret = kvm_io_bus_register_dev(kvm, KVM_PIO_BUS, 0x4d0, 2, &s->dev_eclr); // eclr 使用的, 控制中断触发方式的
 	if (ret < 0)
 		goto fail_unreg_1;
 
 	mutex_unlock(&kvm->slots_lock);
 
-	kvm->arch.vpic = s;
+	kvm->arch.vpic = s; // 创建好了后就保存起来
 
 	return 0;
 

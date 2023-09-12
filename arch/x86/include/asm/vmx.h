@@ -153,7 +153,8 @@ static inline int vmx_misc_mseg_revid(u64 vmx_misc)
 }
 
 /* VMCS Encodings */
-// vmcs 的 每个 field 都和一个 32b 的值关联，即这里定义的
+// 应该使用 VMREAD / VMWRITE 来访问，不要直接用 mov 访问
+// vmcs 的 每个 field 都和一个 32b 的值关联，即这里定义的, 这些 ID 也是 write/read vmcs 的操作数
 // 这32b 的值是有一个编码规律的
 /* 0			Access type (0 = full; 1 = high); must be full for 16-bit, 32-bit, and natural-width fields
  * 9:1			Index
@@ -266,7 +267,7 @@ enum vmcs_field {
 	HOST_IA32_PERF_GLOBAL_CTRL	= 0x00002c04,
 	HOST_IA32_PERF_GLOBAL_CTRL_HIGH	= 0x00002c05,
 	PIN_BASED_VM_EXEC_CONTROL       = 0x00004000,
-	CPU_BASED_VM_EXEC_CONTROL       = 0x00004002,
+	CPU_BASED_VM_EXEC_CONTROL       = 0x00004002, // primary processor-based vm-execution contorls
 	EXCEPTION_BITMAP                = 0x00004004,
 	PAGE_FAULT_ERROR_CODE_MASK      = 0x00004006,
 	PAGE_FAULT_ERROR_CODE_MATCH     = 0x00004008,
@@ -276,7 +277,7 @@ enum vmcs_field {
 	VM_EXIT_MSR_LOAD_COUNT          = 0x00004010,
 	VM_ENTRY_CONTROLS               = 0x00004012,
 	VM_ENTRY_MSR_LOAD_COUNT         = 0x00004014,
-	VM_ENTRY_INTR_INFO_FIELD        = 0x00004016,
+	VM_ENTRY_INTR_INFO_FIELD        = 0x00004016, /* bit 7:0 - Vector of interrupt or exception; bit 19:8- interruption type; bit 11-deliver error code(0 = do not deliver, 1 = deliver); bit 31-valid */
 	VM_ENTRY_EXCEPTION_ERROR_CODE   = 0x00004018,
 	VM_ENTRY_INSTRUCTION_LEN        = 0x0000401a,
 	TPR_THRESHOLD                   = 0x0000401c,

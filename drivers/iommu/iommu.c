@@ -192,7 +192,7 @@ static void dev_iommu_free(struct device *dev)
 
 static int __iommu_probe_device(struct device *dev, struct list_head *group_list)
 {
-	const struct iommu_ops *ops = dev->bus->iommu_ops;
+	const struct iommu_ops *ops = dev->bus->iommu_ops; // %intel_iommu_ops
 	struct iommu_device *iommu_dev;
 	struct iommu_group *group;
 	int ret;
@@ -1793,6 +1793,7 @@ static int iommu_bus_init(struct bus_type *bus, const struct iommu_ops *ops)
 
 	nb->notifier_call = iommu_bus_notifier;
 
+	// device_add() 等事件发生的时候会调用
 	err = bus_register_notifier(bus, nb);
 	if (err)
 		goto out_free;
@@ -1828,6 +1829,7 @@ out_free:
  * is set up. With this function the iommu-driver can set the iommu-ops
  * afterwards.
  */
+// bus: %pci_bus_type
 int bus_set_iommu(struct bus_type *bus, const struct iommu_ops *ops)
 {
 	int err;

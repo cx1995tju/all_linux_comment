@@ -219,6 +219,7 @@ enum x86_intercept_stage;
 #define PFERR_GUEST_FINAL_BIT 32
 #define PFERR_GUEST_PAGE_BIT 33
 
+// PF: page fault
 #define PFERR_PRESENT_MASK (1U << PFERR_PRESENT_BIT)
 #define PFERR_WRITE_MASK (1U << PFERR_WRITE_BIT)
 #define PFERR_USER_MASK (1U << PFERR_USER_BIT)
@@ -344,21 +345,22 @@ struct kvm_mmu_page;
  * and 2-level 32-bit).  The kvm_mmu structure abstracts the details of the
  * current mmu mode.
  */
+// %init_kvm_tdp_mmu , 核心就是这里的 callback 了, 这是这些 callback 实现了 MMU 的行为
 struct kvm_mmu {
 	unsigned long (*get_guest_pgd)(struct kvm_vcpu *vcpu);
-	u64 (*get_pdptr)(struct kvm_vcpu *vcpu, int index);
-	int (*page_fault)(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u32 err,
+	u64 (*get_pdptr)(struct kvm_vcpu *vcpu, int index); // kvm_pdptr_read
+	int (*page_fault)(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa, u32 err,	// 重要 %kvm_tdp_page_fault
 			  bool prefault);
-	void (*inject_page_fault)(struct kvm_vcpu *vcpu,
+	void (*inject_page_fault)(struct kvm_vcpu *vcpu, // kvm_inject_page_fault
 				  struct x86_exception *fault);
 	gpa_t (*gva_to_gpa)(struct kvm_vcpu *vcpu, gpa_t gva_or_gpa,
 			    u32 access, struct x86_exception *exception);
 	gpa_t (*translate_gpa)(struct kvm_vcpu *vcpu, gpa_t gpa, u32 access,
 			       struct x86_exception *exception);
-	int (*sync_page)(struct kvm_vcpu *vcpu,
+	int (*sync_page)(struct kvm_vcpu *vcpu, // %kvm_tdp_page_fault
 			 struct kvm_mmu_page *sp);
 	void (*invlpg)(struct kvm_vcpu *vcpu, gva_t gva, hpa_t root_hpa);
-	void (*update_pte)(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
+	void (*update_pte)(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp, // %nonpaging_update_pte
 			   u64 *spte, const void *pte);
 	hpa_t root_hpa;
 	gpa_t root_pgd;
@@ -566,7 +568,7 @@ struct kvm_vcpu_arch {
 	 * the paging mode of the l1 guest. This context is always used to
 	 * handle faults.
 	 */
-	struct kvm_mmu *mmu;
+	struct kvm_mmu *mmu; // %kvm_mmu_create
 
 	/* Non-nested MMU for L1 */
 	struct kvm_mmu root_mmu;
@@ -808,12 +810,12 @@ struct kvm_vcpu_arch {
 };
 
 struct kvm_lpage_info {
-	int disallow_lpage;
+	int disallow_lpage; // 是否支持hugepage
 };
 
 struct kvm_arch_memory_slot {
-	struct kvm_rmap_head *rmap[KVM_NR_PAGE_SIZES];
-	struct kvm_lpage_info *lpage_info[KVM_NR_PAGE_SIZES - 1];
+	struct kvm_rmap_head *rmap[KVM_NR_PAGE_SIZES]; // gfn -> 其对应的页表entry(Host 页表)的 map。处理 ept page fault 的时候慢慢构建的
+	struct kvm_lpage_info *lpage_info[KVM_NR_PAGE_SIZES - 1]; // hugepage 信息
 	unsigned short *gfn_track[KVM_PAGE_TRACK_MAX];
 };
 
@@ -920,8 +922,8 @@ struct kvm_arch {
 	atomic_t noncoherent_dma_count;
 #define __KVM_HAVE_ARCH_ASSIGNED_DEVICE
 	atomic_t assigned_device_count;
-	struct kvm_pic *vpic;
-	struct kvm_ioapic *vioapic;
+	struct kvm_pic *vpic;	// refer to: %kvm_pic_init()
+	struct kvm_ioapic *vioapic; // %kvm_ioapic_init()
 	struct kvm_pit *vpit;
 	atomic_t vapics_in_nmi_mode;
 	struct mutex apic_map_lock;
@@ -1156,7 +1158,7 @@ struct kvm_x86_ops { // %vmx.c:vmx_x86_ops
 	u32 (*get_interrupt_shadow)(struct kvm_vcpu *vcpu);
 	void (*patch_hypercall)(struct kvm_vcpu *vcpu,
 				unsigned char *hypercall_addr);
-	void (*set_irq)(struct kvm_vcpu *vcpu);
+	void (*set_irq)(struct kvm_vcpu *vcpu); // 注入中断使用
 	void (*set_nmi)(struct kvm_vcpu *vcpu);
 	void (*queue_exception)(struct kvm_vcpu *vcpu);
 	void (*cancel_injection)(struct kvm_vcpu *vcpu);

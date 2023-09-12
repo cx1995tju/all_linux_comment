@@ -323,7 +323,7 @@ static int vfio_pci_enable(struct vfio_pci_device *vdev)
 	/* Don't allow our initial saved state to include busmaster */
 	pci_clear_master(pdev);
 
-	ret = pci_enable_device(pdev);
+	ret = pci_enable_device(pdev); // 没什么不一般的，简单的 pci driver 实现
 	if (ret)
 		return ret;
 
@@ -1883,6 +1883,8 @@ static int vfio_pci_match(void *device_data, char *buf)
 	return 1; /* Match */
 }
 
+// refer to:  vfio_device_fops ,  vfio_group_get_device_fd()
+// file 的 private 会指向 vfio_device 结构, 进而后续可以找到这个 op
 static const struct vfio_device_ops vfio_pci_ops = {
 	.name		= "vfio-pci",
 	.open		= vfio_pci_open,
@@ -1951,7 +1953,7 @@ static int vfio_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		return -EBUSY;
 	}
 
-	group = vfio_iommu_group_get(&pdev->dev);
+	group = vfio_iommu_group_get(&pdev->dev); // 底层 iommu driver 支持的, 添加设备的时候创建的: %iommu_probe_device()
 	if (!group)
 		return -EINVAL;
 
@@ -1961,6 +1963,7 @@ static int vfio_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto out_group_put;
 	}
 
+	// 简单的初始化，和普通的 pci driver 没有什么不同
 	vdev->pdev = pdev;
 	vdev->irq_type = VFIO_PCI_NUM_IRQS;
 	mutex_init(&vdev->igate);

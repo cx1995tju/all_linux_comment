@@ -58,6 +58,10 @@ static void store_video_mode(void)
  * parameters in the default 80x25 mode -- these are set directly,
  * because some very obscure BIOSes supply insane values.
  */
+/* 这一段内存是预留给 vga 使用的
+0xB000:0x0000     32 KB     Monochrome Text Video Memory
+0xB800:0x0000     32 KB     Color Text Video Memory
+*/
 static void store_mode_params(void)
 {
 	u16 font_size;
@@ -68,7 +72,7 @@ static void store_mode_params(void)
 	if (graphic_mode)
 		return;
 
-	store_cursor_position();
+	store_cursor_position(); // 获取光标位置
 	store_video_mode();
 
 	if (boot_params.screen_info.orig_video_mode == 0x07) {
@@ -83,8 +87,8 @@ static void store_mode_params(void)
 	font_size = rdfs16(0x485); /* Font size, BIOS area */
 	boot_params.screen_info.orig_video_points = font_size;
 
-	x = rdfs16(0x44a);
-	y = (adapter == ADAPTER_CGA) ? 25 : rdfs8(0x484)+1;
+	x = rdfs16(0x44a); // amount of columns
+	y = (adapter == ADAPTER_CGA) ? 25 : rdfs8(0x484)+1; // amoung of rows
 
 	if (force_x)
 		x = force_x;
@@ -238,6 +242,7 @@ static struct saved_screen {
 
 static void save_screen(void)
 {
+	// 保存 screen 的一些参数与信息
 	/* Should be called after store_mode_params() */
 	saved.x = boot_params.screen_info.orig_video_cols;
 	saved.y = boot_params.screen_info.orig_video_lines;
@@ -249,7 +254,7 @@ static void save_screen(void)
 
 	saved.data = GET_HEAP(u16, saved.x*saved.y);
 
-	set_fs(video_segment);
+	set_fs(video_segment); // fs 寄存器这时候，用来寻找 vga 的参数
 	copy_from_fs(saved.data, 0, saved.x*saved.y*sizeof(u16));
 }
 

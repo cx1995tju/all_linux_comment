@@ -14,6 +14,7 @@ static __init int pci_arch_init(void)
 
 	x86_create_pci_msi_domain(); //针对x86 的pci 创建的irq domain, refer to: %x86_pci_msi_default_domain 
 
+	// linux 在 x86 一般下不会使用 bios 枚举的结果，会自己重新枚举的
 	type = pci_direct_probe(); //主要是判断使用那种方式访问PCI配置空间
 
 	if (!(pci_probe & PCI_PROBE_NOEARLY)) //pci_probe 来自于内核启动参数pci=xxx

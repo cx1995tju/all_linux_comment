@@ -11,7 +11,6 @@
 /*
  * Memory copy routines
  */
-
 	.code16
 	.text
 

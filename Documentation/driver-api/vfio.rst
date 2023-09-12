@@ -50,8 +50,8 @@ from each other and from arbitrary memory access, thus allowing
 things like secure direct assignment of devices into virtual machines.
 
 This isolation is not always at the granularity of a single device
-though.  Even when an IOMMU is capable of this, properties of devices,
-interconnects, and IOMMU topologies can each reduce this isolation.
+though.  _Even when an IOMMU is capable of this, properties of devices,         // 重要
+interconnects, and IOMMU topologies can each reduce this isolation._
 For instance, an individual device may be part of a larger multi-
 function enclosure.  While the IOMMU may be able to distinguish
 between devices within the enclosure, the enclosure may not require
@@ -66,7 +66,7 @@ as well.
 
 Therefore, while for the most part an IOMMU may have device level
 granularity, any system is susceptible to reduced granularity.  The
-IOMMU API therefore supports a notion of IOMMU groups.  A group is
+IOMMU API therefore supports a notion of IOMMU groups.  A group is                      _重要_
 a set of devices which is isolatable from all other devices in the
 system.  Groups are therefore the unit of ownership used by VFIO.
 

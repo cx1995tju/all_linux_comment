@@ -95,12 +95,12 @@ struct kvm_memory_region {
 
 /* for KVM_SET_USER_MEMORY_REGION */
 struct kvm_userspace_memory_region {
-	__u32 slot;
+	__u32 slot;	// 高 16b 作为 AddressSpace id, 低 16b 作为 as 内 id,  %__kvm_set_memory_region
 	__u32 flags;
-	__u64 guest_phys_addr;
-	__u64 memory_size; /* bytes */
-	__u64 userspace_addr; /* start of the userspace allocated memory */
-};
+	__u64 guest_phys_addr; // GPA
+	__u64 memory_size; /* bytes */ // size 为 0 时表示要撤销映射
+	__u64 userspace_addr; /* start of the userspace allocated memory */	// HVA
+}; // kvm 在异常的时候为 HVA 分配 HPA，然后建立 GPA 和 HPA 的关系
 
 /*
  * The bit 0 ~ bit 15 of kvm_memory_region::flags are visible for userspace,
@@ -1058,13 +1058,15 @@ struct kvm_ppc_resize_hpt {
 
 #ifdef KVM_CAP_IRQ_ROUTING
 
+// 注意一个 PIC 是两个 8259A 串联起来的
+// 是 IOAPIC???
 struct kvm_irq_routing_irqchip {
-	__u32 irqchip;
-	__u32 pin;
+	__u32 irqchip;	//哪一个中断芯片 %KVM_IRQCHIP_IOAPIC
+	__u32 pin; // 哪一个引脚
 };
 
 struct kvm_irq_routing_msi {
-	__u32 address_lo;
+	__u32 address_lo;	// msi 中断就直接记录，message addr / message data 就可以了
 	__u32 address_hi;
 	__u32 data;
 	union {
@@ -1092,13 +1094,17 @@ struct kvm_irq_routing_hv_sint {
 #define KVM_IRQ_ROUTING_S390_ADAPTER 3
 #define KVM_IRQ_ROUTING_HV_SINT 4
 
+// 一个 entry 就记录了 gsi <-> 中断芯片引脚的映射(或 msi 消息的映射)
+// gsi 就是给每个中断源一个全局的编号:
+//	- INTx 中断：就是一个 IOAPIC 的引脚。很多设备会共享一个引脚的
+//	- MSI 中断，则是每个中断一个 GSI 号的。对于 MSI 中断，中断路由条目没有啥作用
 struct kvm_irq_routing_entry {
 	__u32 gsi;
-	__u32 type;
+	__u32 type;	// type，决定了后续 union 的解释。即中断类型
 	__u32 flags;
 	__u32 pad;
 	union {
-		struct kvm_irq_routing_irqchip irqchip;
+		struct kvm_irq_routing_irqchip irqchip; // INTx 中断
 		struct kvm_irq_routing_msi msi;
 		struct kvm_irq_routing_s390_adapter adapter;
 		struct kvm_irq_routing_hv_sint hv_sint;

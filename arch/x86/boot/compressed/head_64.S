@@ -43,7 +43,7 @@
 	.hidden _ebss
 	.hidden _end
 
-	__HEAD
+	__HEAD	// .head.text
 
 /*
  * This macro gives the relative virtual address of X, i.e. the offset of X
@@ -70,7 +70,7 @@
  */
 #define rva(X) ((X) - startup_32)
 
-	.code32
+	.code32		// 这里的代码的link。受 arch/x86/boot/compressed/vmlinux.lds.S 脚本控制
 SYM_FUNC_START(startup_32)
 	/*
 	 * 32bit entry is 0 and it is ABI so immutable!
@@ -78,7 +78,7 @@ SYM_FUNC_START(startup_32)
 	 * kernel(text+data+bss+brk) ramdisk, zero_page, command line
 	 * all need to be under the 4G limit.
 	 */
-	cld
+	cld	// clear df flags, 控制 stos，scas 这种字符串处理指令的方向的。cld 后，表示处理的时候是递增 esi 或者 edi 寄存器的
 	cli
 
 /*
@@ -89,9 +89,9 @@ SYM_FUNC_START(startup_32)
  * data at 0x1e4 (defined as a scratch field) are used as the stack
  * for this calculation. Only 4 bytes are needed.
  */
-	leal	(BP_scratch+4)(%esi), %esp
-	call	1f
-1:	popl	%ebp
+	leal	(BP_scratch+4)(%esi), %esp // esi 寄存器是 boot_params 的基址, 在 进入 protected 模式前，填充的. pmjump.S
+	call	1f // 这里是为了获得自己当前所在地址
+1:	popl	%ebp // ebp 就是 1: 这个 lable 的地址了
 	subl	$ rva(1b), %ebp
 
 	/* Load new GDT with the 64bit segments using 32bit descriptor */
@@ -100,8 +100,8 @@ SYM_FUNC_START(startup_32)
 	lgdt	(%eax)
 
 	/* Load segment registers with our descriptors */
-	movl	$__BOOT_DS, %eax
-	movl	%eax, %ds
+	movl	$__BOOT_DS, %eax // __BOOT_DS 值是 0x18
+	movl	%eax, %ds	// 因为 linux 基本不使用 gdt / ldt 机制，所以都设置为 0x18
 	movl	%eax, %es
 	movl	%eax, %fs
 	movl	%eax, %gs
@@ -490,7 +490,7 @@ trampoline_return:
 
 	/*
 	 * The GDT may get overwritten either during the copy we just did or
-	 * during extract_kernel below. To avoid any issues, repoint the GDTR
+	 * during extract_kernel below. To avoid any issues, repoint the GDTR	// 解压了
 	 * to the new copy of the GDT.
 	 */
 	leaq	rva(gdt64)(%rbx), %rax

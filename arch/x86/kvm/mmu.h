@@ -109,7 +109,7 @@ static inline int kvm_mmu_do_page_fault(struct kvm_vcpu *vcpu, gpa_t cr2_or_gpa,
 	if (likely(vcpu->arch.mmu->page_fault == kvm_tdp_page_fault))
 		return kvm_tdp_page_fault(vcpu, cr2_or_gpa, err, prefault);
 #endif
-	return vcpu->arch.mmu->page_fault(vcpu, cr2_or_gpa, err, prefault);
+	return vcpu->arch.mmu->page_fault(vcpu, cr2_or_gpa, err, prefault); // %kvm_tdp_page_fault
 }
 
 /*

@@ -1074,8 +1074,9 @@ static inline int kvm_memslot_move_forward(struct kvm_memslots *slots,
  * advantageous.  The current binary search starts from the middle of the array
  * and uses an LRU pointer to improve performance for all memslots and GFNs.
  */
+// slots 内部的 slot 是按照 gfn(guest frame number) 的大小来排序的
 static void update_memslots(struct kvm_memslots *slots,
-			    struct kvm_memory_slot *memslot,
+			    struct kvm_memory_slot *memslot, // 用 memslot 来更新 slots
 			    enum kvm_mr_change change)
 {
 	int i;
@@ -1184,7 +1185,7 @@ static int kvm_set_memslot(struct kvm *kvm,
 	struct kvm_memslots *slots;
 	int r;
 
-	slots = kvm_dup_memslots(__kvm_memslots(kvm, as_id), change);
+	slots = kvm_dup_memslots(__kvm_memslots(kvm, as_id), change); // dump 是 deep copy 了一份
 	if (!slots)
 		return -ENOMEM;
 
@@ -1194,7 +1195,7 @@ static int kvm_set_memslot(struct kvm *kvm,
 		 * in the freshly allocated memslots, not in @old or @new.
 		 */
 		slot = id_to_memslot(slots, old->id);
-		slot->flags |= KVM_MEMSLOT_INVALID;
+		slot->flags |= KVM_MEMSLOT_INVALID; // 这里就是删除了 slots 中老的 slot
 
 		/*
 		 * We can re-use the old memslots, the only difference from the
@@ -1202,7 +1203,8 @@ static int kvm_set_memslot(struct kvm *kvm,
 		 * dropped by update_memslots anyway.  We'll also revert to the
 		 * old memslots if preparing the new memory region fails.
 		 */
-		slots = install_new_memslots(kvm, as_id, slots);
+		// 返回值是 old memslots
+		slots = install_new_memslots(kvm, as_id, slots); // 先 deep copy，再 install 确保原子性
 
 		/* From this point no new shadow pages pointing to a deleted,
 		 * or moved, memslot will be created.
@@ -1214,14 +1216,14 @@ static int kvm_set_memslot(struct kvm *kvm,
 		kvm_arch_flush_shadow_memslot(kvm, slot);
 	}
 
-	r = kvm_arch_prepare_memory_region(kvm, new, mem, change);
+	r = kvm_arch_prepare_memory_region(kvm, new, mem, change); // 为 slot 做一些 arch 相关的数据结构的分配与初始化
 	if (r)
 		goto out_slots;
 
-	update_memslots(slots, new, change);
-	slots = install_new_memslots(kvm, as_id, slots);
+	update_memslots(slots, new, change); // slots 是 dump 出来的 老的 slots
+	slots = install_new_memslots(kvm, as_id, slots); // 又将更新好的 老的 slots 安装回去，为了确保原子性。所以是先操作，再install
 
-	kvm_arch_commit_memory_region(kvm, mem, old, new, change);
+	kvm_arch_commit_memory_region(kvm, mem, old, new, change); // 一些收尾工作
 
 	kvfree(slots);
 	return 0;
@@ -1267,6 +1269,8 @@ static int kvm_delete_memslot(struct kvm *kvm,
  *
  * Must be called holding kvm->slots_lock for write.
  */
+
+// qemu 通过 mem 提供了 HVA <-> GPA 的映射关系，kvm 基于其建立相关结构，保存对应信息，供后续使用，譬如：EPT 异常时使用
 int __kvm_set_memory_region(struct kvm *kvm,
 			    const struct kvm_userspace_memory_region *mem)
 {
@@ -1281,7 +1285,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 		return r;
 
 	as_id = mem->slot >> 16;
-	id = (u16)mem->slot;
+	id = (u16)mem->slot; // id 是截断低 16 位
 
 	/* General sanity checks */
 	if (mem->memory_size & (PAGE_SIZE - 1))
@@ -1306,27 +1310,27 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	 */
 	tmp = id_to_memslot(__kvm_memslots(kvm, as_id), id);
 	if (tmp) {
-		old = *tmp;
+		old = *tmp; // full copy
 		tmp = NULL;
 	} else {
 		memset(&old, 0, sizeof(old));
 		old.id = id;
 	}
 
-	if (!mem->memory_size)
+	if (!mem->memory_size) // 0 表示 QEMU 要求撤销之前的映射
 		return kvm_delete_memslot(kvm, mem, &old, as_id);
 
 	new.as_id = as_id;
 	new.id = id;
-	new.base_gfn = mem->guest_phys_addr >> PAGE_SHIFT;
+	new.base_gfn = mem->guest_phys_addr >> PAGE_SHIFT; // guest frame number
 	new.npages = mem->memory_size >> PAGE_SHIFT;
 	new.flags = mem->flags;
-	new.userspace_addr = mem->userspace_addr;
+	new.userspace_addr = mem->userspace_addr; // HVA ???
 
 	if (new.npages > KVM_MEM_MAX_NR_PAGES)
 		return -EINVAL;
 
-	if (!old.npages) {
+	if (!old.npages) { // 说明这一次需要 create 一个 memslot 了
 		change = KVM_MR_CREATE;
 		new.dirty_bitmap = NULL;
 		memset(&new.arch, 0, sizeof(new.arch));
@@ -1354,7 +1358,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 			if (tmp->id == id)
 				continue;
 			if (!((new.base_gfn + new.npages <= tmp->base_gfn) ||
-			      (new.base_gfn >= tmp->base_gfn + tmp->npages)))
+			      (new.base_gfn >= tmp->base_gfn + tmp->npages))) // 重叠
 				return -EEXIST;
 		}
 	}
@@ -1362,7 +1366,7 @@ int __kvm_set_memory_region(struct kvm *kvm,
 	/* Allocate/free page dirty bitmap as needed */
 	if (!(new.flags & KVM_MEM_LOG_DIRTY_PAGES))
 		new.dirty_bitmap = NULL;
-	else if (!new.dirty_bitmap) {
+	else if (!new.dirty_bitmap) { // 没有 bitmap 的话，就需要分配，后续用来 log dirty page
 		r = kvm_alloc_dirty_bitmap(&new);
 		if (r)
 			return r;
@@ -1998,7 +2002,7 @@ kvm_pfn_t __gfn_to_pfn_memslot(struct kvm_memory_slot *slot, gfn_t gfn,
 			       bool atomic, bool *async, bool write_fault,
 			       bool *writable)
 {
-	unsigned long addr = __gfn_to_hva_many(slot, gfn, NULL, write_fault);
+	unsigned long addr = __gfn_to_hva_many(slot, gfn, NULL, write_fault); // 这个映射关系是 qemu 注册的
 
 	if (addr == KVM_HVA_ERR_RO_BAD) {
 		if (writable)
@@ -2018,7 +2022,7 @@ kvm_pfn_t __gfn_to_pfn_memslot(struct kvm_memory_slot *slot, gfn_t gfn,
 		writable = NULL;
 	}
 
-	return hva_to_pfn(addr, atomic, async, write_fault,
+	return hva_to_pfn(addr, atomic, async, write_fault, // 通过 hva 获取 host pfn
 			  writable);
 }
 EXPORT_SYMBOL_GPL(__gfn_to_pfn_memslot);
@@ -3700,7 +3704,7 @@ static long kvm_vm_ioctl(struct file *filp,
 		r = kvm_vm_ioctl_enable_cap_generic(kvm, &cap);
 		break;
 	}
-	case KVM_SET_USER_MEMORY_REGION: {
+	case KVM_SET_USER_MEMORY_REGION: { // 建立 HVA 和 GPA 的对应关系, HVA 和 HPA 的对应关系，在 EPT 异常的时候，由 KVM 来构建
 		struct kvm_userspace_memory_region kvm_userspace_mem;
 
 		r = -EFAULT;
@@ -3781,7 +3785,7 @@ static long kvm_vm_ioctl(struct file *filp,
 	}
 #endif
 #ifdef __KVM_HAVE_IRQ_LINE
-	case KVM_IRQ_LINE_STATUS:
+	case KVM_IRQ_LINE_STATUS: // 用户态qemu 请求 kvm 触发中断
 	case KVM_IRQ_LINE: {
 		struct kvm_irq_level irq_event;
 

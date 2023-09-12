@@ -24,7 +24,7 @@ static void pcibios_fixup_peer_bridges(void)
 		pcibios_scan_specific_bus(n);
 }
 
-//完成对PCI总线的美剧，并在proc sysfs中建立相关结构
+//完成对PCI总线的枚举，并在proc sysfs中建立相关结构
 int __init pci_legacy_init(void)
 {
 	if (!raw_pci_ops)

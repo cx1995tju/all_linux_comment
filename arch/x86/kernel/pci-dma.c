@@ -126,7 +126,7 @@ static int __init pci_iommu_init(void)
 {
 	struct iommu_table_entry *p;
 
-	x86_init.iommu.iommu_init();
+	x86_init.iommu.iommu_init(); // refer to: arch/x86/kernel/x86_init.c, %intel_iommu_init()
 
 	//设置iommu的页表
 	for (p = __iommu_table; p < __iommu_table_end; p++) {

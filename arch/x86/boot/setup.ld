@@ -27,8 +27,8 @@ SECTIONS
 	.rodata		: { *(.rodata*) }
 
 	.videocards	: {
-		video_cards = .;
-		*(.videocards)
+		video_cards = .; /* video_cards 是一个地址 */
+		*(.videocards)	/* 所有的 card_info 结构都会被放在这个位置 */
 		video_cards_end = .;
 	}
 

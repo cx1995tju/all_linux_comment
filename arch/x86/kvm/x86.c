@@ -5429,29 +5429,29 @@ set_identity_unlock:
 	case KVM_GET_NR_MMU_PAGES:
 		r = kvm_vm_ioctl_get_nr_mmu_pages(kvm);
 		break;
-	case KVM_CREATE_IRQCHIP: {
+	case KVM_CREATE_IRQCHIP: { // qemu 需要 kvm 来模拟 apic 的时候，就会调用。一般都是 让 kvm 来模拟，性能更好
 		mutex_lock(&kvm->lock);
 
 		r = -EEXIST;
-		if (irqchip_in_kernel(kvm))
+		if (irqchip_in_kernel(kvm)) // true 说明已经创建过了, 每个 vm 只能创建一次？？？只能有一个 ioapic
 			goto create_irqchip_unlock;
 
 		r = -EINVAL;
 		if (kvm->created_vcpus)
 			goto create_irqchip_unlock;
 
-		r = kvm_pic_init(kvm);
-		if (r)
+		r = kvm_pic_init(kvm); //创建 pic
+		if (r) // 创建失败了
 			goto create_irqchip_unlock;
 
-		r = kvm_ioapic_init(kvm);
-		if (r) {
+		r = kvm_ioapic_init(kvm); // 创建 ioapic
+		if (r) { // 创建失败了
 			kvm_pic_destroy(kvm);
 			goto create_irqchip_unlock;
 		}
 
-		r = kvm_setup_default_irq_routing(kvm);
-		if (r) {
+		r = kvm_setup_default_irq_routing(kvm); // 设置默认中断路由
+		if (r) { // 设置失败了
 			kvm_ioapic_destroy(kvm);
 			kvm_pic_destroy(kvm);
 			goto create_irqchip_unlock;
@@ -8317,7 +8317,7 @@ static void inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit
 			goto busy;
 		if (r) {
 			kvm_queue_interrupt(vcpu, kvm_cpu_get_interrupt(vcpu), false);
-			kvm_x86_ops.set_irq(vcpu);
+			kvm_x86_ops.set_irq(vcpu);	// 注入中断或异常
 			WARN_ON(kvm_x86_ops.interrupt_allowed(vcpu, true) < 0);
 		}
 		if (kvm_cpu_has_injectable_intr(vcpu))
@@ -8865,7 +8865,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			kvm_x86_ops.msr_filter_changed(vcpu);
 	}
 
-	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win) {
+	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win) { // qemu 请求注入中断或者异常
 		++vcpu->stat.req_event;
 		kvm_apic_accept_events(vcpu);
 		if (vcpu->arch.mp_state == KVM_MP_STATE_INIT_RECEIVED) {
@@ -8898,7 +8898,10 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	 * IPI are then delayed after guest entry, which ensures that they
 	 * result in virtual interrupt delivery.
 	 */
-	local_irq_disable();
+	// NOTE: intel sdm vol3 Ch24 said: the value of RFLAGS.IF does not affect interrupt blocking。
+	// So in non root mode, vm-exiting would happend if there is external interrupt.
+	// 这里 disable irq 是为了延迟 post interrupt 的处理。当进入 non root 模式的时候，中断直接投递到 guest ???
+	local_irq_disable(); // 关中断了, 进入 guest 之前。所以外部中断如果触发的话，不会进入handler。而是根据配置，来判断是否 vm-exit
 	vcpu->mode = IN_GUEST_MODE;
 
 	srcu_read_unlock(&vcpu->kvm->srcu, vcpu->srcu_idx);

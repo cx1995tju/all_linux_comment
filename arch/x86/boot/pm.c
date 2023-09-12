@@ -24,9 +24,9 @@ static void realmode_switch_hook(void)
 			     : : "m" (boot_params.hdr.realmode_swtch)
 			     : "eax", "ebx", "ecx", "edx");
 	} else {
-		asm volatile("cli");
-		outb(0x80, 0x70); /* Disable NMI */
-		io_delay();
+		asm volatile("cli"); // disable interrupt
+		outb(0x80, 0x70); /* Disable NMI */ // 这里连 NMI 都 disable 了
+		io_delay(); // wait last instruction to complete ????
 	}
 }
 
@@ -93,7 +93,7 @@ static void setup_gdt(void)
 static void setup_idt(void)
 {
 	static const struct gdt_ptr null_idt = {0, 0};
-	asm volatile("lidtl %0" : : "m" (null_idt));
+	asm volatile("lidtl %0" : : "m" (null_idt)); // 刚开始就是空的，啥都没有。难怪要屏蔽中断
 }
 
 /*
@@ -117,8 +117,8 @@ void go_to_protected_mode(void)
 	mask_all_interrupts();
 
 	/* Actual transition to protected mode... */
-	setup_idt();
-	setup_gdt();
-	protected_mode_jump(boot_params.hdr.code32_start,
+	setup_idt(); // 设置 idt
+	setup_gdt(); // 设置 gdt, linux 不用 ldt，所以没有设置？？？
+	protected_mode_jump(boot_params.hdr.code32_start, // pmjump.S
 			    (u32)&boot_params + (ds() << 4));
 }

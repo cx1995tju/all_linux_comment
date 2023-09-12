@@ -23,10 +23,10 @@ static void detect_memory_e820(void)
 	static struct boot_e820_entry buf; /* static so it is zeroed */
 
 	initregs(&ireg);
-	ireg.ax  = 0xe820;
+	ireg.ax  = 0xe820; // bios handler, 用于探测内存的
 	ireg.cx  = sizeof(buf);
-	ireg.edx = SMAP;
-	ireg.di  = (size_t)&buf;
+	ireg.edx = SMAP; // magic num
+	ireg.di  = (size_t)&buf; // es:di 是保存结果的位置
 
 	/*
 	 * Note: at least one BIOS is known which assumes that the
@@ -57,7 +57,7 @@ static void detect_memory_e820(void)
 		   screwed up the map at that point, we might have a
 		   partial map, the full map, or complete garbage, so
 		   just return failure. */
-		if (oreg.eax != SMAP) {
+		if (oreg.eax != SMAP) { // 不停的调用 int 15 e820 bios 中断，获取内存布局, 保存到 boot_params.e820_table 。后续启动的时候，kernel 还会打印 e820 的信息: BIOS-e820 ...
 			count = 0;
 			break;
 		}
