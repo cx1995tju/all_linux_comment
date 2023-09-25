@@ -36,9 +36,9 @@ static void copy_boot_params(void)
 		(const struct old_cmdline *)OLD_CL_ADDRESS;
 
 	BUILD_BUG_ON(sizeof(boot_params) != 4096);
-	// struct setup_header hdr
-	// refer to: arch/x86/boot/copy.S
-	// sizeof(hdr) 怎么来的???
+	// memcpy refer to: arch/x86/boot/copy.S
+	// sizeof(hdr) 怎么来的??? 参考 boot.h 里面定义了类型，自然也就拿到大小了
+	// 至于这个符号本身是在 header.S 中定义的。里面的内容是 boot loader 根据 boot protocol 填充的
 	memcpy(&boot_params.hdr, &hdr, sizeof(hdr)); // refer to: arch/x86/boot/header.S, 就是从 vmlinuz 中提取出的 header.S
 
 	if (!boot_params.hdr.cmd_line_ptr &&
@@ -117,11 +117,11 @@ static void set_bios_mode(void)
 
 static void init_heap(void)
 {
-	char *stack_end;
+	char *stack_end; // 栈顶部。即地址最小的值
 
 	if (boot_params.hdr.loadflags & CAN_USE_HEAP) {
 		asm("leal %P1(%%esp),%0"			// esp - STACK_SIZE 的值，赋给 stack_end 变量
-		    : "=r" (stack_end) : "i" (-STACK_SIZE)); // 增长了 1kB 的栈空间
+		    : "=r" (stack_end) : "i" (-STACK_SIZE)); // 增长了 1kB 的栈空间。stack_end 即 stack 的 sp 能够到达的最小地址。即 stack 不能超过这个值
 
 		heap_end = (char *)
 			((size_t)boot_params.hdr.heap_end_ptr + 0x200); // refer to boot.rst
@@ -137,6 +137,7 @@ static void init_heap(void)
 void main(void)
 {
 	// 利用 bios 提供的 int handler，获取很多信息
+	// 进入的时候，还是 real mode
 	/* First, copy the boot header into the "zeropage" */
 	copy_boot_params();
 

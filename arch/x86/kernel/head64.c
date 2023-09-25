@@ -458,6 +458,8 @@ static void __init copy_bootdata(char *real_mode_data)
 	sme_unmap_bootdata(real_mode_data);
 }
 
+
+// arch/x86/kernel/head_64.S 跳转过来的
 asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 {
 	/*

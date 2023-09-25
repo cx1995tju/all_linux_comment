@@ -14,6 +14,9 @@
 	.code16
 	.text
 
+//  boot 阶段使用, 此时运行在 real mode
+// memcpy(dst, src, size) // dst is ax, src is bx, size is cx
+// refer to:  https://gcc.gnu.org/onlinedocs/gcc/x86-Function-Attributes.html。 linux 编译的时候使用的 REALMODE_CFLAGS 中包含 -mregparm=3
 SYM_FUNC_START_NOALIGN(memcpy)
 	pushw	%si
 	pushw	%di
@@ -24,7 +27,7 @@ SYM_FUNC_START_NOALIGN(memcpy)
 	rep; movsl
 	popw	%cx
 	andw	$3, %cx
-	rep; movsb
+	rep; movsb	// 将字节长度从 ds:si 搬到es:di, 重复次数是在 cx 中
 	popw	%di
 	popw	%si
 	retl

@@ -104,7 +104,7 @@ zImage kernels, typically looks like::
 	098000	+------------------------+
 		|  Kernel setup		 |	The kernel real-mode code.
 	090200	+------------------------+
-		|  Kernel boot sector	 |	The kernel legacy boot sector. //legacy 模式中保护模式的代码在zImage中位于这部分代码之后，但是加载的时候，这部分代码在内存后面位置。
+		|  Kernel boot sector	 |	The kernel legacy boot sector. // linux 自己有自带一个 boot loader 的，现在不会用的, 但是还是保留在这里
 	090000	+------------------------+
 		|  Protected-mode kernel |	The bulk of the kernel image.
 	010000	+------------------------+
@@ -154,8 +154,8 @@ memory layout like the following is suggested::
 		|  Stack/heap		 |	For use by the kernel real-mode code.
 	X+08000	+------------------------+
 		|  Kernel setup		 |	The kernel real-mode code. // 即 vmlinuz 的头部部分
-		|  Kernel boot sector	 |	The kernel legacy boot sector. // arch/x86/boot/header.S
-	X       +------------------------+
+		|  Kernel boot sector	 |	The kernel legacy boot sector. // arch/x86/boot/header.S     // linux 自己有自带一个 boot loader 的，现在不会用的, 但是还是保留在这里
+	X       +------------------------+      // X 一般是 0x10000
 		|  Boot loader		 |	<- Boot sector entry point 0000:7C00 //MBR 以及 stage2 grub等
 	001000	+------------------------+
 		|  Reserved for MBR/BIOS |
@@ -495,7 +495,7 @@ Protocol:	2.00+
 
 	Protocol: 2.07+
 
-        - This flag is obsolete.
+        - This flag is obsolete.        // 现在默认不会设置这个 bit
 
   Bit 7 (write): CAN_USE_HEAP
 
@@ -523,7 +523,7 @@ Protocol:	2.00-2.01
   if the real-mode code is loaded at 0x90000.
 
 ============	========================
-Field name:	code32_start
+Field name:	code32_start                            // 可以是 kernel 的启动地址 head_64.S，也可以是放 boot loader hook，然后跳转到别的 boot loader。双系统估计就是这么干的。
 Type:		modify (optional, reloc)
 Offset/size:	0x214/4
 Protocol:	2.00+

@@ -189,10 +189,10 @@ static inline bool memcmp_gs(const void *s1, addr_t s2, size_t len)
 }
 
 /* Heap -- available for dynamic lists. */
-extern char _end[]; // _end 需要参考链接器 setup.ld。在这里作为 HEAP / heap_end 的初始值
-extern char *HEAP; // HAEP start pointer。 HEAP 是会 大于 heap_end 的
-extern char *heap_end; // refer to: init_heap()。 
-#define RESET_HEAP() ((void *)( HEAP = _end )) // 将 HEAP 清0了
+extern char _end[]; // _end 需要参考链接器 setup.ld, 是setup这部分程序结束地址的符号, 在 bss 段后面。在这里作为 HEAP / heap_end 的初始值
+extern char *HEAP; // 堆顶部。即大地址
+extern char *heap_end; // refer to: init_heap()。 是堆能够到达的最大地址。堆不能超过这个地址
+#define RESET_HEAP() ((void *)( HEAP = _end ))
 // s is size of element
 // n is number of element
 // a is align for HEAP

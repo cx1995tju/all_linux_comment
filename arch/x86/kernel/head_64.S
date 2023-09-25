@@ -50,7 +50,7 @@ L3_START_KERNEL = pud_index(__START_KERNEL_map)
 	.text
 	__HEAD
 	.code64
-SYM_CODE_START_NOALIGN(startup_64)
+SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extract_kernel 后就会跳转大这里。这里是解压后的内核第一条指令
 	UNWIND_HINT_EMPTY
 	/*
 	 * At this point the CPU runs in 64bit mode CS.L = 1 CS.D = 0,
@@ -289,7 +289,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	movq	initial_code(%rip), %rax
 	pushq	$__KERNEL_CS	# set correct cs
 	pushq	%rax		# target address in negative space
-	lretq
+	lretq			// 这里跳转到了 init/main.c:start_kernel()
 .Lafter_lret:
 SYM_CODE_END(secondary_startup_64)
 

@@ -20,7 +20,10 @@
 
 /*
  * void protected_mode_jump(u32 entrypoint, u32 bootparams);
- x86/boot/pm.c
+
+ entrypoint is eax, bootparams is edx
+
+x86/boot/pm.c
  */
 SYM_FUNC_START_NOALIGN(protected_mode_jump)
 	movl	%edx, %esi		# Pointer to boot_params table
@@ -40,14 +43,14 @@ SYM_FUNC_START_NOALIGN(protected_mode_jump)
 	movl	%edx, %cr0
 
 	# Transition to 32-bit mode
-	.byte	0x66, 0xea		# ljmpl opcode, 这里有一个 long jump
+	.byte	0x66, 0xea		# ljmpl opcode, 0xea 是 long jump，0x66 是一个前缀, 允许mix 16b 32b code
 2:	.long	.Lin_pm32		# offset
 	.word	__BOOT_CS		# segment
 SYM_FUNC_END(protected_mode_jump)
 
 	.code32
 	.section ".text32","ax"
-SYM_FUNC_START_LOCAL_NOALIGN(.Lin_pm32)
+SYM_FUNC_START_LOCAL_NOALIGN(.Lin_pm32)	// 保护模式的代码了
 	# Set up data segments for flat 32-bit mode
 	movl	%ecx, %ds
 	movl	%ecx, %es
@@ -72,5 +75,6 @@ SYM_FUNC_START_LOCAL_NOALIGN(.Lin_pm32)
 	# Set up LDTR to make Intel VT happy
 	lldt	%cx
 
-	jmpl	*%eax			# Jump to the 32-bit entrypoint, code32_start, 默认就是 0x100000 位置 2^20 = 1MB. refer to x86/boot.rst
+	jmpl	*%eax			# Jump to the 32-bit entrypoint, code32_start, 默认就是 0x100000 位置 2^20 = 1MB. refer to x86/boot.rst, arch/x86/boot/pm.c:go_to_proctected_mode()
+	# ./arch/x86/boot/compressed/head_64.S:.code32 位置
 SYM_FUNC_END(.Lin_pm32)

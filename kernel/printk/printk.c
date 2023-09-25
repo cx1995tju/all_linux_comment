@@ -2929,6 +2929,7 @@ EXPORT_SYMBOL(unregister_console);
  * Just do some early initializations, and do the complex setup
  * later.
  */
+// 这里 init 了，很多之前的打印才能被输出到 console，才能看到
 void __init console_init(void)
 {
 	int ret;

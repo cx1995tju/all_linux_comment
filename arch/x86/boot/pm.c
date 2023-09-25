@@ -61,13 +61,26 @@ struct gdt_ptr {
 	u32 ptr;
 } __attribute__((packed));
 
+/* 0xc09b: 1100 0000 1001 1011
+ *
+ * 1 - (G) granularity bit
+ * 1 - (D) if 0 16-bit segment; 1 = 32-bit segment
+ * 0 - (L) executed in 64-bit mode if 1
+ * 0 - (AVL) available for use by system software
+ * 0000 - 4-bit length 19:16 bits in the descriptor
+ * 1 - (P) segment presence in memory
+ * 00 - (DPL) - privilege level, 0 is the highest privilege
+ * 1 - (S) code or data segment, not a system segment
+ * 101 - segment type execute/read/
+ * 1 - accessed bit
+ * */
 static void setup_gdt(void)
 {
 	/* There are machines which are known to not boot with the GDT
 	   being 8-byte unaligned.  Intel recommends 16 byte alignment. */
 	static const u64 boot_gdt[] __attribute__((aligned(16))) = {
 		/* CS: code, read/execute, 4 GB, base 0 */
-		[GDT_ENTRY_BOOT_CS] = GDT_ENTRY(0xc09b, 0, 0xfffff),
+		[GDT_ENTRY_BOOT_CS] = GDT_ENTRY(0xc09b, 0, 0xfffff),	// 设置了一些基础的 gdt 表，后续都还需要重写的
 		/* DS: data, read/write, 4 GB, base 0 */
 		[GDT_ENTRY_BOOT_DS] = GDT_ENTRY(0xc093, 0, 0xfffff),
 		/* TSS: 32-bit tss, 104 bytes, base 4096 */
@@ -82,7 +95,7 @@ static void setup_gdt(void)
 	static struct gdt_ptr gdt;
 
 	gdt.len = sizeof(boot_gdt)-1;
-	gdt.ptr = (u32)&boot_gdt + (ds() << 4);
+	gdt.ptr = (u32)&boot_gdt + (ds() << 4);	// cuz we are now in real-mode。这&boot_gdt only got the offset
 
 	asm volatile("lgdtl %0" : : "m" (gdt));
 }
@@ -118,7 +131,7 @@ void go_to_protected_mode(void)
 
 	/* Actual transition to protected mode... */
 	setup_idt(); // 设置 idt
-	setup_gdt(); // 设置 gdt, linux 不用 ldt，所以没有设置？？？
+	setup_gdt(); // 设置 gdt, linux 不用 ldt，所以没有设置？？？ 或者说，这里设置仅仅是为了临时用一下
 	protected_mode_jump(boot_params.hdr.code32_start, // pmjump.S
-			    (u32)&boot_params + (ds() << 4));
+			    (u32)&boot_params + (ds() << 4));	// cuz we are now in real-mode, &boot_params only got the offset, so we need compute ds() << 4, and add it
 }

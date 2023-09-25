@@ -280,6 +280,7 @@ static int vga_probe(void)
 }
 
 // refer to: setup.ld
+// __videocard 会让链接器把这个符号放到  .videocards 中，setup.ld 脚本会把它们链接到一起的
 static __videocard video_vga = {
 	.card_name	= "VGA",
 	.probe		= vga_probe,

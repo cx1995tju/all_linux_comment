@@ -62,6 +62,7 @@ struct setup_indirect {
 	__u64 addr;
 };
 
+// refer to Documentation/x86/boot.rst
 struct setup_header {
 	__u8	setup_sects;
 	__u16	root_flags;

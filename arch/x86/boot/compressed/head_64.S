@@ -47,7 +47,7 @@
 
 /*
  * This macro gives the relative virtual address of X, i.e. the offset of X
- * from startup_32. This is the same as the link-time virtual address of X,
+ * from startup_32. This is the same as the link-time virtual address of X,	// link 的时候 startup_32 在 0 位置，但是加载到内存的时候显然不是
  * since startup_32 is at 0, but defining it this way tells the
  * assembler/linker that we do not want the actual run-time address of X. This
  * prevents the linker from trying to create unwanted run-time relocation
@@ -70,8 +70,25 @@
  */
 #define rva(X) ((X) - startup_32)
 
-	.code32		// 这里的代码的link。受 arch/x86/boot/compressed/vmlinux.lds.S 脚本控制
-SYM_FUNC_START(startup_32)
+	// 此时寄存器值可能为
+// eax            0x100000	1048576
+// ecx            0x0	    0
+// edx            0x0	    0
+// ebx            0x0	    0
+// esp            0x1ff5c	0x1ff5c
+// ebp            0x0	    0x0
+// esi            0x14470	83056
+// edi            0x0	    0
+// eip            0x100000	0x100000
+// eflags         0x46	    [ PF ZF ]
+// cs             0x10	16
+// ss             0x18	24
+// ds             0x18	24
+// es             0x18	24
+// fs             0x18	24
+// gs             0x18	24
+	.code32		// 这里的代码的link。受 arch/x86/boot/compressed/vmlinux.lds.S 脚本控制。从 go_to_protected_mode() 跳转过来的
+SYM_FUNC_START(startup_32)	// _保护模式下的第一条指令_  进入保护模式的时候，不知道这个 startup_32 到底被加载到了哪个位置。第一步就是要搞清楚这一点				, 此时还没有开启 paging 机制。还是段式寻址, 不过需要 gdt / ldt 参与了。而不是real-mode 下的段式寻址。
 	/*
 	 * 32bit entry is 0 and it is ABI so immutable!
 	 * If we come here directly from a bootloader,
@@ -89,13 +106,17 @@ SYM_FUNC_START(startup_32)
  * data at 0x1e4 (defined as a scratch field) are used as the stack
  * for this calculation. Only 4 bytes are needed.
  */
+	// 进入这里的时候，esi 中保存的是 boot_params 参数
+	// 让 zero page 中的scratch 这 4个byte 作为一个临时的stack使用。
+	// 这里设置了栈指针 esp 就是 zero page（即boot_params 中的 scartch 位置 + 4）, 注意，栈是从高地址到低地址的，这里 +4，后面的 call 指令会-4的, 同时会将返回地址(即此处的 1: 位置) push 到栈中，即 scratch 位置
+	// BP_scratch 就是 1e4
 	leal	(BP_scratch+4)(%esi), %esp // esi 寄存器是 boot_params 的基址, 在 进入 protected 模式前，填充的. pmjump.S
 	call	1f // 这里是为了获得自己当前所在地址
-1:	popl	%ebp // ebp 就是 1: 这个 lable 的地址了
-	subl	$ rva(1b), %ebp
+1:	popl	%ebp // ebp 就是 1: 这个 lable 的地址了。因为不知道 boot loader 到底把这部分代码加载到了哪个位置。所以这里要去拿一下当前地址。
+	subl	$ rva(1b), %ebp	// 将ebp寄存器，即当前的 1f 的地址减去 1b 的偏移。得到了 startup_32 的地址了 			//    ____注意到这里时，ebp 中的值就是 startup32 的地址了_____
 
 	/* Load new GDT with the 64bit segments using 32bit descriptor */
-	leal	rva(gdt)(%ebp), %eax
+	leal	rva(gdt)(%ebp), %eax	// 将 gdt 地址放到 eax 中
 	movl	%eax, 2(%eax)
 	lgdt	(%eax)
 
@@ -108,11 +129,11 @@ SYM_FUNC_START(startup_32)
 	movl	%eax, %ss
 
 /* setup a stack and make sure cpu supports long mode. */
-	leal	rva(boot_stack_end)(%ebp), %esp
+	leal	rva(boot_stack_end)(%ebp), %esp	// 拿到 boot stack 的真实地址
 
-	call	verify_cpu
-	testl	%eax, %eax
-	jnz	.Lno_longmode
+	call	verify_cpu	// 需要检查 cpu 是否支持 long mode 以及 sse 指令, refer to:   arch/x86/kernel/verify_cpu.S 
+	testl	%eax, %eax	// verify_cpu 的返回值在 eax 里，0表示成功，通过检查，1表示失败。
+	jnz	.Lno_longmode	// 不支持 longmode的话，跳转过去 hlt
 
 /*
  * Compute the delta between where we were compiled to run at
@@ -124,7 +145,7 @@ SYM_FUNC_START(startup_32)
  */
 
 #ifdef CONFIG_RELOCATABLE
-	movl	%ebp, %ebx
+	movl	%ebp, %ebx	// 记住 ebp 保存了 protected mode 代码加载的位置
 
 #ifdef CONFIG_EFI_STUB
 /*
@@ -138,20 +159,22 @@ SYM_FUNC_START(startup_32)
 	subl    rva(image_offset)(%ebp), %ebx
 #endif
 
-	movl	BP_kernel_alignment(%esi), %eax
-	decl	%eax
-	addl	%eax, %ebx
-	notl	%eax
-	andl	%eax, %ebx
-	cmpl	$LOAD_PHYSICAL_ADDR, %ebx
+	movl	BP_kernel_alignment(%esi), %eax		// esi 是 boot_params 的基地址, eax 保存的是对齐值
+	decl	%eax					// --，将对齐值 2的幂，转换为了低位全1 (即 2^n - 1)
+	addl	%eax, %ebx				// 为了后续 ebx 向上对齐
+	notl	%eax					// 按位取反
+	andl	%eax, %ebx				// ebx 向上对齐
+	cmpl	$LOAD_PHYSICAL_ADDR, %ebx		// refer to:  arch/x86/include/asm/boot.h。计算出来的 ebx 值，不能比这个 LOAD_PHYSICAL_ADDR 小
 	jae	1f
 #endif
 	movl	$LOAD_PHYSICAL_ADDR, %ebx
 1:
 
-	/* Target address to relocate to for decompression */
-	addl	BP_init_size(%esi), %ebx
-	subl	$ rva(_end), %ebx
+	/* Target address to relocate to for decompression */	// 要找一个位置放置解压后的内核, 此时 ebx 保存就是这个地址
+	addl	BP_init_size(%esi), %ebx			// 预留一部分初始化过程要使用的线性空间出来
+	subl	$ rva(_end), %ebx // ebx 指向的地址，是临时用来做 in-place 解压的。 因为 init_size 包含了当前这些 protected mode 代码的大小，所以要减去一个 _end
+	// 至此 ebp 包含的是 load kernel 的位置，即 protected mode 的起始地址
+	// ebx 保存的是，等下用来解压 内核的位置
 
 /*
  * Prepare for entering 64 bit mode
@@ -163,7 +186,7 @@ SYM_FUNC_START(startup_32)
 	movl	%eax, %cr4
 
  /*
-  * Build early 4G boot pagetable
+  * Build early 4G boot pagetable		// 构建一个 pagetable，在 boot 的时候用一下
   */
 	/*
 	 * If SEV is active then set the encryption mask in the page tables.
@@ -178,15 +201,102 @@ SYM_FUNC_START(startup_32)
 	bts	%eax, %edx	/* Set encryption mask for page tables */
 1:
 
+	/* 注意此时都还是 _32b 模式_ */
 	/* Initialize Page tables to 0 */
-	leal	rva(pgtable)(%ebx), %edi
+	// 注意在 ebx 的起始位置是预留了足够的空间用来初始化的，我们现在在其中拿一部分出来做 pagetable
+	// edi 是 pagetable 地址
+	// 注意，这里准备的pagetable 是等下 进入 long mode 使用的，所以每个entry 都是 64b
+	leal	rva(pgtable)(%ebx), %edi	// 注意，此时 ebx 此时保存的是等下内核解压后会放置到这个位置
 	xorl	%eax, %eax
-	movl	$(BOOT_INIT_PGT_SIZE/4), %ecx
-	rep	stosl
+	movl	$(BOOT_INIT_PGT_SIZE/4), %ecx	// 6KB 的空间清0
+	rep	stosl				// 先清0
 
+	/*
+	// 虚拟地址格式
+	 31          22 21    12 11                0
+	+--------------+--------+-------------------+
+	| 页面目录 dir | 页面表 | 页内偏移 (offset) |
+	+--------------+--------+-------------------+
+
+
+	// 页目录表 / 页表 entry
+	 31                   12 11               0
+	+-----------------------+-------------------+
+	| 页面目录 dir          | flags             |
+	+-----------------------+-------------------+
+	flags:
+		D(bit 6): Dirty
+		A(bit 5): Accessed
+		PCD(bit 4): Cache Disableed
+		PWT(bit 3): Write-Through
+		U(bit 2): User-Defined
+		XW(bit 1): Writable
+		P(bit 0): Present
+	 */
+
+	/*
+                +----------------+
+                |                |
+                |                |
+                |                |
+        +0x6000B|----------------|
+                |                |
+                |       .        |
+                |       .        |
+                |       .        |
+                |                |
+        +0x2018B|----------------|       Level 2: 2048 entries, every entry for 2MB page 一共 4GB 大小的内存空间。基本就是恒等映射咯
+                |       0        |
+        +0x2014B|----------------|
+                |    0x400183    |
+        +0x2010B|----------------|
+                |       0        |
+        +0x200cB|----------------|
+                |    0x200183    |
+        +0x2008B|----------------|
+                |       0        |
+        +0x2004B|----------------|
+                |     0x183      |     // 低 12位是 flag, 这个entry 指向的是物理地址0, 一个 entry 是 64b。2K 个 2MB 大小的page (一共48b，高27b是 page 的偏移)
+        +0x2000B|----------------|<----+
+                |                |     |
+                |       .        |     |
+                |       .        |     |
+                |       .        |     |
+                |       .        |     |
+                |                |     |
+        +0x1020B|----------------|     |
+                |       0        |     |
+        +0x101cB|----------------|     |
+                | pgtbl + 0x5007 |     |
+        +0x1018B|----------------|     |
+                |       0        |     |
+        +0x1014B|----------------|     | Level 3: 4 entries(一共可以有 512 entries 的)
+                | pgtbl + 0x4007 |     |
+        +0x1010B|----------------|     |
+                |       0        |     |
+        +0x100cB|----------------|     |
+                | pgtbl + 0x3007 |     |
+        +0x1008B|----------------|     |
+                |       0        |     |
+        +0x1004B|----------------|     |
+                | pgtbl + 0x2007 +-----+
+        +0x1000B|----------------|<----+
+                |                |     |
+                |       .        |     |
+                |       .        |     |
+                |       .        |     |
+                |       .        |     | Level 4: 1 entry（一共可以有 512 entry的）
+                |                |     |
+                |----------------|     |
+                |       0        |     |
+             +4B|----------------|     |
+                | pgtbl + 0x1007 +-----+ 007(0000 0000 0111) (User-Defined / Writable / Present)
+pgtbl---------->+----------------+
+	*/
+	// 4-level VA = 9b + 9b + 9b + 21b(2MB page offset)
 	/* Build Level 4 */
-	leal	rva(pgtable + 0)(%ebx), %edi
-	leal	0x1007 (%edi), %eax
+	leal	rva(pgtable + 0)(%ebx), %edi // ebx: ebx contains the address where should move kernel image temporarily for safe in-place decompression 
+	leal	0x1007 (%edi), %eax	// 0x1007 低 12 位是 flag(Present / Writable / User-Defined), 第13位1 表示其指向的地址是 pgtable + 4KB
 	movl	%eax, 0(%edi)
 	addl	%edx, 4(%edi)
 
@@ -195,7 +305,7 @@ SYM_FUNC_START(startup_32)
 	leal	0x1007(%edi), %eax
 	movl	$4, %ecx
 1:	movl	%eax, 0x00(%edi)
-	addl	%edx, 0x04(%edi)
+	addl	%edx, 0x04(%edi) // 注意，这里准备的pagetable 是等下 进入 long mode 使用的，所以每个entry 都是 64b, 所以这里会又填充4B
 	addl	$0x00001000, %eax
 	addl	$8, %edi
 	decl	%ecx
@@ -203,8 +313,8 @@ SYM_FUNC_START(startup_32)
 
 	/* Build Level 2 */
 	leal	rva(pgtable + 0x2000)(%ebx), %edi
-	movl	$0x00000183, %eax
-	movl	$2048, %ecx
+	movl	$0x00000183, %eax	// 0x183(0001 1000 0011) 2MB page。bit 7 为1 表示这是一个指向 2MB page 的entry。注意：不是指向的页表。而是已经指向page 了。enable pae 的时候，这个 bit 7 为1的话，其就不指向page table 了，而是直接指向2MB 的 page 了
+	movl	$2048, %ecx		// 2048 * 8B = 16KB, 这里构建了 2K 个 2MB 的page，就搞定了 4GB 的内存空间
 1:	movl	%eax, 0(%edi)
 	addl	%edx, 4(%edi)
 	addl	$0x00200000, %eax
@@ -214,12 +324,12 @@ SYM_FUNC_START(startup_32)
 
 	/* Enable the boot page tables */
 	leal	rva(pgtable)(%ebx), %eax
-	movl	%eax, %cr3
+	movl	%eax, %cr3		// 将 page table 地址写入 cr3
 
 	/* Enable Long mode in EFER (Extended Feature Enable Register) */
 	movl	$MSR_EFER, %ecx
 	rdmsr
-	btsl	$_EFER_LME, %eax
+	btsl	$_EFER_LME, %eax	// LME: lone mode enable
 	wrmsr
 
 	/* After gdt is loaded */
@@ -238,12 +348,12 @@ SYM_FUNC_START(startup_32)
 	 * We place all of the values on our mini stack so lret can
 	 * used to perform that far jump.
 	 */
-	leal	rva(startup_64)(%ebp), %eax
+	leal	rva(startup_64)(%ebp), %eax		// eax 就是后续进入 long mode 的起始地址
 #ifdef CONFIG_EFI_MIXED
 	movl	rva(efi32_boot_args)(%ebp), %edi
 	cmp	$0, %edi
 	jz	1f
-	leal	rva(efi64_stub_entry)(%ebp), %eax
+	leal	rva(efi64_stub_entry)(%ebp), %eax	// eax 就是后续进入 long mode 的起始地址
 	movl	rva(efi32_boot_args+4)(%ebp), %esi
 	movl	rva(efi32_boot_args+8)(%ebp), %edx	// saved bootparams pointer
 	cmpl	$0, %edx
@@ -262,14 +372,14 @@ SYM_FUNC_START(startup_32)
 1:
 #endif
 	pushl	$__KERNEL_CS
-	pushl	%eax
+	pushl	%eax				// 等下就是跳转到这个地址(startup_64)进入 long mode
 
 	/* Enter paged protected Mode, activating Long Mode */
-	movl	$(X86_CR0_PG | X86_CR0_PE), %eax /* Enable Paging and Protected mode */
+	movl	$(X86_CR0_PG | X86_CR0_PE), %eax /* Enable Paging and Protected mode, 设置 64b mode */
 	movl	%eax, %cr0
 
 	/* Jump from 32bit compatibility mode into 64bit mode. */
-	lret
+	lret					// 跳转到 64b mode
 SYM_FUNC_END(startup_32)
 
 #ifdef CONFIG_EFI_MIXED
@@ -305,8 +415,8 @@ SYM_FUNC_END(efi32_stub_entry)
 #endif
 
 	.code64
-	.org 0x200
-SYM_CODE_START(startup_64)
+	.org 0x200			// 这部分代码会在 offset 0x200 的位置开始, 即 (startup_32 + 0x200)
+SYM_CODE_START(startup_64)		// long mode 的起始地址
 	/*
 	 * 64bit entry is 0x200 and it is ABI so immutable!
 	 * We come here either from startup_32 or directly from a
@@ -322,7 +432,7 @@ SYM_CODE_START(startup_64)
 	cli
 
 	/* Setup data segments. */
-	xorl	%eax, %eax
+	xorl	%eax, %eax	// 清零
 	movl	%eax, %ds
 	movl	%eax, %es
 	movl	%eax, %ss
@@ -343,8 +453,11 @@ SYM_CODE_START(startup_64)
 	 */
 
 	/* Start with the delta to where the kernel will run at. */
+	// 在 32b 模式做的很多工作，现在要重新做一遍
 #ifdef CONFIG_RELOCATABLE
-	leaq	startup_32(%rip) /* - $startup_32 */, %rbp
+	// 使用 rip 相对寻址，将 startup_32 这个符号链接后地址放到 rbp 寄存器中。这里就是 0(refer to 	arch/x86/boot/compressed/vmlinux.lds.S)。注意，不是加载的物理地址哦。真实的物理地址一般是 0x100000
+	// 用 rip 相对寻址，内部符号的引用就是位置无关的。
+	leaq	startup_32(%rip) /* - $startup_32 */, %rbp	// 链接器会将其处理为 startup_32 的地址的，不过使用的是 rip 相对寻址罢了。 链接后的实际效果和 leaq startup_32, %rbp 没有区别，不过寻址方式不同罢了。
 
 #ifdef CONFIG_EFI_STUB
 /*
@@ -373,7 +486,7 @@ SYM_CODE_START(startup_64)
 	/* Target address to relocate to for decompression */
 	movl	BP_init_size(%rsi), %ebx
 	subl	$ rva(_end), %ebx
-	addq	%rbp, %rbx
+	addq	%rbp, %rbx		// rbx 保存的是 target address 了
 
 	/* Set up the stack */
 	leaq	rva(boot_stack_end)(%rbx), %rsp
@@ -478,7 +591,7 @@ trampoline_return:
  * Copy the compressed kernel to the end of our buffer
  * where decompression in place becomes safe.
  */
-	pushq	%rsi
+	pushq	%rsi				// 赋值压缩的内核到要解压的位置
 	leaq	(_bss-8)(%rip), %rsi
 	leaq	rva(_bss-8)(%rbx), %rdi
 	movl	$(_bss - startup_32), %ecx
@@ -558,15 +671,15 @@ SYM_FUNC_START_LOCAL_NOALIGN(.Lrelocated)
 	leaq	boot_heap(%rip), %rsi	/* malloc area for uncompression */
 	leaq	input_data(%rip), %rdx  /* input_data */
 	movl	input_len(%rip), %ecx	/* input_len */
-	movq	%rbp, %r8		/* output target address */
-	movl	output_len(%rip), %r9d	/* decompressed length, end of relocs */
-	call	extract_kernel		/* returns kernel location in %rax */
+	movq	%rbp, %r8		/* output target address vmlinux 解压后的 LOAD 部分, 会放置到 output 位置, 即解压后的第一条指令会在这个位置。objudmp -Sl vmlinux 可以知道第一条指令就是 arch/x86/kernel/head_64.S:startup_64 */
+	movl	output_len(%rip), %r9d	/* decompressed length, end of relocs,  */
+	call	extract_kernel		/* returns kernel location in %rax */ // all_linux_comment/arch/x86/boot/compressed/misc.c
 	popq	%rsi
 
 /*
  * Jump to the decompressed kernel.
  */
-	jmp	*%rax
+	jmp	*%rax	/* 跳转到解压后的内核, rax 的值来自于 call extract_kernel 的返回值。即 arch/x86/kernel/head_64.S:startup_64  */
 SYM_FUNC_END(.Lrelocated)
 
 	.code32
@@ -793,17 +906,17 @@ SYM_DATA_END(loaded_image_proto)
 	.balign 4
 SYM_DATA_LOCAL(boot_heap,	.fill BOOT_HEAP_SIZE, 1, 0)
 
-SYM_DATA_START_LOCAL(boot_stack)
-	.fill BOOT_STACK_SIZE, 1, 0
+SYM_DATA_START_LOCAL(boot_stack)		// 这部分空间作为 boot 过程临时的栈使用。
+	.fill BOOT_STACK_SIZE, 1, 0		// 大小 0x4000	14KB
 	.balign 16
-SYM_DATA_END_LABEL(boot_stack, SYM_L_LOCAL, boot_stack_end)
+SYM_DATA_END_LABEL(boot_stack, SYM_L_LOCAL, boot_stack_end) // 注意这里的高地址是栈底
 
 /*
  * Space for page tables (not in .bss so not zeroed)
  */
 	.section ".pgtable","aw",@nobits
-	.balign 4096
-SYM_DATA_LOCAL(pgtable,		.fill BOOT_PGT_SIZE, 1, 0)
+	.balign 4096			// 填充 4K 大小的0
+SYM_DATA_LOCAL(pgtable,		.fill BOOT_PGT_SIZE, 1, 0) // 继续填充 BOOT_PGT_SIZE(19 * 4K) 大小的0
 
 /*
  * The page table is going to be used instead of page table in the trampoline

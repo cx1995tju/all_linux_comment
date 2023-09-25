@@ -36,14 +36,15 @@ SYSSEG		= 0x1000		/* historical load address >> 4 */ //同上，0x10000, header.
 #define ROOT_RDONLY 1
 #endif
 
-	.code16
-	.section ".bstext", "ax"
+// 这部分的链接编译，参考 setup.ld 脚本
+	.code16		// 告诉编译器这里的代码是 16 位模式的
+	.section ".bstext", "ax"	// ax 说明这个 section 是可执行的
 
-	.global bootsect_start
+	.global bootsect_start		// 告诉链接器这是一个 global 符号
 bootsect_start:
-#ifdef CONFIG_EFI_STUB
+#ifdef CONFIG_EFI_STUB			// 用于 UEFI 支持的
 	# "MZ", MS-DOS header
-	.word	MZ_MAGIC
+	.word	MZ_MAGIC		// 一般是 0x10000 位置, 未开启 kaslr
 #endif
 
 	# Normalize the start address, 为了设置下 CS 寄存器, CS <- $BOOTSEG, IP <- $start2
@@ -291,12 +292,13 @@ boot_flag:	.word 0xAA55		// 启动盘第一个扇区的最后两个字节应该�
 
 	# offset 512(0x200), entry point
 
-	.globl	_start
-_start: # 0x200, 这是setup_header 的位置 512Bytes
+	.globl	_start	// 参考 boot.rst
+_start: # 0x200, 这是setup_header 的 512Bytes 偏移位置，这里必须是一条 jump 指令。boot loader 知道这里是jump 指令，会直接执行的
 		# Explicitly enter this as bytes, or the assembler
 		# tries to generate a 3-byte jump here, which causes
 		# everything else to push off to the wrong offset.
-		.byte	0xeb		# short (2-byte) jump 这个是一条jump指令
+		# 根据 boot protocol，boot loader 知道这里有一条 jump指令，就会执行这条指令
+		.byte	0xeb		# short (2-byte) jump 这个是一条jump指令, 0xeb 是条jump指令
 		.byte	start_of_setup-1f # 0x202 这里表示两个label: start_of_setup 和 1f 之间的距离。结合这个相对跳转指令。所以就是跳转到start_of_setup 位置。即header.S 的代码段开始位置。
 1:
 
@@ -581,8 +583,11 @@ kernel_info_offset:	.long 0			# Filled in by build.c
 # End of setup header #####################################################
 
 	.section ".entrytext", "ax"
-start_of_setup:		// kenerl 真正开始的位置
-# Force %es = %ds
+	# 现在还是实模式, 还是段式寻址
+	# 在这个位置时，bootloader 会将寄存器设置为: gs = fs = es = ds = ss = 0x1000, 前提是 header.S 被加载到了这里 0x10000
+	# cs = 0x1020		// 注意段寄存器使用的时候会左移4b
+start_of_setup:			// kenerl 真正开始的位置,此时还是 real-mode
+# Force %es = %ds		// 接下来kernel 要做4件事: 1. make sure all segment register values are equal； 2. setup a correct stack; 3. set up bss; 4. jump to the C code in arch/x86/boot/main.c
 	movw	%ds, %ax
 	movw	%ax, %es
 	cld
@@ -593,48 +598,48 @@ start_of_setup:		// kenerl 真正开始的位置
 # stack behind its own code, so we can't blindly put it directly past the heap.
 
 	movw	%ss, %dx
-	cmpw	%ax, %dx	# %ds == %ss?
-	movw	%sp, %dx
-	je	2f		# -> assume %sp is reasonably set
+	cmpw	%ax, %dx	# %ds == %ss?  ss 寄存器用来索引栈的，ds 寄存器用来索引数据的。在 linux 中后续基本不使用段机制，会让所段有寄存器的值相等的。
+	movw	%sp, %dx	# 取决于 bootloader 的设置
+	je	2f		# -> assume %sp is reasonably set。linux 需要强制 ss == ds 的
 
-	# Invalid %ss, make up a new stack
-	movw	$_end, %dx
+	# Invalid %ss, make up a new stack,  ss 寄存器不符合linux 的需求，那么这个栈需要重构
+	movw	$_end, %dx	# refer to setup.ld 可以看到 _end 符号是 header.S 编译后的尾部。即其加载到内存后的尾部位置
 	testb	$CAN_USE_HEAP, loadflags
-	jz	1f
-	movw	heap_end_ptr, %dx
-1:	addw	$STACK_SIZE, %dx
-	jnc	2f
+	jz	1f		# 如果是 0 就会跳转，说明 loadflags 是0；不跳转的话，说明设置了 CAN_USE_HEAP flag
+	movw	heap_end_ptr, %dx	# 可以使用 head 的话，dx 就是 head end
+1:	addw	$STACK_SIZE, %dx	# head end + STACK size
+	jnc	2f			# jnc: jump on not carry，没有进位的时候就跳转
 	xorw	%dx, %dx	# Prevent wraparound
 
-2:	# Now %dx should point to the end of our stack space
+2:	# Now %dx should point to the end of our stack space, 即 sp 指针。
 	andw	$~3, %dx	# dword align (might as well...)
 	jnz	3f
 	movw	$0xfffc, %dx	# Make sure we're not zero
-3:	movw	%ax, %ss
+3:	movw	%ax, %ss	# 注意看，前面将ds 的值保存到了 ax 中的
 	movzwl	%dx, %esp	# Clear upper half of %esp
-	sti			# Now we should have a working stack
+	sti			# Now we should have a working stack ,为啥开中断？？？
 
 # We will have entered with %cs = %ds+0x20, normalize %cs so
 # it is on par with the other segments.
-	pushw	%ds // which pushes the value of ds to the stack, followed by the address of the 6 label and executes the lretw instruction. When the lretw instruction is called, it loads the address of label 6 into the instruction pointer register and loads cs with the value of ds. Afterward, ds and cs will have the same values.
-	pushw	$6f
-	lretw
+	pushw	%ds #  which pushes the value of ds to the stack, followed by the address of the 6 label and executes the lretw instruction. When the lretw instruction is called, it loads the address of label 6 into the instruction pointer register and loads cs with the value of ds. Afterward, ds and cs will have the same values.
+	pushw	$6f #  一个 ret 就跳转到这里了。同时会用这里 push 进去的 ds 来加载 cs。注意此时还是实模式
+	lretw  # 因为这里是一条 lret，所以会加载 cs 寄存器。 cs = ds；ip = 6f 了。因为 ds 被设置为 header.S 被加载的位置。所以这里就lret 到了 6的位置继续执行了
 6:
 
 # Check signature at end of setup
-	cmpl	$0x5a5aaa55, setup_sig
+	cmpl	$0x5a5aaa55, setup_sig	# refer to: setup.ld
 	jne	setup_bad
 
 # Zero the bss
-	movw	$__bss_start, %di
+	movw	$__bss_start, %di	# refer to: setup.ld
 	movw	$_end+3, %cx
 	xorl	%eax, %eax
 	subw	%di, %cx
-	shrw	$2, %cx
+	shrw	$2, %cx			# 右移两位，高位补0
 	rep; stosl
 
 # Jump to C code (should not return)
-	calll	main # arch/x86/boot/main.c::main()
+	calll	main # arch/x86/boot/main.c::main()，因为这几个文件最终都是link 到一起的
 
 # Setup corrupt somehow...
 setup_bad:

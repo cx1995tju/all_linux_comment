@@ -27,7 +27,7 @@ static void store_cursor_position(void)
 	ireg.ah = 0x03;
 	intcall(0x10, &ireg, &oreg);
 
-	boot_params.screen_info.orig_x = oreg.dl;
+	boot_params.screen_info.orig_x = oreg.dl;	// 获取到光标的位置
 	boot_params.screen_info.orig_y = oreg.dh;
 
 	if (oreg.ch & 0x20)
@@ -149,7 +149,7 @@ static void display_menu(void)
 	int col;
 
 	nmodes = 0;
-	for (card = video_cards; card < video_cards_end; card++)
+	for (card = video_cards; card < video_cards_end; card++)	// video_cards 的定义在 setup.ld 链接脚本里
 		nmodes += card->nmodes;
 
 	modes_per_line = 1;
@@ -249,7 +249,7 @@ static void save_screen(void)
 	saved.curx = boot_params.screen_info.orig_x;
 	saved.cury = boot_params.screen_info.orig_y;
 
-	if (!heap_free(saved.x*saved.y*sizeof(u16)+512))
+	if (!heap_free(saved.x*saved.y*sizeof(u16)+512))	// 在 heap 中需要有足够的空间来保存屏幕的内容
 		return;		/* Not enough heap to save the screen */
 
 	saved.data = GET_HEAP(u16, saved.x*saved.y);

@@ -115,6 +115,7 @@ static void detect_memory_88(void)
 
 void detect_memory(void)
 {
+	// 利用 bios 提供的 interrupt handler 
 	detect_memory_e820();
 
 	detect_memory_e801();
