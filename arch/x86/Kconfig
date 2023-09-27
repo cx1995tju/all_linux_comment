@@ -1482,7 +1482,7 @@ config X86_PAE
 config X86_5LEVEL
 	bool "Enable 5-level page tables support"
 	default y
-	select DYNAMIC_MEMORY_LAYOUT
+	select DYNAMIC_MEMORY_LAYOUT	// X86_5LEVEL 被选中的时候，这个会自动被选中的
 	select SPARSEMEM_VMEMMAP
 	depends on X86_64
 	help

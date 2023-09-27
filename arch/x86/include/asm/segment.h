@@ -41,7 +41,7 @@
  * - O: 永远为0
  * - D/B
  * 	- 0 表示对该段的访问是 16 位指令
- * 	- 0 表示对该段的访问是 32 位指令
+ * 	- 1 表示对该段的访问是 32 位指令
  * - G
  * 	- 0 表示基本单位是 Byte
  * 	- 1 表示这个段的基本单位是 4KB
@@ -59,7 +59,7 @@
 #define GDT_ENTRY_BOOT_DS	3
 #define GDT_ENTRY_BOOT_TSS	4
 #define __BOOT_CS		(GDT_ENTRY_BOOT_CS*8)
-#define __BOOT_DS		(GDT_ENTRY_BOOT_DS*8)
+#define __BOOT_DS		(GDT_ENTRY_BOOT_DS*8) // 0x18  = 0b0000 0000 00011 0 00 // 使用 gdt table 中的第 0b11，即第3个entry
 #define __BOOT_TSS		(GDT_ENTRY_BOOT_TSS*8)
 
 /*

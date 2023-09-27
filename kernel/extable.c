@@ -45,7 +45,7 @@ void __init sort_main_extable(void)
 const
 struct exception_table_entry *search_kernel_exception_table(unsigned long addr)
 {
-	return search_extable(__start___ex_table,
+	return search_extable(__start___ex_table,	//  readelf -S vmlinux 可以看到有 __ex_table 这个 section 的, nm vmlinux 也可以看到 __start___ex_table 这些符号的
 			      __stop___ex_table - __start___ex_table, addr);
 }
 

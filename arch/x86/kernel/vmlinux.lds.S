@@ -117,13 +117,17 @@ SECTIONS
 	. = LOAD_OFFSET + LOAD_PHYSICAL_ADDR;
 	phys_startup_32 = ABSOLUTE(startup_32 - LOAD_OFFSET);
 #else
-	. = __START_KERNEL;
-	phys_startup_64 = ABSOLUTE(startup_64 - LOAD_OFFSET);
+	. = __START_KERNEL;	// 虚拟地址, 默认是 __START_KERNEL_map + 0x10000000(16MB) 的位置加载这个解压后的内核的代码。即解压后的内核的代码段默认的虚拟地址是这个, 其对应的物理地址是 16MB + phys_base, phys_base 默认是0，不过可能由于kaslr的原因被修正
+	// 64 位系统上 kernel 的虚拟地址和物理地址的偏移是 #define __START_KERNEL_map	_AC(0xffffffff80000000, UL)
+	// 即 pa = va - 0xffffffff80000000
+	phys_startup_64 = ABSOLUTE(startup_64 - LOAD_OFFSET); // ABSOLUTE 会返回一个绝对地址，可以理解为虚拟地址
 #endif
 
 	/* Text and read-only data */
+	/* AT 用来指示 .text 的加载地址，可以理解为物理地址。在有些 ROM 场景这个 keyword 比较好用。可以精确控制加载的位置 */
+	// ADDR 返回的也是虚拟地址
 	.text :  AT(ADDR(.text) - LOAD_OFFSET) {
-		_text = .;
+		_text = .;	// 注意前面设置了 . = __START_KERNEL
 		_stext = .;
 		/* bootstrapping code */
 		HEAD_TEXT

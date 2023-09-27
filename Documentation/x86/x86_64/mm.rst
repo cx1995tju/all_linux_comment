@@ -43,11 +43,11 @@ Complete virtual memory map with 4-level page tables
                     |            |                  |         |
    ffff800000000000 | -128    TB | ffff87ffffffffff |    8 TB | ... guard hole, also reserved for hypervisor
    ffff880000000000 | -120    TB | ffff887fffffffff |  0.5 TB | LDT remap for PTI
-   ffff888000000000 | -119.5  TB | ffffc87fffffffff |   64 TB | direct mapping of all physical memory (page_offset_base)
+   ffff888000000000 | -119.5  TB | ffffc87fffffffff |   64 TB | direct mapping of _all_ physical memory (page_offset_base) // (所有物理内存都会在映射到这里的)这部分的va 和pa 的转换就是减去一个偏移就可以了 pa = va - page_offset_base
    ffffc88000000000 |  -55.5  TB | ffffc8ffffffffff |  0.5 TB | ... unused hole
-   ffffc90000000000 |  -55    TB | ffffe8ffffffffff |   32 TB | vmalloc/ioremap space (vmalloc_base) // vmalloc 区
+   ffffc90000000000 |  -55    TB | ffffe8ffffffffff |   32 TB | vmalloc/ioremap space (vmalloc_base) // vmalloc 区 / ioremap
    ffffe90000000000 |  -23    TB | ffffe9ffffffffff |    1 TB | ... unused hole
-   ffffea0000000000 |  -22    TB | ffffeaffffffffff |    1 TB | virtual memory map (vmemmap_base) //内核使用了稀疏内存模型的话, 内核的虚拟地址可以映射到这里, 物理内存的所有page都映射到这里
+   ffffea0000000000 |  -22    TB | ffffeaffffffffff |    1 TB | virtual memory map (vmemmap_base) //内核使用了稀疏内存模型的话, 内核的虚拟地址可以映射到这里, 物理内存的所有struct page结构都映射到这里
    ffffeb0000000000 |  -21    TB | ffffebffffffffff |    1 TB | ... unused hole
    ffffec0000000000 |  -20    TB | fffffbffffffffff |   16 TB | KASAN shadow memory
   __________________|____________|__________________|_________|____________________________________________________________
@@ -63,7 +63,7 @@ Complete virtual memory map with 4-level page tables
    ffffff8000000000 | -512    GB | ffffffeeffffffff |  444 GB | ... unused hole
    ffffffef00000000 |  -68    GB | fffffffeffffffff |   64 GB | EFI region mapping space
    ffffffff00000000 |   -4    GB | ffffffff7fffffff |    2 GB | ... unused hole
-   ffffffff80000000 |   -2    GB | ffffffff9fffffff |  512 MB | kernel text mapping, mapped to physical address 0
+   ffffffff80000000 |   -2    GB | ffffffff9fffffff |  512 MB | kernel text mapping, mapped to physical address 0       // kernel 的代码段，也是按照顺序映射到物理地址0开始的部分的。即这部分的地址减去 0xffffffff80000000 就可以得到物理地址。前提是进入保护模式咯。所以在初始化的时候，构建的 page table 都是按照这个来的
    ffffffff80000000 |-2048    MB |                  |         |
    ffffffffa0000000 |-1536    MB | fffffffffeffffff | 1520 MB | module mapping space
    ffffffffff000000 |  -16    MB |                  |         |
@@ -102,7 +102,7 @@ Complete virtual memory map with 5-level page tables
                     |            |                  |         |
    ff00000000000000 |  -64    PB | ff0fffffffffffff |    4 PB | ... guard hole, also reserved for hypervisor
    ff10000000000000 |  -60    PB | ff10ffffffffffff | 0.25 PB | LDT remap for PTI
-   ff11000000000000 |  -59.75 PB | ff90ffffffffffff |   32 PB | direct mapping of all physical memory (page_offset_base)
+   ff11000000000000 |  -59.75 PB | ff90ffffffffffff |   32 PB | direct mapping of all physical memory (page_offset_base) // (所有物理内存都会在映射到这里的)这部分的 va 和pa 的转换就是减去一个偏移就可以了 pa = va - page_offset_base
    ff91000000000000 |  -27.75 PB | ff9fffffffffffff | 3.75 PB | ... unused hole
    ffa0000000000000 |  -24    PB | ffd1ffffffffffff | 12.5 PB | vmalloc/ioremap space (vmalloc_base)
    ffd2000000000000 |  -11.5  PB | ffd3ffffffffffff |  0.5 PB | ... unused hole
@@ -111,7 +111,7 @@ Complete virtual memory map with 5-level page tables
    ffdf000000000000 |   -8.25 PB | fffffbffffffffff |   ~8 PB | KASAN shadow memory
   __________________|____________|__________________|_________|____________________________________________________________
                                                               |
-                                                              | Identical layout to the 47-bit one from here on:
+                                                              | Identical layout to the 47-bit one from here on:        // 这部分是不管是 47b 还是 56b 都是一样的映射的
   ____________________________________________________________|____________________________________________________________
                     |            |                  |         |
    fffffc0000000000 |   -4    TB | fffffdffffffffff |    2 TB | ... unused hole

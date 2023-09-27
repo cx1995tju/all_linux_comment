@@ -39,15 +39,15 @@
  * but it's what Xen requires.
  */
 #define __PAGE_OFFSET_BASE_L5	_AC(0xff11000000000000, UL)
-#define __PAGE_OFFSET_BASE_L4	_AC(0xffff888000000000, UL)
+#define __PAGE_OFFSET_BASE_L4	_AC(0xffff888000000000, UL)	// direct map 的起始地址，这个地址会被映射到物理地址0的, 参考: Documentation/x86/x86_64/mm.rst
 
 #ifdef CONFIG_DYNAMIC_MEMORY_LAYOUT
-#define __PAGE_OFFSET           page_offset_base
+#define __PAGE_OFFSET           page_offset_base	// CONFIG_X86_5LEVEL 开启的时候，必须开启DYNAMIC, 此时 page_offset_base 会被修正的: %check_la57_support()
 #else
-#define __PAGE_OFFSET           __PAGE_OFFSET_BASE_L4
+#define __PAGE_OFFSET           __PAGE_OFFSET_BASE_L4	// L5???????
 #endif /* CONFIG_DYNAMIC_MEMORY_LAYOUT */
 
-#define __START_KERNEL_map	_AC(0xffffffff80000000, UL)
+#define __START_KERNEL_map	_AC(0xffffffff80000000, UL) // kernel text 段的开始虚拟地址(指的是被压缩的那部分内核解压后放置的位置)，会被映射到物理地址0的, 不过显然kernel的第一句代码不是在物理地址0的(默认情况下是 16MB 位置)。第一句代码所在的虚拟地址是 __START_KERNEL，对应的物理地址是 __START_KERNEL - __START_KERNEL_map
 
 /* See Documentation/x86/x86_64/mm.rst for a description of the memory map. */
 

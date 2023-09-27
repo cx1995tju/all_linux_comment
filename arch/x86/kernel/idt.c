@@ -171,16 +171,17 @@ bool idt_is_f00f_address(unsigned long address)
 static __init void
 idt_setup_from_table(gate_desc *idt, const struct idt_data *t, int size, bool sys)
 {
-	gate_desc desc;
+	gate_desc desc; // 填入 idt table 中的内容
 
 	for (; size > 0; t++, size--) {
 		idt_init_desc(&desc, t);
-		write_idt_entry(idt, t->vector, &desc);
+		write_idt_entry(idt, t->vector, &desc); // 填充 idt 这个table 第 t->vector 项
 		if (sys)
 			set_bit(t->vector, system_vectors);
 	}
 }
 
+// addr 是中断 handler 的地址
 static __init void set_intr_gate(unsigned int n, const void *addr)
 {
 	struct idt_data data;
@@ -320,13 +321,14 @@ void __init idt_setup_early_handler(void)
 {
 	int i;
 
-	for (i = 0; i < NUM_EXCEPTION_VECTORS; i++)
-		set_intr_gate(i, early_idt_handler_array[i]);
+	// 前 32 个 内部异常的gate先填充起来
+	for (i = 0; i < NUM_EXCEPTION_VECTORS; i++) // 填充 idt_table
+		set_intr_gate(i, early_idt_handler_array[i]);	// refer to: arch/x86/kernel/head_64.S
 #ifdef CONFIG_X86_32
 	for ( ; i < NR_VECTORS; i++)
 		set_intr_gate(i, early_ignore_irq);
 #endif
-	load_idt(&idt_descr);
+	load_idt(&idt_descr); // 将前面填充的idt_table load 到硬件咯
 }
 
 /**

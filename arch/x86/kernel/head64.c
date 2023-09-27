@@ -58,7 +58,7 @@ EXPORT_SYMBOL(ptrs_per_p4d);
 #endif
 
 #ifdef CONFIG_DYNAMIC_MEMORY_LAYOUT
-unsigned long page_offset_base __ro_after_init = __PAGE_OFFSET_BASE_L4;
+unsigned long page_offset_base __ro_after_init = __PAGE_OFFSET_BASE_L4;// 这个是最终的page_offset，会根据各种配置基于 __PAGE_OFFSET_BASE_L[4|5]  做修正的。譬如：KASLR 就会影响的
 EXPORT_SYMBOL(page_offset_base);
 unsigned long vmalloc_base __ro_after_init = __VMALLOC_BASE_L4;
 EXPORT_SYMBOL(vmalloc_base);
@@ -88,6 +88,9 @@ static struct desc_ptr startup_gdt_descr = {
 
 static void __head *fixup_pointer(void *ptr, unsigned long physaddr)
 {
+	// ptr 记录的是虚拟地址，
+	// 减去 _text，代码段load 的位置，得到相对于代码段的偏移
+	// 然后加上物理地址，就得到 ptr 所在的真实物理地址位置
 	return ptr - (void *)_text + (void *)physaddr;
 }
 
@@ -158,6 +161,9 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	 * Compute the delta between the address I am compiled to run at
 	 * and the address I am actually running at.
 	 */
+	// 因为 kaslr 的存在，这里需要对指针做修正
+	// _text - __START_KERNEL_map 是 _text 的偏移
+	// physaddr 是其真实加载的物理地址
 	load_delta = physaddr - (unsigned long)(_text - __START_KERNEL_map);
 
 	/* Is the address not 2M aligned? */
@@ -320,13 +326,15 @@ static void __init reset_early_page_tables(void)
 }
 
 /* Create a new PMD entry */
+// 这里发生的page fault 都是kernel 的，直接做 mm.rst 中的 direct mapping 就可以了
+// 即将此处的 address 与 physaddr 做映射就可以了。它们之间就是差了一个偏移 __START_KERNEL_map
 bool __init __early_make_pgtable(unsigned long address, pmdval_t pmd)
 {
 	unsigned long physaddr = address - __PAGE_OFFSET;
 	pgdval_t pgd, *pgd_p;
 	p4dval_t p4d, *p4d_p;
 	pudval_t pud, *pud_p;
-	pmdval_t *pmd_p;
+	pmdval_t *pmd_p;	// 最后一层是 pte
 
 	/* Invalid address or early pgt is done ?  */
 	if (physaddr >= MAXMEM || read_cr3_pa() != __pa_nodebug(early_top_pgt))
@@ -392,25 +400,27 @@ again:
 
 static bool __init early_make_pgtable(unsigned long address)
 {
-	unsigned long physaddr = address - __PAGE_OFFSET;
+	unsigned long physaddr = address - __PAGE_OFFSET;	// va 减去一个 偏移就是 pa 了
 	pmdval_t pmd;
 
+	// page, pmd 是倒数第二层，从 12 + 9 = 21b开始的 9b
 	pmd = (physaddr & PMD_MASK) + early_pmd_flags;
 
 	return __early_make_pgtable(address, pmd);
 }
 
+// trapnr 就是 vector number
 void __init do_early_exception(struct pt_regs *regs, int trapnr)
 {
-	if (trapnr == X86_TRAP_PF &&
-	    early_make_pgtable(native_read_cr2()))
+	if (trapnr == X86_TRAP_PF && // page fault 进入这里处理
+	    early_make_pgtable(native_read_cr2())) // cr2 保存的是page fault 时的线性地址
 		return;
 
 	if (IS_ENABLED(CONFIG_AMD_MEM_ENCRYPT) &&
 	    trapnr == X86_TRAP_VC && handle_vc_boot_ghcb(regs))
 		return;
 
-	early_fixup_exception(regs, trapnr);
+	early_fixup_exception(regs, trapnr); // 其他 exception 的处理
 }
 
 /* Don't add a printk in there. printk relies on the PDA which is not initialized 
@@ -441,11 +451,12 @@ static void __init copy_bootdata(char *real_mode_data)
 	 */
 	sme_map_bootdata(real_mode_data);
 
+	// boot_params arch/x86/kernel/setup.c
 	memcpy(&boot_params, real_mode_data, sizeof(boot_params));
 	sanitize_boot_params(&boot_params);
 	cmd_line_ptr = get_cmd_line_ptr();
 	if (cmd_line_ptr) {
-		command_line = __va(cmd_line_ptr);
+		command_line = __va(cmd_line_ptr);	// pa 转 va
 		memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);
 	}
 
@@ -501,9 +512,11 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	/*
 	 * Load microcode early on BSP.
 	 */
-	load_ucode_bsp();
+	load_ucode_bsp();	// 运行 processor 的一些微码
 
 	/* set init_top_pgt kernel high mapping*/
+	// init_top_pgt 是第一个进程的 page table
+	// 这个entry 表示的是最高的 256T 或 512GB 内存
 	init_top_pgt[511] = early_top_pgt[511];
 
 	x86_64_start_reservations(real_mode_data);

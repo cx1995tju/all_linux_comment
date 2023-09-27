@@ -88,7 +88,7 @@
 // fs             0x18	24
 // gs             0x18	24
 	.code32		// 这里的代码的link。受 arch/x86/boot/compressed/vmlinux.lds.S 脚本控制。从 go_to_protected_mode() 跳转过来的
-SYM_FUNC_START(startup_32)	// _保护模式下的第一条指令_  进入保护模式的时候，不知道这个 startup_32 到底被加载到了哪个位置。第一步就是要搞清楚这一点				, 此时还没有开启 paging 机制。还是段式寻址, 不过需要 gdt / ldt 参与了。而不是real-mode 下的段式寻址。
+SYM_FUNC_START(startup_32)	// _保护模式下的第一条指令_  进入保护模式的时候，不知道这个 startup_32 到底被加载到了哪个位置。第一步就是要搞清楚这一点, 此时还没有开启 paging 机制。还是段式寻址, 不过需要 gdt / ldt 参与了。而不是real-mode 下的段式寻址。
 	/*
 	 * 32bit entry is 0 and it is ABI so immutable!
 	 * If we come here directly from a bootloader,
@@ -111,17 +111,17 @@ SYM_FUNC_START(startup_32)	// _保护模式下的第一条指令_  进入保护�
 	// 这里设置了栈指针 esp 就是 zero page（即boot_params 中的 scartch 位置 + 4）, 注意，栈是从高地址到低地址的，这里 +4，后面的 call 指令会-4的, 同时会将返回地址(即此处的 1: 位置) push 到栈中，即 scratch 位置
 	// BP_scratch 就是 1e4
 	leal	(BP_scratch+4)(%esi), %esp // esi 寄存器是 boot_params 的基址, 在 进入 protected 模式前，填充的. pmjump.S
-	call	1f // 这里是为了获得自己当前所在地址
+	call	1f // 这里是为了获得自己当前所在地址, call 指令会将 rip 压入栈中，随后 popl 就得到了标号 1: 所在位置
 1:	popl	%ebp // ebp 就是 1: 这个 lable 的地址了。因为不知道 boot loader 到底把这部分代码加载到了哪个位置。所以这里要去拿一下当前地址。
 	subl	$ rva(1b), %ebp	// 将ebp寄存器，即当前的 1f 的地址减去 1b 的偏移。得到了 startup_32 的地址了 			//    ____注意到这里时，ebp 中的值就是 startup32 的地址了_____
 
 	/* Load new GDT with the 64bit segments using 32bit descriptor */
 	leal	rva(gdt)(%ebp), %eax	// 将 gdt 地址放到 eax 中
-	movl	%eax, 2(%eax)
-	lgdt	(%eax)
+	movl	%eax, 2(%eax)		// 为什么要将 gdt 的地址保存到 gdt 里面呢？
+	lgdt	(%eax)			// load gdt
 
 	/* Load segment registers with our descriptors */
-	movl	$__BOOT_DS, %eax // __BOOT_DS 值是 0x18
+	movl	$__BOOT_DS, %eax // __BOOT_DS 值是 0x18, 即使用 gdt table 中的第三个 entry，权限都是最高的 0
 	movl	%eax, %ds	// 因为 linux 基本不使用 gdt / ldt 机制，所以都设置为 0x18
 	movl	%eax, %es
 	movl	%eax, %fs
@@ -144,8 +144,8 @@ SYM_FUNC_START(startup_32)	// _保护模式下的第一条指令_  进入保护�
  * for safe in-place decompression.
  */
 
-#ifdef CONFIG_RELOCATABLE
-	movl	%ebp, %ebx	// 记住 ebp 保存了 protected mode 代码加载的位置
+#ifdef CONFIG_RELOCATABLE	//开启后，kernel 保护模式代码可以不仅仅在 1MB 的位置被加载。一般用于 kexec 的kernel 是必须开启这个的
+	movl	%ebp, %ebx	// 记住 ebp 保存了 protected mode 代码加载的位置(虚拟地址, 不过由于现在还没有开启 paging，且 gdt 设置的是 identity map，这里的虚拟地址就是物理地址)。
 
 #ifdef CONFIG_EFI_STUB
 /*
@@ -321,6 +321,7 @@ pgtbl---------->+----------------+
 	addl	$8, %edi
 	decl	%ecx
 	jnz	1b
+	// page table 设置好之后，是identity map
 
 	/* Enable the boot page tables */
 	leal	rva(pgtable)(%ebx), %eax
@@ -336,7 +337,7 @@ pgtbl---------->+----------------+
 	xorl	%eax, %eax
 	lldt	%ax
 	movl    $__BOOT_TSS, %eax
-	ltr	%ax
+	ltr	%ax			// 加载 tr 寄存器，just for making intel happy？？？
 
 	/*
 	 * Setup for the jump to 64bit mode
@@ -416,7 +417,7 @@ SYM_FUNC_END(efi32_stub_entry)
 
 	.code64
 	.org 0x200			// 这部分代码会在 offset 0x200 的位置开始, 即 (startup_32 + 0x200)
-SYM_CODE_START(startup_64)		// long mode 的起始地址
+SYM_CODE_START(startup_64)		// long mode 的起始地址, 注意这里可能是从前面的 startup_32 一步一步执行过来的。也可能是 支持 64b 的 boot loader 直接跳转过来的，所以很多在 startup_32 做的工作，这里要再做一遍
 	/*
 	 * 64bit entry is 0x200 and it is ABI so immutable!
 	 * We come here either from startup_32 or directly from a
@@ -472,15 +473,15 @@ SYM_CODE_START(startup_64)		// long mode 的起始地址
 	subq	%rax, %rbp
 #endif
 
-	movl	BP_kernel_alignment(%rsi), %eax
+	movl	BP_kernel_alignment(%rsi), %eax	// rsi 是第二个参数，也就是 boot_params, refer to: go_to_protected_mode()->protected_mode_jump()
 	decl	%eax
 	addq	%rax, %rbp
 	notq	%rax
-	andq	%rax, %rbp
-	cmpq	$LOAD_PHYSICAL_ADDR, %rbp
+	andq	%rax, %rbp			
+	cmpq	$LOAD_PHYSICAL_ADDR, %rbp	// LOAD_PHYSICAL_ADDR 是用来加载解压后的内核的位置
 	jae	1f
 #endif
-	movq	$LOAD_PHYSICAL_ADDR, %rbp
+	movq	$LOAD_PHYSICAL_ADDR, %rbp	// 至此 %rbp 记录解压后的内核保存的位置, 而且是对齐的
 1:
 
 	/* Target address to relocate to for decompression */
@@ -784,13 +785,38 @@ SYM_DATA_START_LOCAL(gdt64)
 	.quad   gdt - gdt64
 SYM_DATA_END(gdt64)
 	.balign	8
-SYM_DATA_START_LOCAL(gdt)
+SYM_DATA_START_LOCAL(gdt) // refer to: arch/x86/include/asm/segment.h
 	.word	gdt_end - gdt - 1
 	.long	0
-	.word	0
+	.word	0			// 这里是 第 0 个entry, NULL descriptor， GDT 的第0个entry是不使用的。Intel 的规定，防止加电后段寄存器没有初始化就进入保护模式使用 GDT
+	/*
+		0x0000(B15-B0) ffff(L15-L0)
+
+		0x00(B31-B24)
+
+		c(0x1100 G is 1 means 4KB, D/B is 1 means 32b code)
+
+		f(L19-L16)
+
+		9a(0x1001 1010)
+			- P is 1: present
+			- DPL is 00: 最高优先级
+			- S is 1: 代码段 或者数据段
+
+			- E is 1: 代码段 
+			- ED/C is 0  
+			- R/W is 1
+			- A is 0
+
+		00(B23-B16)
+
+		Base Addr = 0x00000000
+		Limit = 0xfffff * 4KB (4GB - 4KB) 的访问空间
+
+	 */
 	.quad	0x00cf9a000000ffff	/* __KERNEL32_CS */
 	.quad	0x00af9a000000ffff	/* __KERNEL_CS */
-	.quad	0x00cf92000000ffff	/* __KERNEL_DS */
+	.quad	0x00cf92000000ffff	/* __KERNEL_DS */	// 第3个entry
 	.quad	0x0080890000000000	/* TS descriptor */
 	.quad   0x0000000000000000	/* TS continued */
 SYM_DATA_END_LABEL(gdt, SYM_L_LOCAL, gdt_end)

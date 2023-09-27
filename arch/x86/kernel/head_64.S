@@ -39,7 +39,7 @@
  * We are not able to switch in one step to the final KERNEL ADDRESS SPACE
  * because we need identity-mapped pages.
  */
-#define l4_index(x)	(((x) >> 39) & 511)
+#define l4_index(x)	(((x) >> 39) & 511)	// 511 = 0x1ff
 #define pud_index(x)	(((x) >> PUD_SHIFT) & (PTRS_PER_PUD-1))
 
 L4_PAGE_OFFSET = l4_index(__PAGE_OFFSET_BASE_L4)
@@ -50,7 +50,7 @@ L3_START_KERNEL = pud_index(__START_KERNEL_map)
 	.text
 	__HEAD
 	.code64
-SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extract_kernel 后就会跳转大这里。这里是解压后的内核第一条指令
+SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extract_kernel 后就会跳转到这里。这里是解压后的内核第一条指令
 	UNWIND_HINT_EMPTY
 	/*
 	 * At this point the CPU runs in 64bit mode CS.L = 1 CS.D = 0,
@@ -73,9 +73,9 @@ SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extrac
 	/* Set up the stack for verify_cpu(), similar to initial_stack below */
 	leaq	(__end_init_task - SIZEOF_PTREGS)(%rip), %rsp
 
-	leaq	_text(%rip), %rdi
+	leaq	_text(%rip), %rdi	// rdi 是 startup_64_setup_env 的参数
 	pushq	%rsi
-	call	startup_64_setup_env
+	call	startup_64_setup_env // arch/x86/kernel/head64.c
 	popq	%rsi
 
 	/* Now switch to __KERNEL_CS so IRET works reliably */
@@ -96,9 +96,9 @@ SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extrac
 	 * is active) to be added to the initial pgdir entry that will be
 	 * programmed into CR3.
 	 */
-	leaq	_text(%rip), %rdi
-	pushq	%rsi
-	call	__startup_64
+	leaq	_text(%rip), %rdi	// rdi 是第一个参数
+	pushq	%rsi			// rsi 是第二个参数
+	call	__startup_64	//  arch/x86/kernel/head64.c
 	popq	%rsi
 
 	/* Form the CR3 value being sure to include the CR3 modifier */
@@ -256,7 +256,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 
 	/* rsi is pointer to real mode structure with interesting info.
 	   pass it to C */
-	movq	%rsi, %rdi
+	movq	%rsi, %rdi	// %rdi 是第一个参数
 
 .Ljump_to_C_code:
 	/*
@@ -289,7 +289,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	movq	initial_code(%rip), %rax
 	pushq	$__KERNEL_CS	# set correct cs
 	pushq	%rax		# target address in negative space
-	lretq			// 这里跳转到了 init/main.c:start_kernel()
+	lretq			// 这里跳转到了 arch/x86/kernel/head64.c:x86_64_start_kernel()
 .Lafter_lret:
 SYM_CODE_END(secondary_startup_64)
 
@@ -361,18 +361,18 @@ SYM_DATA(initial_stack, .quad init_thread_union + THREAD_SIZE - SIZEOF_PTREGS)
 	__INIT
 SYM_CODE_START(early_idt_handler_array)
 	i = 0
-	.rept NUM_EXCEPTION_VECTORS
+	.rept NUM_EXCEPTION_VECTORS	// 这里在 repat NUM_EXCEPTION_VECTORS 次，填充的就是interrupt handler 的代码, 可以 objdump -D vmlinux 后找到 eayly_idt_handler_array 看一看
 	.if ((EXCEPTION_ERRCODE_MASK >> i) & 1) == 0
 		UNWIND_HINT_IRET_REGS
-		pushq $0	# Dummy error code, to make stack frame uniform
+		pushq $0	# Dummy error code, to make stack frame uniform, 有些异常需要压入一个 error code，进入这个分支
 	.else
 		UNWIND_HINT_IRET_REGS offset=8
 	.endif
 	pushq $i		# 72(%rsp) Vector number
-	jmp early_idt_handler_common
+	jmp early_idt_handler_common	# 这些 handler 主要就是跳转到 这个 early_idt_handler_common
 	UNWIND_HINT_IRET_REGS
 	i = i + 1
-	.fill early_idt_handler_array + i*EARLY_IDT_HANDLER_SIZE - ., 1, 0xcc
+	.fill early_idt_handler_array + i*EARLY_IDT_HANDLER_SIZE - ., 1, 0xcc // 填入一些 0xcc??? 就是 int 3 指令
 	.endr
 	UNWIND_HINT_IRET_REGS offset=16
 SYM_CODE_END(early_idt_handler_array)
@@ -384,31 +384,34 @@ SYM_CODE_START_LOCAL(early_idt_handler_common)
 	 */
 	cld
 
-	incl early_recursion_flag(%rip)
+	incl early_recursion_flag(%rip)	// 进入 handler 的时候++
 
-	/* The vector number is currently in the pt_regs->di slot. */
-	pushq %rsi				/* pt_regs->si */
-	movq 8(%rsp), %rsi			/* RSI = vector number */
-	movq %rdi, 8(%rsp)			/* pt_regs->di = RDI */
-	pushq %rdx				/* pt_regs->dx */
-	pushq %rcx				/* pt_regs->cx */
-	pushq %rax				/* pt_regs->ax */
-	pushq %r8				/* pt_regs->r8 */
-	pushq %r9				/* pt_regs->r9 */
-	pushq %r10				/* pt_regs->r10 */
-	pushq %r11				/* pt_regs->r11 */
-	pushq %rbx				/* pt_regs->bx */
-	pushq %rbp				/* pt_regs->bp */
-	pushq %r12				/* pt_regs->r12 */
-	pushq %r13				/* pt_regs->r13 */
-	pushq %r14				/* pt_regs->r14 */
-	pushq %r15				/* pt_regs->r15 */
-	UNWIND_HINT_REGS
+	/* The vector number is currently in the pt_regs->di slot. */	// 压栈后，栈长这个样子
+	pushq %rsi				/* pt_regs->si */		// High |-------------------------|
+	movq 8(%rsp), %rsi			/* RSI = vector number */       //      | %rflags                 |
+	movq %rdi, 8(%rsp)			/* pt_regs->di = RDI */         //      | %cs                     |
+	pushq %rdx				/* pt_regs->dx */               //      | %rip                    |	// 前面三个是 cpu 自动 push 进来的
+	pushq %rcx				/* pt_regs->cx */               //      | error code              |	// 针对有些异常，common handler 会push 一个 error code 进来
+	pushq %rax				/* pt_regs->ax */               //      | %rdi                    |	// 接下来就是push 完整的pt_regs 结构进来
+	pushq %r8				/* pt_regs->r8 */               //      | %rsi                    |
+	pushq %r9				/* pt_regs->r9 */               //      | %rdx                    |
+	pushq %r10				/* pt_regs->r10 */              //      | %rax                    |
+	pushq %r11				/* pt_regs->r11 */              //      | %r8                     |
+	pushq %rbx				/* pt_regs->bx */               //      | %r9                     |
+	pushq %rbp				/* pt_regs->bp */               //      | %r10                    |
+	pushq %r12				/* pt_regs->r12 */              //      | %r11                    |
+	pushq %r13				/* pt_regs->r13 */              //      | %rbx                    |
+	pushq %r14				/* pt_regs->r14 */              //      | %rbp                    |
+	pushq %r15				/* pt_regs->r15 */              //      | %r12                    |
+	UNWIND_HINT_REGS                                                        //      | %r13                    |
+                                                                                //      | %r14                    |
+                                                                                //      | %r15                    |<-- %rsp
+                                                                                // Low  |-------------------------|
 
 	movq %rsp,%rdi		/* RDI = pt_regs; RSI is already trapnr */
 	call do_early_exception
 
-	decl early_recursion_flag(%rip)
+	decl early_recursion_flag(%rip) // 退出 handler 的时候 --
 	jmp restore_regs_and_return_to_kernel
 SYM_CODE_END(early_idt_handler_common)
 
@@ -478,16 +481,16 @@ SYM_CODE_END(vc_no_ghcb)
 	__INITDATA
 	.balign 4
 
-SYM_DATA_START_PTI_ALIGNED(early_top_pgt)
-	.fill	512,8,0
-	.fill	PTI_USER_PGD_FILL,8,0
+SYM_DATA_START_PTI_ALIGNED(early_top_pgt)	// pgt: page table, 临时页表位置
+	.fill	512,8,0		// 填充 512 个 8B 大小的entry，每个entry 的值是0，正好 4KB 的数据
+	.fill	PTI_USER_PGD_FILL,8,0	// 又填充 512 个？？？
 SYM_DATA_END(early_top_pgt)
 
 SYM_DATA_START_PAGE_ALIGNED(early_dynamic_pgts)
 	.fill	512*EARLY_DYNAMIC_PAGE_TABLES,8,0
 SYM_DATA_END(early_dynamic_pgts)
 
-SYM_DATA(early_recursion_flag, .long 0)
+SYM_DATA(early_recursion_flag, .long 0) // 用来记录handler 嵌套的层数
 
 	.data
 
@@ -585,7 +588,8 @@ SYM_DATA_LOCAL(early_gdt_descr_base,	.quad INIT_PER_CPU_VAR(gdt_page))
 
 	.align 16
 /* This must match the first entry in level2_kernel_pgt */
-SYM_DATA(phys_base, .quad 0x0)
+// __START_KERNEL 是代码段被加载的起始虚拟地址
+SYM_DATA(phys_base, .quad 0x0)	// phys_base 应该是代码段加载的起始物理地址, 这里的默认值是0, 但是可能由于kalsr 的存在得到修正, refer to: arch/x86/kernel/head64.c :: __startup_64
 EXPORT_SYMBOL(phys_base)
 
 #include "../../x86/xen/xen-head.S"

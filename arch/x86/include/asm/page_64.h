@@ -11,19 +11,29 @@
 extern unsigned long max_pfn;
 extern unsigned long phys_base;
 
-extern unsigned long page_offset_base;
+extern unsigned long page_offset_base;  // 这个是最终的page_offset，会根据各种配置基于 __PAGE_OFFSET_BASE_L[4|5]  做修正的。譬如：KASLR 就会影响的
 extern unsigned long vmalloc_base;
 extern unsigned long vmemmap_base;
 
 //内核虚拟地址转物理地址, x是作为输入的物理地址
 static inline unsigned long __phys_addr_nodebug(unsigned long x)
 {
-	// x 是内核虚拟地址, 是高地址，先向下偏移这么多 0xffffffff80000000
+	// x 减掉 kernel 代码段的起始地址
 	unsigned long y = x - __START_KERNEL_map;
 
 	/* use the carry flag to determine if x was < __START_KERNEL_map */
 
-	// x > y 实际在判断 x < __START_KERNEL_map
+	// 如果 x > __START_KERNEL_map ===> x > x - __START_KERNEL_map ===> x > y
+	// x == __START_KERNEL_map ===> x > y ====> x > 0
+	// 如果 x < __START_KERNEL_map，那么 y = x - __START_KERNEL_map = -(__START_KERNEL_map - x) = 2^64 - (__START_KERNEL_map - x) = 2^64 - __START_KERNEL_map + x > x
+	// 故
+	// x < __START_KERNEL_map <=> y > x <=> x > y is false
+	// x > __START_KERNEL_map <=> x > y <=> x > y is true
+	// x = __START_KERNEL_map <=> y = 0 <=> x > y is true
+	//
+	// 故:
+	// x > y is true <=> x >= __START_KERNEL_map		// 此时 x = x - __START_KERNEL_map + phys_base, 这部分是在获取kernel 代码段的物理地址, phys_base 应该是代码段加载的起始地址。一般是0，可能被修正, refer to: arch/x86/kernel/head_64.S
+	// x > y is false <=> x > __START_KERNEL_map		// 此时 x = y + __START_KERNEL_map - PAGE_OFFSET = x - PAGE_OFFSET
 	x = y + ((x > y) ? phys_base : (__START_KERNEL_map - PAGE_OFFSET));
 
 	return x;

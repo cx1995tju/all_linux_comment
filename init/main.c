@@ -845,6 +845,7 @@ void __init __weak arch_call_rest_init(void)
 	rest_init();
 }
 
+// kernel generic code 的开始位置
 asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 {
 	char *command_line;

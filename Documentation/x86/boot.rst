@@ -143,7 +143,7 @@ For a modern bzImage kernel with boot protocol version >= 2.02, a
 memory layout like the following is suggested::
 
 		~                        ~
-		|  Protected-mode kernel |      // vmlinux 去除头部后剩下的部分, 最开始位置是: arch/x86/boot/compressed/head_64.S。 这部分应该是没有被压缩的。real-mode 最后的几条代码会跳转到这里
+		|  Protected-mode kernel |      // vmlinux 去除头部后剩下的部分, 最开始位置是: arch/x86/boot/compressed/head_64.S。 这部分应该是没有被压缩的。real-mode 最后的几条代码会跳转到这里。解压后的kernel代码会默认加载在 0x1000000 (16MB) 的位置
 	100000  +------------------------+      # code32_start
 		|  I/O memory hole	 |
 	0A0000	+------------------------+

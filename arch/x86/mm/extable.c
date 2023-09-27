@@ -175,7 +175,7 @@ int fixup_exception(struct pt_regs *regs, int trapnr, unsigned long error_code,
 	}
 #endif
 
-	e = search_exception_tables(regs->ip);
+	e = search_exception_tables(regs->ip); //只有那些符合预期位置的 exception 才会被处理？？？
 	if (!e)
 		return 0;
 
@@ -192,7 +192,7 @@ void __init early_fixup_exception(struct pt_regs *regs, int trapnr)
 	if (trapnr == X86_TRAP_NMI)
 		return;
 
-	if (early_recursion_flag > 2)
+	if (early_recursion_flag > 2)	// 嵌套了多层 interrupt handler，就会直接 halt
 		goto halt_loop;
 
 	/*
@@ -222,7 +222,7 @@ void __init early_fixup_exception(struct pt_regs *regs, int trapnr)
 		return;
 
 	if (trapnr == X86_TRAP_UD) {
-		if (report_bug(regs->ip, regs) == BUG_TRAP_TYPE_WARN) {
+		if (report_bug(regs->ip, regs) == BUG_TRAP_TYPE_WARN) { // 出 bug 了
 			/* Skip the ud2. */
 			regs->ip += LEN_UD2;
 			return;
