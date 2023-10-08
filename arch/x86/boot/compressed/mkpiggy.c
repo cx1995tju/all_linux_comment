@@ -1,3 +1,24 @@
+// 生成的piggy.S 文件内容如下
+/*
+.section ".rodata..compressed","a",@progbits
+.globl z_input_len
+z_input_len = 5499520
+.globl z_output_len
+z_output_len = 30120512
+.globl input_data, input_data_end
+input_data:
+.incbin "arch/x86/boot/compressed/vmlinux.bin.xz"		// 这里是关键，直接将整个被压缩的 kernel include 到这个 .S 文件了
+input_data_end:
+.section ".rodata","a",@progbits
+.globl input_len
+input_len:
+        .long 5499520
+.globl output_len
+output_len:
+        .long 30120512
+*/
+//
+//
 // SPDX-License-Identifier: GPL-2.0-only
 /* ----------------------------------------------------------------------- *
  *
@@ -57,7 +78,7 @@ int main(int argc, char *argv[])
 
 	printf(".globl input_data, input_data_end\n");
 	printf("input_data:\n");
-	printf(".incbin \"%s\"\n", argv[1]);
+	printf(".incbin \"%s\"\n", argv[1]);	// .incbin 直接将一个 二进制文件 include 进来
 	printf("input_data_end:\n");
 
 	printf(".section \".rodata\",\"a\",@progbits\n");

@@ -50,7 +50,7 @@ L3_START_KERNEL = pud_index(__START_KERNEL_map)
 	.text
 	__HEAD
 	.code64
-SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extract_kernel 后就会跳转到这里。这里是解压后的内核第一条指令
+SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extract_kernel 后就会跳转到这里。这里是解压后的内核第一条指令, 这部分的起始位置参考 arch/x86/kernel/vmlinux.lds.S
 	UNWIND_HINT_EMPTY
 	/*
 	 * At this point the CPU runs in 64bit mode CS.L = 1 CS.D = 0,

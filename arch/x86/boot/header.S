@@ -276,7 +276,8 @@ section_table:
 	# Kernel attributes; used by setup.  This is part 1 of the
 	# header, from the old boot sector.
 
-	.section ".header", "a"
+	# 此时是 real-mode，一般 bootloader 会将各个段寄存器都设置为 gs = fs = es = ds = ss = 0x1000, cs = 0x1020。因为 boot loader 将 这部分代码加载到了 0x10000(64KB) 位置，而 jmp 指令在 0x10200 位置，所以将 cs 设置为 0x1020，rip 设置为0就可以找到正确的jmp 指令位置了。如果 bootloader 将这部分 setup 代码加载到别的位置的话，这几个寄存器的设置也要有更改的, refer to: boot.rst
+	.section ".header", "a"		// arch/x86/boot/setup.ld 将这个 section 控制在 0x1ef offset 位置，这样后面的jump 指令就正好在 0x200 offset位置了
 	.globl	sentinel
 sentinel:	.byte 0xff, 0xff        /* Used to detect broken loaders */
 
@@ -292,13 +293,13 @@ boot_flag:	.word 0xAA55		// 启动盘第一个扇区的最后两个字节应该�
 
 	# offset 512(0x200), entry point
 
-	.globl	_start	// 参考 boot.rst
+	.globl	_start	// 参考 boot.rst, 怎么控制这个符号正好在setup.elf 的 0x200 位置？？? setup.lds 控制了 .header section 的位置
 _start: # 0x200, 这是setup_header 的 512Bytes 偏移位置，这里必须是一条 jump 指令。boot loader 知道这里是jump 指令，会直接执行的
 		# Explicitly enter this as bytes, or the assembler
 		# tries to generate a 3-byte jump here, which causes
 		# everything else to push off to the wrong offset.
 		# 根据 boot protocol，boot loader 知道这里有一条 jump指令，就会执行这条指令
-		.byte	0xeb		# short (2-byte) jump 这个是一条jump指令, 0xeb 是条jump指令
+		.byte	0xeb		# short (2-byte) jump 这个是一条jump指令, 0xeb 是条jump指令, bootloader 最后会执行这条指令的
 		.byte	start_of_setup-1f # 0x202 这里表示两个label: start_of_setup 和 1f 之间的距离。结合这个相对跳转指令。所以就是跳转到start_of_setup 位置。即header.S 的代码段开始位置。
 1:
 
@@ -346,7 +347,7 @@ ramdisk_size:	.long	0		# its size in bytes
 bootsect_kludge:
 		.long	0		# obsolete
 
-heap_end_ptr:	.word	_end+STACK_SIZE-512
+heap_end_ptr:	.word	_end+STACK_SIZE-512	# heap 的大小只有 STACK_SIZE-512 = 512 Bytes，太小咯
 					# (Header version 0x0201 or later)
 					# space from here (exclusive) down to
 					# end of setup code can be used by setup
@@ -600,14 +601,14 @@ start_of_setup:			// kenerl 真正开始的位置,此时还是 real-mode
 	movw	%ss, %dx
 	cmpw	%ax, %dx	# %ds == %ss?  ss 寄存器用来索引栈的，ds 寄存器用来索引数据的。在 linux 中后续基本不使用段机制，会让所段有寄存器的值相等的。
 	movw	%sp, %dx	# 取决于 bootloader 的设置
-	je	2f		# -> assume %sp is reasonably set。linux 需要强制 ss == ds 的
+	je	2f		# -> assume %sp is reasonably set。linux 需要强制 ss == ds 的。说明 boot loader 将栈控制设置好了，不需要 kernel 重新搞了。一般都是 bootloader 设置好 stack / heap 空间的。kernel 不需要自己操作的
 
 	# Invalid %ss, make up a new stack,  ss 寄存器不符合linux 的需求，那么这个栈需要重构
 	movw	$_end, %dx	# refer to setup.ld 可以看到 _end 符号是 header.S 编译后的尾部。即其加载到内存后的尾部位置
-	testb	$CAN_USE_HEAP, loadflags
+	testb	$CAN_USE_HEAP, loadflags # refer to: arch/x86/include/uapi/asm/bootparam.h
 	jz	1f		# 如果是 0 就会跳转，说明 loadflags 是0；不跳转的话，说明设置了 CAN_USE_HEAP flag
 	movw	heap_end_ptr, %dx	# 可以使用 head 的话，dx 就是 head end
-1:	addw	$STACK_SIZE, %dx	# head end + STACK size
+1:	addw	$STACK_SIZE, %dx	# head end + STACK size, boot loader 没有设置好栈空间，kernel 需要字节设置一下, refer to: arch/x86/boot/boot.h
 	jnc	2f			# jnc: jump on not carry，没有进位的时候就跳转
 	xorw	%dx, %dx	# Prevent wraparound
 
@@ -631,7 +632,7 @@ start_of_setup:			// kenerl 真正开始的位置,此时还是 real-mode
 	jne	setup_bad
 
 # Zero the bss
-	movw	$__bss_start, %di	# refer to: setup.ld
+	movw	$__bss_start, %di	# refer to: setup.ld, 从 __bss_start 到 _end+3 位置全部设置为0
 	movw	$_end+3, %cx
 	xorl	%eax, %eax
 	subw	%di, %cx
@@ -639,6 +640,28 @@ start_of_setup:			// kenerl 真正开始的位置,此时还是 real-mode
 	rep; stosl
 
 # Jump to C code (should not return)
+
+# real-mode
+# 如果是kernel自己设置的 heap 和 stack 的话，此时内存布局如下
+# 到这里的时候，内存布局如下图所示: 注意，下图忽略了一些边界对齐的情况, 仅做示意
+#+--------------------------------+ <- esp 注意此时 esp 在这个位置，下面的空间理论来说还不是 stack, esp = heap_end_ptr + STACK_SIZE
+#|                                |
+#| Stack(size: STACK_SIZE)        | // 一般大小是 1024
+#|                                |
+#|                                |
+#|                                |
+#|                                |
+#|--------------------------------| <- heap_end_ptr = _end + STACK_SIZE - 512 = _end + 512
+#|                                |
+#| HEAP (size: STACK_SIZE - 512)  | // 前提是 loadflags 中 enable 了 HEAP, 这里 heap 的空间大小只有 512Bytes
+#|                                |
+#|--------------------------------| <- _end 符号, refer to: setup.ld
+#|                                |
+#| BSS(all zero)                  |
+#|                                |
+#+--------------------------------+
+#| kernel setup.elf               |
+#+--------------------------------+ <- 一般是 0x10000, ss, cs 等段寄存器是 0x1000
 	calll	main # arch/x86/boot/main.c::main()，因为这几个文件最终都是link 到一起的
 
 # Setup corrupt somehow...

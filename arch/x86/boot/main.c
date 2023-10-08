@@ -36,8 +36,8 @@ static void copy_boot_params(void)
 		(const struct old_cmdline *)OLD_CL_ADDRESS;
 
 	BUILD_BUG_ON(sizeof(boot_params) != 4096);
-	// memcpy refer to: arch/x86/boot/copy.S
-	// sizeof(hdr) 怎么来的??? 参考 boot.h 里面定义了类型，自然也就拿到大小了
+	// memcpy refer to: arch/x86/boot/copy.S, 注意哟，这里的 memcpy 是运行在 real-mode 的
+	// sizeof(hdr) 怎么来的??? 参考 boot.h 里面声明了类型，自然也就拿到大小了
 	// 至于这个符号本身是在 header.S 中定义的。里面的内容是 boot loader 根据 boot protocol 填充的
 	memcpy(&boot_params.hdr, &hdr, sizeof(hdr)); // refer to: arch/x86/boot/header.S, 就是从 vmlinuz 中提取出的 header.S
 
@@ -121,12 +121,12 @@ static void init_heap(void)
 
 	if (boot_params.hdr.loadflags & CAN_USE_HEAP) {
 		asm("leal %P1(%%esp),%0"			// esp - STACK_SIZE 的值，赋给 stack_end 变量
-		    : "=r" (stack_end) : "i" (-STACK_SIZE)); // 增长了 1kB 的栈空间。stack_end 即 stack 的 sp 能够到达的最小地址。即 stack 不能超过这个值
+		    : "=r" (stack_end) : "i" (-STACK_SIZE));
 
 		heap_end = (char *)
 			((size_t)boot_params.hdr.heap_end_ptr + 0x200); // refer to boot.rst
-		if (heap_end > stack_end)
-			heap_end = stack_end; // 避免 heap 比 stack 地址更大
+		if (heap_end > stack_end) // 如果是kernel自己初始化 stack / heap 的话，这里就是常态
+			heap_end = stack_end; // 避免 heap 比 stack 地址更大, 即验证下图的内存布局有没有问题。这里是常态
 	} else {
 		/* Boot protocol 2.00 only, no heap available */
 		puts("WARNING: Ancient bootloader, some functionality "
@@ -134,6 +134,26 @@ static void init_heap(void)
 	}
 }
 
+// real-mode
+// 此时内存布局如下
+//+--------------------------------+ <- esp 注意此时 esp 在这个位置，下面的空间理论来说还不是 stack, esp = heap_end_ptr + STACK_SIZE
+//|                                |
+//| Stack(size: STACK_SIZE)        | // 一般大小是 1024
+//|                                |
+//|                                |
+//|                                |
+//|                                |
+//|--------------------------------| <- heap_end_ptr = _end + STACK_SIZE - 512 = _end + 512
+//|                                |
+//| HEAP (size: STACK_SIZE - 512)  | // 前提是 loadflags 中 enable 了 HEAP
+//|                                |
+//|--------------------------------| <- _end 符号, refer to: setup.ld
+//|                                |
+//| BSS(all zero)                  |
+//|                                |
+//+--------------------------------+
+//| kernel setup.elf               |
+//+--------------------------------+ <- 一般是 0x10000, ss, cs 等段寄存器是 0x1000
 void main(void)
 {
 	// 利用 bios 提供的 int handler，获取很多信息
@@ -146,7 +166,7 @@ void main(void)
 	if (cmdline_find_option_bool("debug"))
 		puts("early console in setup code\n");
 
-	/* End of heap check */
+	/* End of heap check, 不是 init，仅仅是 check */
 	init_heap();
 
 	/* Make sure we have all the proper CPU support */
@@ -159,7 +179,7 @@ void main(void)
 	/* Tell the BIOS what CPU mode we intend to run in. */
 	set_bios_mode();
 
-	/* Detect memory layout */
+	/* Detect memory layout, 物理内存分布情况 */
 	detect_memory();
 
 	/* Set keyboard repeat rate (why?) and query the lock flags */

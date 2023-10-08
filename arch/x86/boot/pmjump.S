@@ -26,7 +26,7 @@
 x86/boot/pm.c
  */
 SYM_FUNC_START_NOALIGN(protected_mode_jump)
-	movl	%edx, %esi		# Pointer to boot_params table
+	movl	%edx, %esi		# Pointer to boot_params table, esi 记录的是 32b 物理地址
 
 	xorl	%ebx, %ebx
 	movw	%cs, %bx
@@ -76,5 +76,5 @@ SYM_FUNC_START_LOCAL_NOALIGN(.Lin_pm32)	// 保护模式的代码了
 	lldt	%cx
 
 	jmpl	*%eax			# Jump to the 32-bit entrypoint, code32_start, 默认就是 0x100000 位置 2^20 = 1MB. refer to x86/boot.rst, arch/x86/boot/pm.c:go_to_proctected_mode()
-	# ./arch/x86/boot/compressed/head_64.S:.code32 位置
+	# ./arch/x86/boot/compressed/head_64.S:startup_32 位置
 SYM_FUNC_END(.Lin_pm32)

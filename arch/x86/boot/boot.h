@@ -188,6 +188,28 @@ static inline bool memcmp_gs(const void *s1, addr_t s2, size_t len)
 	return diff;
 }
 
+
+// real-mode 时内存布局如下: kernel 自己初始化 stack / heap 空间的话
+//+--------------------------------+ <- esp 注意此时 esp 在这个位置，下面的空间理论来说还不是 stack, esp = heap_end_ptr + STACK_SIZE
+//|                                |
+//| Stack(size: STACK_SIZE)        | // 一般大小是 1024
+//|                                |
+//|                                |
+//|                                |
+//|                                |
+//|--------------------------------| <- heap_end_ptr = _end + STACK_SIZE - 512 = _end + 512. heap_end 也指向这里, refer to: init_heap()
+//|                                |
+//| HEAP (size: STACK_SIZE - 512)  | // 前提是 loadflags 中 enable 了 HEAP
+//|                                | <- HEAP 是 heap 当前的位置
+//|                                |
+//|--------------------------------| <- _end 符号, refer to: setup.ld
+//|                                |
+//| BSS(all zero)                  |
+//|                                |
+//+--------------------------------+
+//| kernel setup.elf               |
+//+--------------------------------+ <- 一般是 0x10000, ss, cs 等段寄存器是 0x1000
+//
 /* Heap -- available for dynamic lists. */
 extern char _end[]; // _end 需要参考链接器 setup.ld, 是setup这部分程序结束地址的符号, 在 bss 段后面。在这里作为 HEAP / heap_end 的初始值
 extern char *HEAP; // 堆顶部。即大地址

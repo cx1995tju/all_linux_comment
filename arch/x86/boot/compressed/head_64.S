@@ -68,7 +68,7 @@
  * expression requires startup_32 to be in the same section as the code being
  * assembled.
  */
-#define rva(X) ((X) - startup_32)
+#define rva(X) ((X) - startup_32)	# 就是相对于 startup_32 的偏移
 
 	// 此时寄存器值可能为
 // eax            0x100000	1048576
@@ -109,11 +109,11 @@ SYM_FUNC_START(startup_32)	// _保护模式下的第一条指令_  进入保护�
 	// 进入这里的时候，esi 中保存的是 boot_params 参数
 	// 让 zero page 中的scratch 这 4个byte 作为一个临时的stack使用。
 	// 这里设置了栈指针 esp 就是 zero page（即boot_params 中的 scartch 位置 + 4）, 注意，栈是从高地址到低地址的，这里 +4，后面的 call 指令会-4的, 同时会将返回地址(即此处的 1: 位置) push 到栈中，即 scratch 位置
-	// BP_scratch 就是 1e4
-	leal	(BP_scratch+4)(%esi), %esp // esi 寄存器是 boot_params 的基址, 在 进入 protected 模式前，填充的. pmjump.S
+	// BP_scratch 就是 1e4, 就是boot_params 中的成员偏移, refer to: arch/x86/kernel/asm-offsets.c
+	leal	(BP_scratch+4)(%esi), %esp // esi 寄存器是 boot_params 的基址, 在 进入 protected 模式前，填充的. pmjump.S。这里就是将 boot_params 中的 scratch 成员作为一个临时的栈空间，方便后续的call指令调用
 	call	1f // 这里是为了获得自己当前所在地址, call 指令会将 rip 压入栈中，随后 popl 就得到了标号 1: 所在位置
 1:	popl	%ebp // ebp 就是 1: 这个 lable 的地址了。因为不知道 boot loader 到底把这部分代码加载到了哪个位置。所以这里要去拿一下当前地址。
-	subl	$ rva(1b), %ebp	// 将ebp寄存器，即当前的 1f 的地址减去 1b 的偏移。得到了 startup_32 的地址了 			//    ____注意到这里时，ebp 中的值就是 startup32 的地址了_____
+	subl	$ rva(1b), %ebp	// 将ebp寄存器，即当前的 1f 的地址减去 1b 的偏移。得到了 startup_32 的地址了 			//    ____注意到这里时，ebp 中的值就是 startup32 的地址了_____ _重要_
 
 	/* Load new GDT with the 64bit segments using 32bit descriptor */
 	leal	rva(gdt)(%ebp), %eax	// 将 gdt 地址放到 eax 中
@@ -129,7 +129,7 @@ SYM_FUNC_START(startup_32)	// _保护模式下的第一条指令_  进入保护�
 	movl	%eax, %ss
 
 /* setup a stack and make sure cpu supports long mode. */
-	leal	rva(boot_stack_end)(%ebp), %esp	// 拿到 boot stack 的真实地址
+	leal	rva(boot_stack_end)(%ebp), %esp	// 拿到 boot stack 的真实地址，这部分是 boot 阶段临时使用的一个栈空间
 
 	call	verify_cpu	// 需要检查 cpu 是否支持 long mode 以及 sse 指令, refer to:   arch/x86/kernel/verify_cpu.S 
 	testl	%eax, %eax	// verify_cpu 的返回值在 eax 里，0表示成功，通过检查，1表示失败。
@@ -163,18 +163,18 @@ SYM_FUNC_START(startup_32)	// _保护模式下的第一条指令_  进入保护�
 	decl	%eax					// --，将对齐值 2的幂，转换为了低位全1 (即 2^n - 1)
 	addl	%eax, %ebx				// 为了后续 ebx 向上对齐
 	notl	%eax					// 按位取反
-	andl	%eax, %ebx				// ebx 向上对齐
+	andl	%eax, %ebx				// ebx 向上对齐, 检查 ebx 是否合法
 	cmpl	$LOAD_PHYSICAL_ADDR, %ebx		// refer to:  arch/x86/include/asm/boot.h。计算出来的 ebx 值，不能比这个 LOAD_PHYSICAL_ADDR 小
 	jae	1f
 #endif
-	movl	$LOAD_PHYSICAL_ADDR, %ebx
+	movl	$LOAD_PHYSICAL_ADDR, %ebx		// ebx 不合法，那么就强行使用 LOAD_PHYSICAL_ADDR, 这个地址是后续用来解压 kernel 代码的
 1:
 
 	/* Target address to relocate to for decompression */	// 要找一个位置放置解压后的内核, 此时 ebx 保存就是这个地址
 	addl	BP_init_size(%esi), %ebx			// 预留一部分初始化过程要使用的线性空间出来
 	subl	$ rva(_end), %ebx // ebx 指向的地址，是临时用来做 in-place 解压的。 因为 init_size 包含了当前这些 protected mode 代码的大小，所以要减去一个 _end
-	// 至此 ebp 包含的是 load kernel 的位置，即 protected mode 的起始地址
-	// ebx 保存的是，等下用来解压 内核的位置
+	// 至此 ebp 包含的是 load kernel 的位置，即 protected mode 的起始地址。即 未压缩的 protected mode 的代码位置
+	// ebx 保存的是，等下用来解压 内核的位置	_重要_
 
 /*
  * Prepare for entering 64 bit mode
@@ -234,7 +234,7 @@ SYM_FUNC_START(startup_32)	// _保护模式下的第一条指令_  进入保护�
 		P(bit 0): Present
 	 */
 
-	/*
+	/* 下面是page table 的内容，就是 identity map，物理地址 = 虚拟地址。仅设置了 前 4G 的映射。这个 page table 是等一下 long mode 下会使用的
                 +----------------+
                 |                |
                 |                |
@@ -321,7 +321,7 @@ pgtbl---------->+----------------+
 	addl	$8, %edi
 	decl	%ecx
 	jnz	1b
-	// page table 设置好之后，是identity map
+	// page table 设置好之后，是identity map, 即物理地址 == 虚拟地址
 
 	/* Enable the boot page tables */
 	leal	rva(pgtable)(%ebx), %eax
@@ -333,10 +333,11 @@ pgtbl---------->+----------------+
 	btsl	$_EFER_LME, %eax	// LME: lone mode enable
 	wrmsr
 
+	// 至此 long mode 已经 enable 了
 	/* After gdt is loaded */
 	xorl	%eax, %eax
 	lldt	%ax
-	movl    $__BOOT_TSS, %eax
+	movl    $__BOOT_TSS, %eax	// refer to: arch/x86/include/asm/segment.h
 	ltr	%ax			// 加载 tr 寄存器，just for making intel happy？？？
 
 	/*
@@ -380,7 +381,7 @@ pgtbl---------->+----------------+
 	movl	%eax, %cr0
 
 	/* Jump from 32bit compatibility mode into 64bit mode. */
-	lret					// 跳转到 64b mode
+	lret					// 跳转到 64b mode, startup_64
 SYM_FUNC_END(startup_32)
 
 #ifdef CONFIG_EFI_MIXED
@@ -418,6 +419,7 @@ SYM_FUNC_END(efi32_stub_entry)
 	.code64
 	.org 0x200			// 这部分代码会在 offset 0x200 的位置开始, 即 (startup_32 + 0x200)
 SYM_CODE_START(startup_64)		// long mode 的起始地址, 注意这里可能是从前面的 startup_32 一步一步执行过来的。也可能是 支持 64b 的 boot loader 直接跳转过来的，所以很多在 startup_32 做的工作，这里要再做一遍
+	// 注意：由于前面 page table 的设置，进入这里时，前 4G 的内存是 identity map，即物理地址和虚拟地址一样的
 	/*
 	 * 64bit entry is 0x200 and it is ABI so immutable!
 	 * We come here either from startup_32 or directly from a
@@ -478,10 +480,10 @@ SYM_CODE_START(startup_64)		// long mode 的起始地址, 注意这里可能是�
 	addq	%rax, %rbp
 	notq	%rax
 	andq	%rax, %rbp			
-	cmpq	$LOAD_PHYSICAL_ADDR, %rbp	// LOAD_PHYSICAL_ADDR 是用来加载解压后的内核的位置
+	cmpq	$LOAD_PHYSICAL_ADDR, %rbp	// LOAD_PHYSICAL_ADDR 是用来加载解压后的内核的位置(物理地址)
 	jae	1f
 #endif
-	movq	$LOAD_PHYSICAL_ADDR, %rbp	// 至此 %rbp 记录解压后的内核保存的位置, 而且是对齐的
+	movq	$LOAD_PHYSICAL_ADDR, %rbp	// 至此 %rbp 记录解压后的内核保存的物理地址, 而且是对齐的
 1:
 
 	/* Target address to relocate to for decompression */
@@ -490,7 +492,7 @@ SYM_CODE_START(startup_64)		// long mode 的起始地址, 注意这里可能是�
 	addq	%rbp, %rbx		// rbx 保存的是 target address 了
 
 	/* Set up the stack */
-	leaq	rva(boot_stack_end)(%rbx), %rsp
+	leaq	rva(boot_stack_end)(%rbx), %rsp // boot 阶段临时使用的一个栈空间
 
 	/*
 	 * At this point we are in long mode with 4-level paging enabled,
@@ -524,7 +526,7 @@ SYM_CODE_START(startup_64)		// long mode 的起始地址, 注意这里可能是�
 
 	/* Reload CS so IRET returns to a CS actually in the GDT */
 	pushq	$__KERNEL_CS
-	leaq	.Lon_kernel_cs(%rip), %rax
+	leaq	.Lon_kernel_cs(%rip), %rax	// 跳到这里
 	pushq	%rax
 	lretq
 
@@ -594,17 +596,17 @@ trampoline_return:
  */
 	pushq	%rsi				// 赋值压缩的内核到要解压的位置
 	leaq	(_bss-8)(%rip), %rsi
-	leaq	rva(_bss-8)(%rbx), %rdi
-	movl	$(_bss - startup_32), %ecx
+	leaq	rva(_bss-8)(%rbx), %rdi		// 参考前文代码，rbx 保存的是要解压 kernel 的目标位置
+	movl	$(_bss - startup_32), %ecx	// _bss - startup_32 是 protected mode 的代码(包含压缩部分以及当前正在执行的未压缩的部分), refer to: arch/x86/boot/compressed/vmlinux.lds.S
 	shrl	$3, %ecx
 	std
-	rep	movsq
+	rep	movsq	// rsi 指向的内容，mov 到 rdi 指向的位置
 	cld
 	popq	%rsi
 
 	/*
 	 * The GDT may get overwritten either during the copy we just did or
-	 * during extract_kernel below. To avoid any issues, repoint the GDTR	// 解压了
+	 * during extract_kernel below. To avoid any issues, repoint the GDTR  // 注意，前面我们将未压缩的那部分 protected mode code 也copy 过来了，即: 当前文件, 所以 gdt 部分也copy 过来了
 	 * to the new copy of the GDT.
 	 */
 	leaq	rva(gdt64)(%rbx), %rax
@@ -616,7 +618,7 @@ trampoline_return:
  * Jump to the relocated address.
  */
 	leaq	rva(.Lrelocated)(%rbx), %rax
-	jmp	*%rax
+	jmp	*%rax		// just jump
 SYM_CODE_END(startup_64)
 
 #ifdef CONFIG_EFI_STUB
@@ -664,22 +666,26 @@ SYM_FUNC_START_LOCAL_NOALIGN(.Lrelocated)
 	call	initialize_identity_maps
 	popq	%rsi
 
+
+	// 前面是一些准备清理工作，核心是下面的解压，然后跳转到解压后的内核(long mode)
+
 /*
  * Do the extraction, and jump to the new kernel..
  */
 	pushq	%rsi			/* Save the real mode argument */
 	movq	%rsi, %rdi		/* real mode address */
 	leaq	boot_heap(%rip), %rsi	/* malloc area for uncompression */
-	leaq	input_data(%rip), %rdx  /* input_data */
+	leaq	input_data(%rip), %rdx  /* input_data */	// 编译 linux 后会生成一个 piggy.S 的文件，里面有这个符号。是 arch/x86/boot/compressed/mkpiggy.c: 生成的
 	movl	input_len(%rip), %ecx	/* input_len */
 	movq	%rbp, %r8		/* output target address vmlinux 解压后的 LOAD 部分, 会放置到 output 位置, 即解压后的第一条指令会在这个位置。objudmp -Sl vmlinux 可以知道第一条指令就是 arch/x86/kernel/head_64.S:startup_64 */
-	movl	output_len(%rip), %r9d	/* decompressed length, end of relocs,  */
-	call	extract_kernel		/* returns kernel location in %rax */ // all_linux_comment/arch/x86/boot/compressed/misc.c
+	movl	output_len(%rip), %r9d	/* decompressed length, end of relocs  */
+	call	extract_kernel		/* returns kernel location in %rax */ // arch/x86/boot/compressed/misc.c
 	popq	%rsi
 
 /*
  * Jump to the decompressed kernel.
  */
+	// extract_kernel 解压后得到的就是一个 ELF 文件咯。从文件头当然能够找到 ENTRY 咯，默认情况下是 0x1000000 (16MB)，注意此时还是 identity map，这个虚拟地址和实际的物理地址是相等的, refer to: arch/x86/kernel/vmlinux.lds.S
 	jmp	*%rax	/* 跳转到解压后的内核, rax 的值来自于 call extract_kernel 的返回值。即 arch/x86/kernel/head_64.S:startup_64  */
 SYM_FUNC_END(.Lrelocated)
 
@@ -787,7 +793,7 @@ SYM_DATA_END(gdt64)
 	.balign	8
 SYM_DATA_START_LOCAL(gdt) // refer to: arch/x86/include/asm/segment.h
 	.word	gdt_end - gdt - 1
-	.long	0
+	.long	0			// 这个位置保存了 gdt 的地址, 详见前文 movl %eax, 2(%eax); lgdt (%eax)		
 	.word	0			// 这里是 第 0 个entry, NULL descriptor， GDT 的第0个entry是不使用的。Intel 的规定，防止加电后段寄存器没有初始化就进入保护模式使用 GDT
 	/*
 		0x0000(B15-B0) ffff(L15-L0)

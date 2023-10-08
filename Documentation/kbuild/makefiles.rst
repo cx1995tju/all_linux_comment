@@ -443,7 +443,7 @@ more details, with real examples.
 	    where the Makefile is located. Always use $(src) when
 	    referring to files located in the src tree.
 
-	$(obj)
+	$(obj)  // 就是 makefile 所在路径？？？
 	    $(obj) is a relative path which points to the directory
 	    where the target is saved. Always use $(obj) when
 	    referring to generated files.

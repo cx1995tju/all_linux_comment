@@ -10,7 +10,7 @@ OUTPUT_FORMAT(CONFIG_OUTPUT_FORMAT)
 
 #ifdef CONFIG_X86_64
 OUTPUT_ARCH(i386:x86-64)
-ENTRY(startup_64)
+ENTRY(startup_64) // load 的时候 有些 boot loader 根本不理会这个入口地址. 还是从 offset 0 位置开始执行。当然有些 boot laoder 直接 64b 的话，可以直接跳转到 startup_64。另外这个信息是保存在 setup.elf 中的。当其被组织为 setup.bin 后这个信息也就消失了
 #else
 OUTPUT_ARCH(i386)
 ENTRY(startup_32)

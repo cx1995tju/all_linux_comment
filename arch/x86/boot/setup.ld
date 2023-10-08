@@ -5,7 +5,7 @@
  */
 OUTPUT_FORMAT("elf32-i386")
 OUTPUT_ARCH(i386)
-ENTRY(_start)		/* 这里说明了入口是 _start, header.S 中有一个 _start 符号 */
+ENTRY(_start)		/* 这里说明了入口是 _start, header.S 中有一个 _start 符号。仅仅是在链接得到的 elf 文件中记录了一个入口地址，即相对于该文件的偏移 offset。至于loader 如何使用这个 entry，是否使用那都是取决于 loader 的实现 */
 
 SECTIONS
 {
@@ -20,7 +20,7 @@ SECTIONS
 	.initdata	: { *(.initdata) }
 	__end_init = .;
 
-	.text		: { *(.text .text.*) }
+	.text		: { *(.text .text.*) } /* 代码段 */
 	.text32		: { *(.text32) }
 
 	. = ALIGN(16);
@@ -42,7 +42,7 @@ SECTIONS
 
 
 	. = ALIGN(16);
-	.bss		:
+	.bss		:		/* 一些全局变量都放在这里 */
 	{
 		__bss_start = .;
 		*(.bss)

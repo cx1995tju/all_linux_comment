@@ -337,18 +337,20 @@ static void parse_elf(void *output)
  *             ^                                         ^
  *             |-------uncompressed kernel image---------|
  *
+ *
+ *
  * rmode - a pointer to the boot_params structure which is filled by either the bootloader or during early kernel initialization;
  * heap - a pointer to boot_heap which represents the start address of the early boot heap;
- * input_data - a pointer to the start of the compressed kernel or in other words, a pointer to the arch/x86/boot/compressed/vmlinux.bin.bz2 file;
+ * input_data - a pointer to the start of the compressed kernel or in other words, a pointer to the arch/x86/boot/compressed/vmlinux.bin.xz file;
  * input_len - the size of the compressed kernel;
  * output - the start address of the decompressed kernel;
  * output_len - the size of the decompressed kernel;
  */
-asmlinkage __visible void *extract_kernel(void *rmode, memptr heap,
-				  unsigned char *input_data,
-				  unsigned long input_len,
-				  unsigned char *output,
-				  unsigned long output_len)
+asmlinkage __visible void *extract_kernel(void *rmode /* rdi */, memptr heap /* rsi */,
+				  unsigned char *input_data /* rdx */,
+				  unsigned long input_len /* rcx */,
+				  unsigned char *output /* r8 */,
+				  unsigned long output_len /* r9 */)
 {
 	const unsigned long kernel_total_size = VO__end - VO__text;
 	unsigned long virt_addr = LOAD_PHYSICAL_ADDR;
@@ -445,7 +447,7 @@ asmlinkage __visible void *extract_kernel(void *rmode, memptr heap,
 	debug_putstr("\nDecompressing Linux... ");
 	__decompress(input_data, input_len, NULL, NULL, output, output_len,
 			NULL, error);
-	parse_elf(output);	// 解压完成后，解析 elf 文件了。将解压后的 kernel(vmlinux 中 可以 LOAD 的section, readelf -l vmlinux 可以看到) 移动到合适的位置, 即 output 位置。移动后，output 位置就是 kernel 的第一条指令了
+	parse_elf(output);	// 解压完成后，解析 elf 文件了。将解压后的 kernel(vmlinux 中 可以 LOAD 的section, readelf -l vmlinux 可以看到) 移动到合适的位置, 即 output 位置。移动后，output 位置就是 kernel 的第一条指令了。从 elf 文件头就可以找到 ENTRY 位置咯
 	handle_relocations(output, output_len, virt_addr);
 	debug_putstr("done.\nBooting the kernel.\n");
 

@@ -42,7 +42,7 @@ OUTPUT_ARCH(i386)
 ENTRY(phys_startup_32)
 #else
 OUTPUT_ARCH(i386:x86-64)
-ENTRY(phys_startup_64)
+ENTRY(phys_startup_64)		// 这个链接脚本得到的 目标 elf 文件，就是被压缩的内核，解压后，会从elf 文件拿到 entry，然后从这里作为入口执行
 #endif
 
 jiffies = jiffies_64;
@@ -120,13 +120,13 @@ SECTIONS
 	. = __START_KERNEL;	// 虚拟地址, 默认是 __START_KERNEL_map + 0x10000000(16MB) 的位置加载这个解压后的内核的代码。即解压后的内核的代码段默认的虚拟地址是这个, 其对应的物理地址是 16MB + phys_base, phys_base 默认是0，不过可能由于kaslr的原因被修正
 	// 64 位系统上 kernel 的虚拟地址和物理地址的偏移是 #define __START_KERNEL_map	_AC(0xffffffff80000000, UL)
 	// 即 pa = va - 0xffffffff80000000
-	phys_startup_64 = ABSOLUTE(startup_64 - LOAD_OFFSET); // ABSOLUTE 会返回一个绝对地址，可以理解为虚拟地址
+	phys_startup_64 = ABSOLUTE(startup_64 - LOAD_OFFSET); // ABSOLUTE 会返回一个绝对地址，可以理解为虚拟地址。链接的时候，这个符号会是绝对地址。nm vmlinux | grep startup_64 可以看到其类型是 A
 #endif
 
 	/* Text and read-only data */
 	/* AT 用来指示 .text 的加载地址，可以理解为物理地址。在有些 ROM 场景这个 keyword 比较好用。可以精确控制加载的位置 */
 	// ADDR 返回的也是虚拟地址
-	.text :  AT(ADDR(.text) - LOAD_OFFSET) {
+	.text :  AT(ADDR(.text) - LOAD_OFFSET) { // AT 在这里的作用仅仅是在 ELF 可执行文件中多记录了一个物理地址的信息，最终的加载要 loader 认出这个信息，然后加载到指定位置
 		_text = .;	// 注意前面设置了 . = __START_KERNEL
 		_stext = .;
 		/* bootstrapping code */

@@ -7,6 +7,8 @@
 #include <uapi/asm/boot.h>
 
 /* Physical address where kernel should be loaded. */
+// 默认是 0x1000000 16MB 的位置, refer to:  __PHYSICAL_START
+// 后续用来 解压 kernel 代码的 物理地址
 #define LOAD_PHYSICAL_ADDR ((CONFIG_PHYSICAL_START \
 				+ (CONFIG_PHYSICAL_ALIGN - 1)) \
 				& ~(CONFIG_PHYSICAL_ALIGN - 1))

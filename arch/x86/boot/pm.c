@@ -74,12 +74,13 @@ struct gdt_ptr {
  * 101 - segment type execute/read/
  * 1 - accessed bit
  * */
+// 注意此处设置的 gdt 仅仅是在 32 位模式下临时用的, 所以 gdt entry都是 64b的
 static void setup_gdt(void)
 {
 	/* There are machines which are known to not boot with the GDT
 	   being 8-byte unaligned.  Intel recommends 16 byte alignment. */
 	static const u64 boot_gdt[] __attribute__((aligned(16))) = {
-		/* CS: code, read/execute, 4 GB, base 0 */
+		/* CS: code, read/execute, 4 GB, base 0, 从 0开始的 4GB 范围 */
 		[GDT_ENTRY_BOOT_CS] = GDT_ENTRY(0xc09b, 0, 0xfffff),	// 设置了一些基础的 gdt 表，后续都还需要重写的
 		/* DS: data, read/write, 4 GB, base 0 */
 		[GDT_ENTRY_BOOT_DS] = GDT_ENTRY(0xc093, 0, 0xfffff),
@@ -132,6 +133,7 @@ void go_to_protected_mode(void)
 	/* Actual transition to protected mode... */
 	setup_idt(); // 设置 idt
 	setup_gdt(); // 设置 gdt, linux 不用 ldt，所以没有设置？？？ 或者说，这里设置仅仅是为了临时用一下
-	protected_mode_jump(boot_params.hdr.code32_start, // pmjump.S
-			    (u32)&boot_params + (ds() << 4));	// cuz we are now in real-mode, &boot_params only got the offset, so we need compute ds() << 4, and add it
+	// boot loader 会从 vmlinuz 中找到 protected mode code，然后将其加载到 code32_start 位置。这个位置默认是 0x100000 (1MB)，当然 boot loader 可能修改的。详见 boot.rst。不过如果其改了的话, 其需要重新写 code32_start 字段 
+	protected_mode_jump(boot_params.hdr.code32_start, // pmjump.S, arch/x86/boot/header.S中将这个值填为 0x100000  (1MB) (默认值)。具体位置是 arch/x86/boot/compressed/head_64.S:startup_32。这里有两个有趣的事情: 1. 有些 boot loader 可以直接arch/x86/boot/compressed/head_64.S:startup_64 的，这种boot loader 需要重写 code32_start 值的。另外其也可能重写 code32_start 让其跳转到某些 hook 的代码; 2. arch/x86/boot/compressed/vmlinux.lds.S 指定了入口地址是 startup_64，然而 setup.elf 变成setup.bin 后这个信息就消失了
+			    (u32)&boot_params + (ds() << 4));	// cuz we are now in real-mode, &boot_params only got the offset in elf files, so we need compute ds() << 4, and add it。这样就得到了物理地址
 }

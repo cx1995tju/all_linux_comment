@@ -175,7 +175,7 @@ In the following text, and anywhere in the kernel boot sequence, "a
 sector" refers to 512 bytes.  It is independent of the actual sector
 size of the underlying medium.
 
-The first step in loading a Linux kernel should be to load the
+The first step in loading a Linux kernel should be to load the                          // bzImage 开头部分就是下面这个结构, 我们称作 header, 或者 setup code
 real-mode code (boot sector and setup code) and then examine the
 following header at offset 0x01f1 of kernel image.  The real-mode code can total up to
 32K, although the boot loader may choose to load only the first two
@@ -194,7 +194,7 @@ Offset/Size	Proto		Name			Meaning
 01FA/2		ALL		vid_mode		Video mode control
 01FC/2		ALL		root_dev		Default root device number
 01FE/2		ALL		boot_flag		0xAA55 magic number
-0200/2		2.00+		jump			Jump instruction        # 0x200 位置，grub会使用这里的这条指令跳转到header.S 的第一条指令
+0200/2		2.00+		jump			Jump instruction        # 0x200 位置，grub会使用这里的这条指令跳转到header.S 的第一条指令。即 bootlaoder 使用这个跳转到 kernel real-mode 的第一句代码
 0202/4		2.00+		header			Magic signature "HdrS"
 0206/2		2.00+		version			Boot protocol version supported
 0208/4		2.00+		realmode_swtch		Boot loader hook (see below)
@@ -213,13 +213,13 @@ Offset/Size	Proto		Name			Meaning
 0228/4		2.02+		cmd_line_ptr		32-bit pointer to the kernel command line
 022C/4		2.03+		initrd_addr_max		Highest legal initrd address
 0230/4		2.05+		kernel_alignment	Physical addr alignment required for kernel
-0234/1		2.05+		relocatable_kernel	Whether kernel is relocatable or not
+0234/1		2.05+		relocatable_kernel	Whether kernel is relocatable or not    // 如果允许的话，整个 protected mode code 就可能被加载到非 0x100000 位置。 这时候 boot loader 需要通过 code32_start 将 protected mode 起始地址告诉给 kernel
 0235/1		2.10+		min_alignment		Minimum alignment, as a power of two
 0236/2		2.12+		xloadflags		Boot protocol option flags
 0238/4		2.06+		cmdline_size		Maximum size of the kernel command line
 023C/4		2.07+		hardware_subarch	Hardware subarchitecture
 0240/8		2.07+		hardware_subarch_data	Subarchitecture-specific data
-0248/4		2.08+		payload_offset		Offset of kernel payload # 重要
+0248/4		2.08+		payload_offset		Offset of kernel payload # 重要, paylaod 指的就是被压缩的 generic kernel 的代码
 024C/4		2.08+		payload_length		Length of kernel payload
 0250/8		2.09+		setup_data		64-bit physical pointer to linked list
 							of struct setup_data
@@ -269,7 +269,7 @@ boot loaders can ignore those fields.
 The byte order of all fields is littleendian (this is x86, after all.)
 
 ============	===========
-Field name:	setup_sects
+Field name:	setup_sects             // 单位是 512B
 Type:		read
 Offset/size:	0x1f1/1
 Protocol:	ALL
@@ -293,7 +293,7 @@ Protocol:	ALL
 ============	===============================================
 Field name:	syssize
 Type:		read
-Offset/size:	0x1f4/4 (protocol 2.04+) 0x1f4/2 (protocol ALL)
+Offset/size:	0x1f4/4 (protocol 2.04+) 0x1f4/2 (protocol ALL)         // protected-mode 代码的大小
 Protocol:	2.04+
 ============	===============================================
 
@@ -529,7 +529,7 @@ Offset/size:	0x214/4
 Protocol:	2.00+
 ============	========================
 
-  The address to jump to in protected mode.  This defaults to the load
+  The address to jump to in protected mode.  This defaults to the load  // boot loader 怎么在 bzImage 里找到 protected mode 的代码(根据setup_sects 计算的？？？)，然后将其放置到对应的位置呢？
   address of the kernel, and can be used by the boot loader to
   determine the proper load address.
 
@@ -669,7 +669,7 @@ Offset/size:	0x234/1
 Protocol:	2.05+
 ============	==================
 
-  If this field is nonzero, the protected-mode part of the kernel can
+  If this field is nonzero, the protected-mode part of the kernel can           // boot loader 怎么在 bzImage 找到 protected mode 部分的代码。(setup_sects + 1) * 512
   be loaded at any address that satisfies the kernel_alignment field.
   After loading, the boot loader must set the code32_start field to
   point to the loaded code, or to a boot loader hook.
@@ -770,11 +770,11 @@ Protocol:	2.07+
   do not modify.
 
 ============	==============
-Field name:	payload_offset  # bzImage 中的压缩部分相对于头部的偏移
+Field name:	payload_offset  # 被压缩部分的内核 相对于 protected-mode 开头位置的偏移。 protecte-mode 开头部分是未压缩的，后面是kernel的主体部分是压缩的
 Type:		read
 Offset/size:	0x248/4
 Protocol:	2.08+
-============	==============
+============	==============  # protected-mode 代码是有两部分的，一部分是boot时执行的，一部分是 generic code。它们都放在 bzImage 里
 
   If non-zero then this field contains the offset from the beginning
   of the protected-mode code to the payload.
@@ -1189,7 +1189,7 @@ Such a boot loader should enter the following fields in the header::
 Loading The Rest of The Kernel
 ==============================
 
-The 32-bit (non-real-mode) kernel starts at offset (setup_sects+1)*512
+The 32-bit (non-real-mode) kernel starts at offset (setup_sects+1)*512          // 重要
 in the kernel file (again, if setup_sects == 0 the real value is 4.)
 It should be loaded at address 0x10000 for Image/zImage kernels and
 0x100000 for bzImage kernels.
@@ -1441,3 +1441,30 @@ NOTE: The EFI Handover Protocol is deprecated in favour of the ordinary PE/COFF
       and ramdisk in memory, or the placement of the kernel image itself.
 
 [0] https://github.com/u-boot/u-boot/commit/ec80b4735a593961fe701cc3a5d717d4739b0fd0
+
+
+bzImage 格式
+===========
+// 参考 arch/x86/boot/build.c 观察 bzImage 是如何创建的:
+// linux 编译后，会有一个 arch/x86/boot/.bzImage.cmd 文件
+// cmd_arch/x86/boot/bzImage := arch/x86/boot/tools/build arch/x86/boot/setup.bin arch/x86/boot/vmlinux.bin arch/x86/boot/zoffset.h arch/x86/boot/bzImage
+
+
+bzImage = arch/x86/boot/setup.bin + arch/x86/boot/vmlinux.bin(注意这里的vmlinux.bin 虽然是在 arch 目录下，但是是包含有 generic 部分代码的)
+     +------------------------------+
+     |                              | <- size: payload_length
+     |                              |
+     | protected mode code 2        | <- 被压缩的 geneirc kernel 部分, 被压缩的代码就是 payload
+     |                              |
+     +------------------------------+ <- offset: (setup_sects + 1) * 512 + payload_offset
+     |                              |
+     | protected mode code 1        | <- 未压缩的 protected-mode 代码
+     |                              |
+     +------------------------------+ <- offset: (setup_sects + 1) * 512, 默认情况下，这部分会默认情况下会被 boot loader 加载到 0x100000(1MB) 位置
+     |             .                |
+     |             .(512Bytes)      |
+     |             .                |
+     +------------------------------+
+     |                              | <- size: setup_sects * 512
+     | setup code                   | <- arch/x86/boot/header.S
+low  +------------------------------+

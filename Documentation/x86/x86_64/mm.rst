@@ -52,7 +52,7 @@ Complete virtual memory map with 4-level page tables
    ffffec0000000000 |  -20    TB | fffffbffffffffff |   16 TB | KASAN shadow memory
   __________________|____________|__________________|_________|____________________________________________________________
                                                               |
-                                                              | Identical layout to the 56-bit one from here on:
+                                                              | Identical layout to the 56-bit one from here on:                // Q: VA 的长度都没有 64b，底下这些va 怎么被索引？？？ 所以底下这些 VA 真正被使用的时候，高 64 - 47 = 17b 是没有用的。会自动做符号扩展。由于是做符号扩展。所以在中间会存在一些 hole, 譬如：0x00007fffffffffff 这个地址就是无效的，0xffff7fffffffffff 这个地址才是有意义的
   ____________________________________________________________|____________________________________________________________
                     |            |                  |         |
    fffffc0000000000 |   -4    TB | fffffdffffffffff |    2 TB | ... unused hole
@@ -132,7 +132,7 @@ Complete virtual memory map with 5-level page tables
   __________________|____________|__________________|_________|___________________________________________________________
 
 Architecture defines a 64-bit virtual address. Implementations can support
-less. Currently supported are 48- and 57-bit virtual addresses. Bits 63
+less. Currently supported are 48- and 57-bit virtual addresses. Bits 63                         // 高位是没有用的，会自动做符号扩展。所以在中间会存在一些 hole, 譬如：47b的情况下 0x00007fffffffffff 这个地址就是无效的，0xffffffffffffffff 这个地址才是有意义的
 through to the most-significant implemented bit are sign extended.
 This causes hole between user space and kernel addresses if you interpret them
 as unsigned.
