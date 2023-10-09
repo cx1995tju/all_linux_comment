@@ -848,6 +848,7 @@ void choose_random_location(unsigned long input,
 		mem_limit = MAXMEM;
 
 	/* Record the various known unsafe memory ranges. */
+	// 有些地址空间是不能用的
 	mem_avoid_init(input, input_size, *output);
 
 	/*

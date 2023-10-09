@@ -418,11 +418,13 @@ asmlinkage __visible void *extract_kernel(void *rmode /* rdi */, memptr heap /* 
 	debug_putaddr(trampoline_32bit);
 #endif
 
+	// 如果开启了 kalsr, 需要废弃前面建立的 identity map page table，需要重新建立:
+	// 因为 boot loader 可能选择了一个 >4G 的位置来加载kernel的
+	// 会找一个随机的虚拟地址和物理地址来加载解压后的内核的
 	choose_random_location((unsigned long)input_data, input_len,
-				(unsigned long *)&output,
+				(unsigned long *)&output,		// 选择的随机的物理地址会通过这里返回的
 				needed_size,
 				&virt_addr);
-
 	/* Validate memory location choices. */
 	if ((unsigned long)output & (MIN_KERNEL_ALIGN - 1))
 		error("Destination physical address inappropriately aligned");

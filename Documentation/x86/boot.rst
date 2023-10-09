@@ -213,7 +213,7 @@ Offset/Size	Proto		Name			Meaning
 0228/4		2.02+		cmd_line_ptr		32-bit pointer to the kernel command line
 022C/4		2.03+		initrd_addr_max		Highest legal initrd address
 0230/4		2.05+		kernel_alignment	Physical addr alignment required for kernel
-0234/1		2.05+		relocatable_kernel	Whether kernel is relocatable or not    // 如果允许的话，整个 protected mode code 就可能被加载到非 0x100000 位置。 这时候 boot loader 需要通过 code32_start 将 protected mode 起始地址告诉给 kernel
+0234/1		2.05+		relocatable_kernel	Whether kernel is relocatable or not    // 如果允许的话，整个 protected mode code 就可能被加载到非 0x100000 位置。 这时候 boot loader 需要通过 code32_start 将 protected mode 起始地址告诉给 kernel。表示 kernel 是否支持 relocatable_kernel，如果是的。另外又开启了 KASLR 的话，那么每次启动 kernel 的时候 protected mode code 加载的地址就不固定咯
 0235/1		2.10+		min_alignment		Minimum alignment, as a power of two
 0236/2		2.12+		xloadflags		Boot protocol option flags
 0238/4		2.06+		cmdline_size		Maximum size of the kernel command line

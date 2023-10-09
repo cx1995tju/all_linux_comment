@@ -39,7 +39,7 @@
  * We are not able to switch in one step to the final KERNEL ADDRESS SPACE
  * because we need identity-mapped pages.
  */
-#define l4_index(x)	(((x) >> 39) & 511)	// 511 = 0x1ff
+#define l4_index(x)	(((x) >> 39) & 511)					// 511 = 0x1ff
 #define pud_index(x)	(((x) >> PUD_SHIFT) & (PTRS_PER_PUD-1))
 
 L4_PAGE_OFFSET = l4_index(__PAGE_OFFSET_BASE_L4)
@@ -50,6 +50,7 @@ L3_START_KERNEL = pud_index(__START_KERNEL_map)
 	.text
 	__HEAD
 	.code64
+	// NOTE: 进入这里的时候 page table 还是之前的前 4G identity map，即物理地址 = 虚拟地址。所以首先需要做的事情就是按照 Documentation/x86/x86_64/mm.rst 说明的，建立新的 kernel 部分的 direct map
 SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extract_kernel 后就会跳转到这里。这里是解压后的内核第一条指令, 这部分的起始位置参考 arch/x86/kernel/vmlinux.lds.S
 	UNWIND_HINT_EMPTY
 	/*
