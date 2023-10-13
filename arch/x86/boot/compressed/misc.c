@@ -202,7 +202,7 @@ static void handle_relocations(void *output, unsigned long output_len,
 	 * from __START_KERNEL_map.
 	 */
 	if (IS_ENABLED(CONFIG_X86_64))
-		delta = virt_addr - LOAD_PHYSICAL_ADDR;
+		delta = virt_addr - LOAD_PHYSICAL_ADDR;	// 后续会用这个 virt_addr 对 kernel 做一个重定位
 
 	if (!delta) {
 		debug_putstr("No relocation needed... ");
@@ -228,6 +228,8 @@ static void handle_relocations(void *output, unsigned long output_len,
 	 * 32 bit relocation repeated
 	 *
 	 * So we work backwards from the end of the decompressed image.
+	 *
+	 * 对 kernel 做一个重定位
 	 */
 	for (reloc = output + output_len - sizeof(*reloc); *reloc; reloc--) {
 		long extended = *reloc;
@@ -418,9 +420,10 @@ asmlinkage __visible void *extract_kernel(void *rmode /* rdi */, memptr heap /* 
 	debug_putaddr(trampoline_32bit);
 #endif
 
-	// 如果开启了 kalsr, 需要废弃前面建立的 identity map page table，需要重新建立:
+	// 如果开启了 kalsr, 需要废弃前面建立的 identity map page table，需要重新建立: 不过现在不会在这里手动建立了。而是发生 page fault 的时候按需建立咯, refer to: 8570978ea030757839747aa9944ea576708be3d4
 	// 因为 boot loader 可能选择了一个 >4G 的位置来加载kernel的
 	// 会找一个随机的虚拟地址和物理地址来加载解压后的内核的
+	// 在 page fault 里处理这部分handler 的时候，应该就是为其建立 direct map。由于 kaslr 的存在 mm.rst 中的 page_offset_base 是需要被 __修正__ 的。因为这里的物理地址和虚拟地址都是随机的(不是:0xffff888000000000 这个了 )，但是需要做 direct map
 	choose_random_location((unsigned long)input_data, input_len,
 				(unsigned long *)&output,		// 选择的随机的物理地址会通过这里返回的
 				needed_size,

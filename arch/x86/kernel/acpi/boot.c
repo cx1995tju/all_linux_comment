@@ -1691,6 +1691,7 @@ static int __init parse_pci(char *arg)
 }
 early_param("pci", parse_pci);
 
+// MPS: MultiProcessor Specification
 int __init acpi_mps_check(void)
 {
 #if defined(CONFIG_X86_LOCAL_APIC) && !defined(CONFIG_X86_MPPARSE)

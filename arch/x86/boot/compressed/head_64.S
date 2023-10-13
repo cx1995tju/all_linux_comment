@@ -594,8 +594,8 @@ trampoline_return:
  * Copy the compressed kernel to the end of our buffer
  * where decompression in place becomes safe.
  */
-	pushq	%rsi				// 赋值压缩的内核到要解压的位置
-	leaq	(_bss-8)(%rip), %rsi
+	pushq	%rsi				
+	leaq	(_bss-8)(%rip), %rsi		// 赋值压缩的内核到要解压的位置
 	leaq	rva(_bss-8)(%rbx), %rdi		// 参考前文代码，rbx 保存的是要解压 kernel 的目标位置
 	movl	$(_bss - startup_32), %ecx	// _bss - startup_32 是 protected mode 的代码(包含压缩部分以及当前正在执行的未压缩的部分), refer to: arch/x86/boot/compressed/vmlinux.lds.S
 	shrl	$3, %ecx

@@ -803,6 +803,7 @@ void __init *early_memremap_decrypted_wp(resource_size_t phys_addr,
 }
 #endif	/* CONFIG_AMD_MEM_ENCRYPT */
 
+// 一个 page 可以保存 512 个 PTE 结构, 即 512 * 4KB = 2MB 的 VA 空间大小
 static pte_t bm_pte[PAGE_SIZE/sizeof(pte_t)] __page_aligned_bss;
 
 static inline pmd_t * __init early_ioremap_pmd(unsigned long addr)
@@ -827,21 +828,23 @@ bool __init is_early_ioremap_ptep(pte_t *ptep)
 	return ptep >= &bm_pte[0] && ptep < &bm_pte[PAGE_SIZE/sizeof(pte_t)];
 }
 
+// 这时候内存子系统都没有初始化，ioremap() 肯定用不了的，但是又有需要访问某些设备的需求
 void __init early_ioremap_init(void)
 {
 	pmd_t *pmd;
 
 #ifdef CONFIG_X86_64
-	BUILD_BUG_ON((fix_to_virt(0) + PAGE_SIZE) & ((1 << PMD_SHIFT) - 1));
+	BUILD_BUG_ON((fix_to_virt(0) + PAGE_SIZE) & ((1 << PMD_SHIFT) - 1));	// FIXADDR_TOP + 4KB 需要 2MB 对齐
 #else
 	WARN_ON((fix_to_virt(0) + PAGE_SIZE) & ((1 << PMD_SHIFT) - 1));
 #endif
 
 	early_ioremap_setup();
 
+	// fixaddr 部分正好是 2MB 大小，一个 pmd 的空间, 即 512 pte  entries
 	pmd = early_ioremap_pmd(fix_to_virt(FIX_BTMAP_BEGIN));
-	memset(bm_pte, 0, sizeof(bm_pte));
-	pmd_populate_kernel(&init_mm, pmd, bm_pte);
+	memset(bm_pte, 0, sizeof(bm_pte)); // pmd 就是指向 bm_pte 这个 page, 这里面保存了 512 entries
+	pmd_populate_kernel(&init_mm, pmd, bm_pte);	// 让 pmd 指向了 bm_pte 这里保存的 pte entries。注意，bm_pte 还没有填充的。要等到调用 early_ioremap() 的时候才会去构建
 
 	/*
 	 * The boot-ioremap range spans multiple pmds, for which
@@ -850,8 +853,8 @@ void __init early_ioremap_init(void)
 #define __FIXADDR_TOP (-PAGE_SIZE)
 	BUILD_BUG_ON((__fix_to_virt(FIX_BTMAP_BEGIN) >> PMD_SHIFT)
 		     != (__fix_to_virt(FIX_BTMAP_END) >> PMD_SHIFT));
-#undef __FIXADDR_TOP
-	if (pmd != early_ioremap_pmd(fix_to_virt(FIX_BTMAP_END))) {
+#undef __FIXADDR_TOP	// why ????
+	if (pmd != early_ioremap_pmd(fix_to_virt(FIX_BTMAP_END))) {	// 检车 FIX_BITMAP_BEGIN FIX_BITMAP_END 是不是在同一个 pmd 范围内，即 512 * 4KB = 2MB 空间内
 		WARN_ON(1);
 		printk(KERN_WARNING "pmd %p != %p\n",
 		       pmd, early_ioremap_pmd(fix_to_virt(FIX_BTMAP_END)));

@@ -67,7 +67,7 @@ Complete virtual memory map with 4-level page tables
    ffffffff80000000 |-2048    MB |                  |         |
    ffffffffa0000000 |-1536    MB | fffffffffeffffff | 1520 MB | module mapping space
    ffffffffff000000 |  -16    MB |                  |         |
-      FIXADDR_START | ~-11    MB | ffffffffff5fffff | ~0.5 MB | kernel-internal fixmap range, variable size and offset
+      FIXADDR_START | ~-11    MB | ffffffffff5fffff | ~0.5 MB | kernel-internal fixmap range, variable size and offset          // FIXADDR_START - FIXADDR_TOP 范围。主要是启动阶段, mm 子系统都没有初始化的时候，留一段虚拟内存空间来使用。譬如：在 mm 子系统初始化之前，ioremap() 是无法使用的，这时候在开启了paging后访问外设 mem 就很麻烦。这部分 固定的虚拟空间的用途是编译期间就确定好的.  refer to: arch/x86/include/asm/fixmap.h: enum fixed_addresses
    ffffffffff600000 |  -10    MB | ffffffffff600fff |    4 kB | legacy vsyscall ABI
    ffffffffffe00000 |   -2    MB | ffffffffffffffff |    2 MB | ... unused hole
   __________________|____________|__________________|_________|___________________________________________________________

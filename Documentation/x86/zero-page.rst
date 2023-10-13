@@ -1,7 +1,7 @@
 .. SPDX-License-Identifier: GPL-2.0
 
 =========
-Zero Page
+Zero Page       // zero page 是说明这个 page 全部被初始化为了 zero
 =========
 The additional fields in struct boot_params as a part of 32-bit boot
 protocol of kernel. These should be filled by bootloader or 16-bit

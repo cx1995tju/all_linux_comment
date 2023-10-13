@@ -55,7 +55,7 @@ SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extrac
 	UNWIND_HINT_EMPTY
 	/*
 	 * At this point the CPU runs in 64bit mode CS.L = 1 CS.D = 0,
-	 * and someone has loaded an identity mapped page table
+	 * and someone has loaded an identity mapped page table			// 注意这里都还是 identity map
 	 * for us.  These identity mapped page tables map all of the
 	 * kernel pages and possibly all of memory.
 	 *
@@ -74,6 +74,7 @@ SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extrac
 	/* Set up the stack for verify_cpu(), similar to initial_stack below */
 	leaq	(__end_init_task - SIZEOF_PTREGS)(%rip), %rsp
 
+	/* 注意此时还是 identity map，之类的_text(%rip) 既是虚拟地址，也是物理地址*/
 	leaq	_text(%rip), %rdi	// rdi 是 startup_64_setup_env 的参数
 	pushq	%rsi
 	call	startup_64_setup_env // arch/x86/kernel/head64.c
@@ -99,7 +100,7 @@ SYM_CODE_START_NOALIGN(startup_64) //  arch/x86/boot/compressed/head_64.S extrac
 	 */
 	leaq	_text(%rip), %rdi	// rdi 是第一个参数
 	pushq	%rsi			// rsi 是第二个参数
-	call	__startup_64	//  arch/x86/kernel/head64.c
+	call	__startup_64	//  arch/x86/kernel/head64.c  // 这里面最重要的就是去修正 page table，然后将page table的地址保存到 phys_base 中了
 	popq	%rsi
 
 	/* Form the CR3 value being sure to include the CR3 modifier */
@@ -177,7 +178,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	popq	%rsi
 
 	/* Switch to new page-table */
-	movq	%rax, %cr3
+	movq	%rax, %cr3			// 至此已经建立了内核的 direct map 部分了。
 
 	/* Ensure I am executing from virtual addresses */
 	movq	$1f, %rax

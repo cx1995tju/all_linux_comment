@@ -55,8 +55,8 @@ static bool idt_setup_done __initdata;
  * stacks work only after cpu_init().
  */
 static const __initconst struct idt_data early_idts[] = {
-	INTG(X86_TRAP_DB,		asm_exc_debug),
-	SYSG(X86_TRAP_BP,		asm_exc_int3),
+	INTG(X86_TRAP_DB,		asm_exc_debug),	// 设置了 INT 1 debug 中断, refer to: arch/x86/kernel/traps.c:DEFINE_IDTENTRY_DEBUG(exec_debug)
+	SYSG(X86_TRAP_BP,		asm_exc_int3), // INT 3 breakpoint
 
 #ifdef CONFIG_X86_32
 	/*

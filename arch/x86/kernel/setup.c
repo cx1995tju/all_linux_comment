@@ -233,8 +233,9 @@ static void __init reserve_brk(void)
 
 u64 relocated_ramdisk;
 
-#ifdef CONFIG_BLK_DEV_INITRD
+#ifdef CONFIG_BLK_DEV_INITRD  // 常态会进入这里, init/Kconfig
 
+// boot loader 会将其加载的位置告诉 kernel
 static u64 __init get_ramdisk_image(void)
 {
 	u64 ramdisk_image = boot_params.hdr.ramdisk_image;
@@ -325,7 +326,7 @@ static void __init reserve_initrd(void)
 
 	relocate_initrd();
 
-	memblock_free(ramdisk_image, ramdisk_end - ramdisk_image);
+	memblock_free(ramdisk_image, ramdisk_end - ramdisk_image);	// 将前面early reserver 的部分释放掉。
 }
 
 #else
@@ -342,7 +343,7 @@ static void __init parse_setup_data(void)
 	struct setup_data *data;
 	u64 pa_data, pa_next;
 
-	pa_data = boot_params.hdr.setup_data;
+	pa_data = boot_params.hdr.setup_data;	// refer to: boot.rst
 	while (pa_data) {
 		u32 data_len, data_type;
 
@@ -376,7 +377,7 @@ static void __init memblock_x86_reserve_range_setup_data(void)
 
 	pa_data = boot_params.hdr.setup_data;
 	while (pa_data) {
-		data = early_memremap(pa_data, sizeof(*data));
+		data = early_memremap(pa_data, sizeof(*data));	// 初期的时候，都是一边用，一边建立 pagetable; 用于就移除
 		memblock_reserve(pa_data, sizeof(*data) + data->len);
 
 		if (data->type == SETUP_INDIRECT &&
@@ -768,6 +769,7 @@ dump_kernel_offset(struct notifier_block *self, unsigned long v, void *p)
  * Note: On x86_64, fixmaps are ready for use even before this is called.
  */
 
+// cmdline_p 是一个指向 kernel 启动参数字符串的指针
 void __init setup_arch(char **cmdline_p)
 {
 	/*
@@ -776,6 +778,8 @@ void __init setup_arch(char **cmdline_p)
 	 * __end_of_kernel_reserve symbol must be explicitly reserved with a
 	 * separate memblock_reserve() or they will be discarded.
 	 */
+	// refer to: arch/x86/kernel/vmlinux.lds.S
+	// 从代码段到这里(__end_of_kernel_reserve)的物理地址空间要留下来，不要在之后被释放掉咯
 	memblock_reserve(__pa_symbol(_text),
 			 (unsigned long)__end_of_kernel_reserve - (unsigned long)_text);
 
@@ -783,9 +787,9 @@ void __init setup_arch(char **cmdline_p)
 	 * Make sure page 0 is always reserved because on systems with
 	 * L1TF its contents can be leaked to user processes.
 	 */
-	memblock_reserve(0, PAGE_SIZE);
+	memblock_reserve(0, PAGE_SIZE); // page 0 本来就用不了的
 
-	early_reserve_initrd();
+	early_reserve_initrd();	// 留一段空间用来加载 initrd
 
 	/*
 	 * At this point everything still needed from the boot loader
@@ -831,7 +835,7 @@ void __init setup_arch(char **cmdline_p)
 	arch_init_ideal_nops();
 	jump_label_init();
 	static_call_init();
-	early_ioremap_init();
+	early_ioremap_init();	// 重要
 
 	setup_olpc_ofw_pgd();
 
@@ -867,7 +871,7 @@ void __init setup_arch(char **cmdline_p)
 
 	x86_init.oem.arch_setup();
 
-	iomem_resource.end = (1ULL << boot_cpu_data.x86_phys_bits) - 1;
+	iomem_resource.end = (1ULL << boot_cpu_data.x86_phys_bits) - 1;	// cat /proc/iomem
 	e820__memory_setup();
 	parse_setup_data();
 
@@ -880,6 +884,7 @@ void __init setup_arch(char **cmdline_p)
 	init_mm.end_data = (unsigned long) _edata;
 	init_mm.brk = _brk_end;
 
+	// cat /proc/iomem | grep Kernel 都可以看到的
 	code_resource.start = __pa_symbol(_text);
 	code_resource.end = __pa_symbol(_etext)-1;
 	rodata_resource.start = __pa_symbol(__start_rodata);
@@ -906,7 +911,7 @@ void __init setup_arch(char **cmdline_p)
 	*cmdline_p = command_line;
 
 	/*
-	 * x86_configure_nx() is called before parse_early_param() to detect
+	 * x86_configure_nx() is called before parse_early_param() to detect	// nx means not executable
 	 * whether hardware doesn't support NX (so that the early EHCI debug
 	 * console setup can safely call set_fixmap()). It may then be called
 	 * again from within noexec_setup() during parsing early parameters
@@ -960,6 +965,7 @@ void __init setup_arch(char **cmdline_p)
 	if (efi_enabled(EFI_BOOT))
 		efi_init();
 
+	// dmi 用来收集bios提供的一些信息的
 	dmi_setup();
 
 	/*

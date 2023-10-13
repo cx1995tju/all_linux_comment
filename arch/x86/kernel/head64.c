@@ -90,7 +90,7 @@ static void __head *fixup_pointer(void *ptr, unsigned long physaddr)
 {
 	// ptr 记录的是虚拟地址，
 	// 减去 _text，代码段load 的位置，得到相对于代码段的偏移
-	// 然后加上物理地址，就得到 ptr 所在的真实物理地址位置
+	// 然后加上 protected mode code 加载的物理地址，就得到 ptr 所在的真实物理地址位置, physaddr 是代码段 _text 加载时的物理地址
 	return ptr - (void *)_text + (void *)physaddr;
 }
 
@@ -136,8 +136,8 @@ static bool __head check_la57_support(unsigned long physaddr)
  * boot-time crashes. To work around this problem, every global pointer must
  * be adjusted using fixup_pointer().
  */
-unsigned long __head __startup_64(unsigned long physaddr,
-				  struct boot_params *bp)
+unsigned long __head __startup_64(unsigned long physaddr, /* rdi */
+				  struct boot_params *bp /* rsi */)
 {
 	unsigned long vaddr, vaddr_end;
 	unsigned long load_delta, *p;
@@ -161,9 +161,26 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	 * Compute the delta between the address I am compiled to run at
 	 * and the address I am actually running at.
 	 */
-	// 因为 kaslr 的存在，这里需要对指针做修正
-	// _text - __START_KERNEL_map 是 _text 的偏移
-	// physaddr 是其真实加载的物理地址
+	// physaddr 是 _text 即 protected mode 代码段加载的物理地址，也是虚拟地址, 此时还是 identity map
+	// _text 是编译时记录的地址,即虚拟地址,  _text - __START_KERNEL_map 是 _text 的偏移
+	// 
+	// 其真实地址 - 内部偏移，得到的就是 load_delta
+//	  +------------------+
+//        |                  |
+//        +------------------+ <- physaddr        ---------
+//        |                  |                        ^
+//        |                  |                        | offset = _text - __START_KERNEL_map 
+//        |                  |                        v
+//        +------------------+ <- load_delta      ---------
+//        |                  |
+//        |                  |
+//        |                  |
+//        +------------------+
+//        |                  |
+//        |                  |
+//        |                  |
+//      0 +------------------+
+
 	load_delta = physaddr - (unsigned long)(_text - __START_KERNEL_map);
 
 	/* Is the address not 2M aligned? */
@@ -177,6 +194,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	load_delta += sme_get_me_mask();
 
 	/* Fixup the physical addresses in the page table */
+	// 从这里开始就将之前的 identity map，转化为了 direct map 了, 参考 mm.rst
 
 	pgd = fixup_pointer(&early_top_pgt, physaddr);
 	p = pgd + pgd_index(__START_KERNEL_map);
@@ -192,7 +210,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	}
 
 	pud = fixup_pointer(&level3_kernel_pgt, physaddr);
-	pud[510] += load_delta;
+	pud[510] += load_delta;		// 原本是 identity map，这里加上load_delta 后，就变成了 mm.rst 中说明的 direct map 了
 	pud[511] += load_delta;
 
 	pmd = fixup_pointer(level2_fixmap_pgt, physaddr);
@@ -281,6 +299,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	 * Fixup phys_base - remove the memory encryption mask to obtain
 	 * the true physical address.
 	 */
+	// phys_base 记录下了 kernel protected mode 加载的真实物理地址
 	*fixup_long(&phys_base, physaddr) += load_delta - sme_get_me_mask();
 
 	/* Encrypt the kernel and related (if SME is active) */
@@ -457,7 +476,7 @@ static void __init copy_bootdata(char *real_mode_data)
 	cmd_line_ptr = get_cmd_line_ptr();
 	if (cmd_line_ptr) {
 		command_line = __va(cmd_line_ptr);	// pa 转 va
-		memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);
+		memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);	// 
 	}
 
 	/*
@@ -471,6 +490,7 @@ static void __init copy_bootdata(char *real_mode_data)
 
 
 // arch/x86/kernel/head_64.S 跳转过来的
+// 进入这里的时候，page table 中完整的 direct map 已经建立起来了
 asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 {
 	/*
@@ -538,6 +558,7 @@ void __init x86_64_start_reservations(char *real_mode_data)
 		break;
 	}
 
+	// finally we enter in the generic code
 	start_kernel();
 }
 
@@ -605,6 +626,7 @@ void early_setup_idt(void)
 /*
  * Setup boot CPU state needed before kernel switches to virtual addresses.
  */
+// phybase 是内核 _text 的物理地址
 void __head startup_64_setup_env(unsigned long physbase)
 {
 	/* Load GDT */

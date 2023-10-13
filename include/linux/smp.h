@@ -237,6 +237,7 @@ static inline int get_boot_cpu_id(void)
 #endif
 
 // preempt_disable 防止，使用 cpuid 的时候，发生了抢占
+// 如果发生了抢占，这里获取的 cpu id 就不准确了
 #define get_cpu()		({ preempt_disable(); __smp_processor_id(); })
 #define put_cpu()		preempt_enable()
 

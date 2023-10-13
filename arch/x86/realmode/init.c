@@ -17,6 +17,8 @@ u32 *trampoline_cr4_features;
 /* Hold the pgd entry used on booting additional CPUs */
 pgd_t trampoline_pgd_entry;
 
+
+// reserves low memory from 0x0 to 1 megabyte for the trampoline to the real mode (for rebooting, etc.),
 void __init reserve_real_mode(void)
 {
 	phys_addr_t mem;

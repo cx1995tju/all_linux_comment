@@ -474,7 +474,7 @@ Protocol:	2.00+
 	- If 0, the protected-mode code is loaded at 0x10000.
 	- If 1, the protected-mode code is loaded at 0x100000.
 
-  Bit 1 (kernel internal): KASLR_FLAG
+  Bit 1 (kernel internal): KASLR_FLAG                   // kaslr 既会随机化物理地址，也会随机化虚拟地址。所以对于虚拟地址和物理地址之间的 direct map(refer to mm.rst) 需要重新建立。
 
 	- Used internally by the compressed kernel to communicate
 	  KASLR status to kernel proper.
@@ -1371,7 +1371,7 @@ In 64-bit boot protocol, the first step in loading a Linux kernel
 should be to setup the boot parameters (struct boot_params,
 traditionally known as "zero page"). The memory for struct boot_params
 could be allocated anywhere (even above 4G) and initialized to all zero.
-Then, the setup header at offset 0x01f1 of kernel image on should be
+Then, the setup header at offset 0x01f1 of kernel image on should be    // setup header 应该被 copy 到 boot_params 中
 loaded into struct boot_params and examined. The end of setup header
 can be calculated as follows::
 

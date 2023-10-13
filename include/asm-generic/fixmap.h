@@ -18,6 +18,9 @@
 #include <linux/bug.h>
 #include <linux/mm_types.h>
 
+// __fix_to_virt(x) 中的 x 就是枚举类型 enum fixed_addresses。注意哟，index 小的安排在 靠近 top 的位置
+// 编译的时候，就用这个宏计算 VA，然后使用 VA
+// 等到运行的时候，由 kernel 负责为对应的 VA 找到正确的 PA，并建立映射。随用随建立。用完可能就销毁
 #define __fix_to_virt(x)	(FIXADDR_TOP - ((x) << PAGE_SHIFT))
 #define __virt_to_fix(x)	((FIXADDR_TOP - ((x)&PAGE_MASK)) >> PAGE_SHIFT)
 

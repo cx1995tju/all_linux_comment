@@ -1283,7 +1283,7 @@ void __init e820__memory_setup(void)
 	/* This is a firmware interface ABI - make sure we don't break it: */
 	BUILD_BUG_ON(sizeof(struct boot_e820_entry) != 20);
 
-	who = x86_init.resources.memory_setup();
+	who = x86_init.resources.memory_setup();	// x86_init.c
 
 	memcpy(e820_table_kexec, e820_table, sizeof(*e820_table_kexec));
 	memcpy(e820_table_firmware, e820_table, sizeof(*e820_table_firmware));

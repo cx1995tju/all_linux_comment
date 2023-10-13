@@ -80,6 +80,7 @@ void __init early_ioremap_setup(void)
 		if (WARN_ON(prev_map[i]))
 			break;
 
+	// 将 enum fixed_addresses 中的虚拟地址记录下来 一共 512 entries，正好是一个 pmd
 	for (i = 0; i < FIX_BTMAPS_SLOTS; i++)
 		slot_virt[i] = __fix_to_virt(FIX_BTMAP_BEGIN - NR_FIX_BTMAPS*i);
 }
@@ -219,7 +220,7 @@ early_ioremap(resource_size_t phys_addr, unsigned long size)
 	return __early_ioremap(phys_addr, size, FIXMAP_PAGE_IO);
 }
 
-/* Remap memory */
+/* Remap memory, 也用的是为 ioremap 预留的那部分 fixaddr */
 void __init *
 early_memremap(resource_size_t phys_addr, unsigned long size)
 {

@@ -654,7 +654,7 @@ struct task_struct {
 	 */
 	randomized_struct_fields_start
 
-	void				*stack;
+	void				*stack;	// 栈底部
 	refcount_t			usage;
 	/* Per task flags (PF_*), defined further below: */
 	unsigned int			flags;
@@ -754,8 +754,17 @@ struct task_struct {
 	struct rb_node			pushable_dl_tasks;
 #endif
 
+/* The rule is that for a process with a real address space (ie tsk->mm is */
+/* non-NULL) the active_mm obviously always has to be the same as the real */
+/* one. */
+
+/* For a anonymous process, tsk->mm == NULL, and tsk->active_mm is the */
+/* "borrowed" mm while the anonymous process is running. When the */
+/* anonymous process gets scheduled away, the borrowed address space is */
+/* returned and cleared. */
+
 	struct mm_struct		*mm;
-	struct mm_struct		*active_mm;
+	struct mm_struct		*active_mm; // refer to: /Documentation/vm/active_mm.rst
 
 	/* Per-thread vma caching: */
 	struct vmacache			vmacache;
@@ -1709,7 +1718,7 @@ extern void ia64_set_curr_task(int cpu, struct task_struct *p);
 
 void yield(void);
 
-union thread_union {
+union thread_union {	// 注意这里是一个 union
 #ifndef CONFIG_ARCH_TASK_STRUCT_ON_STACK
 	struct task_struct task;
 #endif

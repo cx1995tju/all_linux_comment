@@ -2499,7 +2499,7 @@ void __init boot_cpu_init(void)
 	set_cpu_possible(cpu, true);
 
 #ifdef CONFIG_SMP
-	__boot_cpu_id = cpu;
+	__boot_cpu_id = cpu;	// 能够运行这段代码的 CPU 肯定是 BSP，记录下其 CPU id 即可
 #endif
 }
 

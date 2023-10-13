@@ -61,6 +61,8 @@ static inline void __pte_free_tlb(struct mmu_gather *tlb, struct page *pte,
 	___pte_free_tlb(tlb, pte);
 }
 
+// pte 指向一个 page，其中包含了 512 个 entries
+// pmd 就是指向这 512 个 entries
 static inline void pmd_populate_kernel(struct mm_struct *mm,
 				       pmd_t *pmd, pte_t *pte)
 {

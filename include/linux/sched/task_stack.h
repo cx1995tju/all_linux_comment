@@ -9,7 +9,7 @@
 #include <linux/sched.h>
 #include <linux/magic.h>
 
-#ifdef CONFIG_THREAD_INFO_IN_TASK
+#ifdef CONFIG_THREAD_INFO_IN_TASK	// 常态
 
 /*
  * When accessing the stack of a non-current task that might exit, use
@@ -50,7 +50,7 @@ static inline void setup_thread_stack(struct task_struct *p, struct task_struct 
 static inline unsigned long *end_of_stack(struct task_struct *p)
 {
 #ifdef CONFIG_STACK_GROWSUP
-	return (unsigned long *)((unsigned long)task_thread_info(p) + THREAD_SIZE) - 1;
+	return (unsigned long *)((unsigned long)task_thread_info(p) + THREAD_SIZE) - 1;	// 这种情况下，task struct 的thread info和栈放在一起，所以可以计算出其栈底部
 #else
 	return (unsigned long *)(task_thread_info(p) + 1);
 #endif

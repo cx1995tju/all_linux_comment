@@ -71,10 +71,10 @@ struct task_struct init_task
 	.thread_info	= INIT_THREAD_INFO(init_task),
 	.stack_refcount	= REFCOUNT_INIT(1),
 #endif
-	.state		= 0,
-	.stack		= init_stack,
+	.state		= 0, /* runnable */
+	.stack		= init_stack,	// 指向栈底部, refer to: include/asm-generic/vmlinux.lds.h
 	.usage		= REFCOUNT_INIT(2),
-	.flags		= PF_KTHREAD,
+	.flags		= PF_KTHREAD,	/* means kernel thread */
 	.prio		= MAX_PRIO - 20,
 	.static_prio	= MAX_PRIO - 20,
 	.normal_prio	= MAX_PRIO - 20,
@@ -83,7 +83,7 @@ struct task_struct init_task
 	.cpus_mask	= CPU_MASK_ALL,
 	.nr_cpus_allowed= NR_CPUS,
 	.mm		= NULL,
-	.active_mm	= &init_mm,
+	.active_mm	= &init_mm,		// mm struct
 	.restart_block	= {
 		.fn = do_no_restart_syscall,
 	},

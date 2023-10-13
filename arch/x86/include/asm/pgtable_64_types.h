@@ -19,6 +19,7 @@ typedef unsigned long	pgdval_t;
 typedef unsigned long	pgprotval_t;
 
 // 由于页面是4KB对齐的，所以这个结构的低12b是用来做其他用处的。 高位才是指向页面的地址。
+// 4KB / 8B = 512，一个 page 可以保存 512 个 pte 结构
 typedef struct { pteval_t pte; } pte_t;
 
 #ifdef CONFIG_X86_5LEVEL

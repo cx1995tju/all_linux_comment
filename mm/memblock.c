@@ -598,6 +598,8 @@ static void __init_memblock memblock_insert_region(struct memblock_type *type,
  *
  * Return:
  * 0 on success, -errno on failure.
+ *
+ * 会按照从大到小的方式排列, 会 merge 的
  */
 static int __init_memblock memblock_add_range(struct memblock_type *type,
 				phys_addr_t base, phys_addr_t size,
@@ -608,6 +610,7 @@ static int __init_memblock memblock_add_range(struct memblock_type *type,
 	phys_addr_t end = base + memblock_cap_size(base, &size);
 	int idx, nr_new;
 	struct memblock_region *rgn;
+	// 地址范围: [obase, end)
 
 	if (!size)
 		return 0;
@@ -631,31 +634,32 @@ repeat:
 	base = obase;
 	nr_new = 0;
 
+	// 将新的范围加进去
 	for_each_memblock_type(idx, type, rgn) {
 		phys_addr_t rbase = rgn->base;
 		phys_addr_t rend = rbase + rgn->size;
 
-		if (rbase >= end)
+		if (rbase >= end)	// 找到了插入 [base, end) 的位置咯, 完成插入咯
 			break;
-		if (rend <= base)
+		if (rend <= base)     // [rbase, rend) < [base, end)
 			continue;
 		/*
 		 * @rgn overlaps.  If it separates the lower part of new
 		 * area, insert that portion.
 		 */
-		if (rbase > base) {
+		if (rbase > base) {	// 重叠咯 base < rbase < rend , base < rbase < end // 但是 rend 和 end 的关系还不确定。在新一轮迭代中会确定关系的
 #ifdef CONFIG_NEED_MULTIPLE_NODES
 			WARN_ON(nid != memblock_get_region_node(rgn));
 #endif
 			WARN_ON(flags != rgn->flags);
 			nr_new++;
-			if (insert)
+			if (insert) // 插入一个新的 [base, rbase)
 				memblock_insert_region(type, idx++, base,
 						       rbase - base, nid,
 						       flags);
 		}
 		/* area below @rend is dealt with, forget about it */
-		base = min(rend, end);
+		base = min(rend, end);	// 但是 [rend, end) 是否存在空间还要等待进一步处理。如果 rend 比较小的话
 	}
 
 	/* insert the remaining portion */

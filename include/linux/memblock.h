@@ -63,11 +63,11 @@ struct memblock_region {
  * @regions: array of regions
  * @name: the memory type symbolic name
  */
-struct memblock_type {
+struct memblock_type {	// 用来表示一个 memblock_region 的数组
 	unsigned long cnt;
 	unsigned long max;
 	phys_addr_t total_size;
-	struct memblock_region *regions;
+	struct memblock_region *regions;		// memblock_region 的数组, 从大到小排列的
 	char *name;
 };
 
@@ -79,7 +79,7 @@ struct memblock_type {
  * @reserved: reserved memory regions
  */
 struct memblock {
-	bool bottom_up;  /* is bottom up direction? */
+	bool bottom_up;  /* is bottom up direction? */ // true 表示 从下到上的分配, 即正常方式
 	phys_addr_t current_limit;
 	struct memblock_type memory;
 	struct memblock_type reserved;

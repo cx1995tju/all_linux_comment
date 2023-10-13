@@ -31,11 +31,14 @@ static inline u16 old_encode_dev(dev_t dev)
 	return (MAJOR(dev) << 8) | MINOR(dev);
 }
 
+// 以前版本 device major num 是 1Byte, minor num 是 1Byte
+// 就是分配一个 id
 static inline dev_t old_decode_dev(u16 val)
 {
 	return MKDEV((val >> 8) & 255, val & 255);
 }
 
+// 后来版本 device major num 是 12 bits , minor num 是 20 bits
 static inline u32 new_encode_dev(dev_t dev)
 {
 	unsigned major = MAJOR(dev);

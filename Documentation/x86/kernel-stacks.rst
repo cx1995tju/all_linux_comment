@@ -17,7 +17,7 @@ These stacks contain useful data as long as a thread is alive or a
 zombie. While the thread is in user space the kernel stack is empty
 except for the thread_info structure at the bottom.
 
-In addition to the per thread stacks, there are specialized stacks
+In addition to the per thread stacks, there are specialized stacks              // per cpu 的
 associated with each CPU.  These stacks are only used while the kernel
 is in control on that CPU; when a CPU returns to user space the
 specialized stacks contain no useful data.  The main CPU stacks are:

@@ -15,6 +15,7 @@
 #include "boot.h"
 #include "string.h"
 
+// zero page 是说明这个 page 全部被初始化为了 zero
 struct boot_params boot_params __attribute__((aligned(16)));
 
 char *HEAP = _end;

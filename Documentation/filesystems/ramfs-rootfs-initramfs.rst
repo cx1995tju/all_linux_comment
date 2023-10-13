@@ -9,7 +9,7 @@ October 17, 2005
 Rob Landley <rob@landley.net>
 =============================
 
-What is ramfs?
+What is ramfs?  // 后来更新为 tmpfs 了
 --------------
 
 Ramfs is a very simple filesystem that exports Linux's disk caching
@@ -36,10 +36,10 @@ you're mounting the disk cache as a filesystem.  Because of this, ramfs is not
 an optional component removable via menuconfig, since there would be negligible
 space savings.
 
-ramfs and ramdisk:
+ramfs and ramdisk:      ramdisk 是一个在 ram 中的disk，还需要 fs 的driver，比如:ext-4 来加载对应的 disk 里的 文件系统。这个 disk 作为一个 backing store
 ------------------
 
-The older "ram disk" mechanism created a synthetic block device out of
+The older "ram disk" mechanism created a synthetic block device out of          _重要_
 an area of RAM and used it as backing store for a filesystem.  This block
 device was of fixed size, so the filesystem mounted on it was of fixed
 size.  Using a ram disk also required unnecessarily copying memory from the
@@ -220,7 +220,7 @@ use in place of the above config file::
    entries must go before the files that go in those directories.
    The above script gets them in the right order.
 
-External initramfs images:
+External initramfs images:                                              _重要_
 --------------------------
 
 If the kernel has initrd support enabled, an external cpio.gz archive can also

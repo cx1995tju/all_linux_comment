@@ -37,11 +37,11 @@
 
 #define VM_DATA_DEFAULT_FLAGS	VM_DATA_FLAGS_TSK_EXEC
 
-// 看配置咯, 默认是 0x1000000, 16MB 的位置
+// 看配置咯, 默认是 0x1000000, 16MB 的位置, 需要对齐到2MB
 #define __PHYSICAL_START	ALIGN(CONFIG_PHYSICAL_START, \
 				      CONFIG_PHYSICAL_ALIGN)
 
-#define __START_KERNEL		(__START_KERNEL_map + __PHYSICAL_START)	// 这个是 kernel protected 代码真正被加载的虚拟地址咯,  refer to: arch/x86/kernel/vmlinux.lds.S
+#define __START_KERNEL		(__START_KERNEL_map + __PHYSICAL_START)	// 这个是 kernel protected 代码真正被加载的虚拟地址咯,  refer to: arch/x86/kernel/vmlinux.lds.S   // 参考 mm.rst 知道 内核有一部分虚拟地址和物理地址是 direct map，它们之间只是差了一个偏移 __START_KERNEL_map, 所以这里 __START_KERNEL 就是解压后的内核的虚拟地址
 
 #ifdef CONFIG_X86_64
 #include <asm/page_64_types.h>

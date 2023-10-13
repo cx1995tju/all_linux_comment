@@ -20,7 +20,7 @@
 struct resource {
 	resource_size_t start;
 	resource_size_t end;
-	const char *name;
+	const char *name;	// cat /proc/iomem 看到的字符串
 	unsigned long flags;
 	unsigned long desc;
 	struct resource *parent, *sibling, *child;

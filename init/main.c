@@ -138,7 +138,7 @@ extern void time_init(void);
 void (*__initdata late_time_init)(void);
 
 /* Untouched command line saved by arch-specific code. */
-char __initdata boot_command_line[COMMAND_LINE_SIZE];
+char __initdata boot_command_line[COMMAND_LINE_SIZE]; // refer to: arch/x86/kernel/head64.c:copy_bootdata()
 /* Untouched saved command line (eg. for /proc) */
 char *saved_command_line;
 /* Command line for parameter parsing */
@@ -846,14 +846,15 @@ void __init __weak arch_call_rest_init(void)
 }
 
 // kernel generic code 的开始位置
+// 各种子系统的初始化入口，最后 load 第一个用户态进程 init
 asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
 
-	set_task_stack_end_magic(&init_task);
-	smp_setup_processor_id();
-	debug_objects_early_init();
+	set_task_stack_end_magic(&init_task); // init/init_task.c
+	smp_setup_processor_id();	// x86 上这个是空函数
+	debug_objects_early_init();	// 用于 kernel debugging 的
 
 	cgroup_init_early();
 
@@ -865,10 +866,10 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	 * enable them.
 	 */
 	boot_cpu_init();
-	page_address_init();
-	pr_notice("%s", linux_banner);
+	page_address_init();		// x86_64 上是空函数
+	pr_notice("%s", linux_banner);	// 这里执行结束在屏幕还是看不到的，要等后面的 console_init() 完成才可以
 	early_security_init();
-	setup_arch(&command_line);
+	setup_arch(&command_line);	// 重点
 	setup_boot_config(command_line);
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();

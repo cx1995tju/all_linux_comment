@@ -173,6 +173,7 @@ struct jailhouse_setup_data {
 } __attribute__((packed));
 
 /* The so-called "zeropage" */
+// refer to: Documentation/x86/zero-page.rst
 struct boot_params {
 	struct screen_info screen_info;			/* 0x000 */
 	struct apm_bios_info apm_bios_info;		/* 0x040 */

@@ -72,6 +72,9 @@ extern unsigned long __FIXADDR_TOP;
  * TLB entries of such buffers will not be flushed across
  * task switches.
  */
+// to have a constant address at compile time, but to set the physical address only in the boot process
+// __fix_to_virt(x) 中的 x 就是这里的枚举类型
+// 每个枚举类型，对应了一个 4KB 的空间，枚举值越小的其 VA 越大
 enum fixed_addresses {
 #ifdef CONFIG_X86_32
 	FIX_HOLE,
@@ -114,6 +117,7 @@ enum fixed_addresses {
 
 	__end_of_permanent_fixed_addresses,
 
+	// 这个枚举一共是 512 项，前面的是永远固定死的。后面的这部分是自由使用的
 	/*
 	 * 512 temporary boot-time mappings, used by early_ioremap(),
 	 * before ioremap() is functional.
@@ -131,7 +135,7 @@ enum fixed_addresses {
 	 ? __end_of_permanent_fixed_addresses + TOTAL_FIX_BTMAPS -
 	   (__end_of_permanent_fixed_addresses & (TOTAL_FIX_BTMAPS - 1))
 	 : __end_of_permanent_fixed_addresses,
-	FIX_BTMAP_BEGIN = FIX_BTMAP_END + TOTAL_FIX_BTMAPS - 1,
+	FIX_BTMAP_BEGIN = FIX_BTMAP_END + TOTAL_FIX_BTMAPS - 1,		// 因为这个枚举里的 index 越大的 va 空间，地址越小，所以这里是 BEGIN，前面是 END
 #ifdef CONFIG_X86_32
 	FIX_WP_TEST,
 #endif
