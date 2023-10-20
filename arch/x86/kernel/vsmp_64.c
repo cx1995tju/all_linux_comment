@@ -138,6 +138,7 @@ static void vsmp_apic_post_init(void)
 	apic->phys_pkg_id = apicid_phys_pkg_id;
 }
 
+// initializes support of the ScaleMP vSMP
 void __init vsmp_init(void)
 {
 	detect_vsmp_box();

@@ -565,7 +565,7 @@ static int __init smp_scan_config(unsigned long base, unsigned long length)
 	BUILD_BUG_ON(sizeof(*mpf) != 16);
 
 	while (length > 0) {
-		bp = early_memremap(base, length);
+		bp = early_memremap(base, length);	// 老样子，用之前先映射
 		mpf = (struct mpf_intel *)bp;
 		if ((*bp == SMP_MAGIC_IDENT) &&
 		    (mpf->length == 1) &&

@@ -8,6 +8,6 @@ enum vsyscall_num {
 	__NR_vgetcpu,
 };
 
-#define VSYSCALL_ADDR (-10UL << 20)
+#define VSYSCALL_ADDR (-10UL << 20) // refer to: mm.rst
 
 #endif /* _UAPI_ASM_X86_VSYSCALL_H */

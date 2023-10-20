@@ -169,9 +169,10 @@ __ref void *alloc_low_pages(unsigned int num)
 #endif
 #define INIT_PGT_BUF_SIZE	(INIT_PGD_PAGE_COUNT * PAGE_SIZE)
 RESERVE_BRK(early_pgt_alloc, INIT_PGT_BUF_SIZE);
+// pgt: page table
 void  __init early_alloc_pgt_buf(void)
 {
-	unsigned long tables = INIT_PGT_BUF_SIZE;
+	unsigned long tables = INIT_PGT_BUF_SIZE;	// 分配 page table buffer，这部分空间是放在 brk 里
 	phys_addr_t base;
 
 	base = __pa(extend_brk(tables, PAGE_SIZE));
@@ -703,6 +704,7 @@ static void __init init_trampoline(void)
 #endif
 }
 
+// reconstructs direct memory mapping and setups the direct mapping of the physical memory at PAGE_OFFSET
 void __init init_mem_mapping(void)
 {
 	unsigned long end;
@@ -947,6 +949,7 @@ void __init free_initrd_mem(unsigned long start, unsigned long end)
  * Done on 64-bit systems only for the time being, although 32-bit systems
  * might benefit from this as well.
  */
+// As you can understand from its name, this function counts the reserved pages in the DMA area.
 void __init memblock_find_dma_reserve(void)
 {
 #ifdef CONFIG_X86_64
@@ -986,6 +989,7 @@ void __init memblock_find_dma_reserve(void)
 #endif
 }
 
+// 初始化 所有 numa node 各个 zone 的size
 void __init zone_sizes_init(void)
 {
 	unsigned long max_zone_pfns[MAX_NR_ZONES];

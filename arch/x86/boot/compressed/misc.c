@@ -343,11 +343,12 @@ static void parse_elf(void *output)
  *
  * rmode - a pointer to the boot_params structure which is filled by either the bootloader or during early kernel initialization;
  * heap - a pointer to boot_heap which represents the start address of the early boot heap;
- * input_data - a pointer to the start of the compressed kernel or in other words, a pointer to the arch/x86/boot/compressed/vmlinux.bin.xz file;
+ * input_data - a pointer to the start of the compressed kernel or in other words, a pointer to the arch/x86/boot/compressed/vmlinux.bin.xz file;	// 这个文件是不包含没有被压缩的 protected mode 代码的
  * input_len - the size of the compressed kernel;
- * output - the start address of the decompressed kernel;
+ * output - the start address of the decompressed kernel;	// 默认是 16MB
  * output_len - the size of the decompressed kernel;
  */
+// boot/compressed/head_64.S
 asmlinkage __visible void *extract_kernel(void *rmode /* rdi */, memptr heap /* rsi */,
 				  unsigned char *input_data /* rdx */,
 				  unsigned long input_len /* rcx */,
@@ -355,7 +356,7 @@ asmlinkage __visible void *extract_kernel(void *rmode /* rdi */, memptr heap /* 
 				  unsigned long output_len /* r9 */)
 {
 	const unsigned long kernel_total_size = VO__end - VO__text;
-	unsigned long virt_addr = LOAD_PHYSICAL_ADDR;
+	unsigned long virt_addr = LOAD_PHYSICAL_ADDR;	// 这时候还是 identity map，所以相等
 	unsigned long needed_size;
 
 	/* Retain x86 boot parameters pointer passed from startup_32/64. */

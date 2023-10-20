@@ -373,6 +373,7 @@ void __init set_vsyscall_pgtable_user_bits(pgd_t *root)
 	set_pmd(pmd, __pmd(pmd_val(*pmd) | _PAGE_USER));
 }
 
+// This function maps memory space for vsyscalls and depends on CONFIG_X86_VSYSCALL_EMULATION kernel configuration option. 
 void __init map_vsyscall(void)
 {
 	extern char __vsyscall_page;
@@ -383,8 +384,8 @@ void __init map_vsyscall(void)
 	 * execute-only mode, there is no PTE at all backing the vsyscall
 	 * page.
 	 */
-	if (vsyscall_mode == EMULATE) {
-		__set_fixmap(VSYSCALL_PAGE, physaddr_vsyscall,
+	if (vsyscall_mode == EMULATE) {	// 常态
+		__set_fixmap(VSYSCALL_PAGE, physaddr_vsyscall,	// 建立物理地址 physaddr_vsyscall 和 虚拟地址 PAGE_KERNEL_VVAR 之间的练习。虽然 &__vsyscall_page 也是虚拟地址。但是这里是为了建立其 fixmap 范围内的虚拟地址
 			     PAGE_KERNEL_VVAR);
 		set_vsyscall_pgtable_user_bits(swapper_pg_dir);
 	}

@@ -97,9 +97,9 @@ struct pglist_data __refdata contig_page_data;
 EXPORT_SYMBOL(contig_page_data);
 #endif
 
-unsigned long max_low_pfn;
+unsigned long max_low_pfn; // low mem(低 4GB) 中最大的 page frame number。如果内存超过 4G，这个值就是 max_pfn 一样的
 unsigned long min_low_pfn;
-unsigned long max_pfn;
+unsigned long max_pfn; // 实际拥有的最大物理内存
 unsigned long long max_possible_pfn;
 
 static struct memblock_region memblock_memory_init_regions[INIT_MEMBLOCK_REGIONS] __initdata_memblock;
@@ -108,6 +108,8 @@ static struct memblock_region memblock_reserved_init_regions[INIT_MEMBLOCK_RESER
 static struct memblock_region memblock_physmem_init_regions[INIT_PHYSMEM_REGIONS];
 #endif
 
+// 启动阶段的内存管理器
+// 详见前文注释
 struct memblock memblock __initdata_memblock = {
 	.memory.regions		= memblock_memory_init_regions,
 	.memory.cnt		= 1,	/* empty dummy entry */

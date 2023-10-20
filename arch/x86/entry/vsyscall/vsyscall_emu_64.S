@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
+/* SPDX-License-Identifier: GPL-2.0-only */ 
 /*
  * vsyscall_emu_64.S: Vsyscall emulation page
  *
@@ -15,7 +15,7 @@ __PAGE_ALIGNED_DATA
 	.globl __vsyscall_page
 	.balign PAGE_SIZE, 0xcc
 	.type __vsyscall_page, @object
-__vsyscall_page:
+__vsyscall_page:			// 这个page 用来实现 vsyscall 机制，refer to: map_vsyscall()
 
 	mov $__NR_gettimeofday, %rax
 	syscall
@@ -31,6 +31,6 @@ __vsyscall_page:
 	syscall
 	ret
 
-	.balign 4096, 0xcc
+	.balign 4096, 0xcc	// 0xcc 是 int3 指令, 执行该指令会触发 INT 3 中断。注意与 int 3 这个指令有一些区别
 
 	.size __vsyscall_page, 4096

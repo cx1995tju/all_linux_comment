@@ -23,7 +23,7 @@
  * 1) mem_section	- memory sections, mem_map's for valid memory
  */
 #ifdef CONFIG_SPARSEMEM_EXTREME
-struct mem_section **mem_section;
+struct mem_section **mem_section;	// 一个 二维数组咯, refer to: Documentation/vm/memory-model.rst
 #else
 struct mem_section mem_section[NR_SECTION_ROOTS][SECTIONS_PER_ROOT]
 	____cacheline_internodealigned_in_smp;
@@ -80,7 +80,7 @@ static noinline struct mem_section __ref *sparse_index_alloc(int nid)
 
 static int __meminit sparse_index_init(unsigned long section_nr, int nid)
 {
-	unsigned long root = SECTION_NR_TO_ROOT(section_nr);
+	unsigned long root = SECTION_NR_TO_ROOT(section_nr);	// 这个 section 是存放在第几个 page 里, 即 mem_section 的第几行
 	struct mem_section *section;
 
 	/*
@@ -97,7 +97,7 @@ static int __meminit sparse_index_init(unsigned long section_nr, int nid)
 	if (!section)
 		return -ENOMEM;
 
-	mem_section[root] = section;
+	mem_section[root] = section; // 分配mem_section 的 第 root 行
 
 	return 0;
 }
@@ -249,12 +249,14 @@ void __init subsection_map_init(unsigned long pfn, unsigned long nr_pages)
 #endif
 
 /* Record a memory area against a node. */
+// 设置该 numa node 的mem_section 结构。这个 mem_section 的物理地址范围是 start - end
+// start / end 都是 pfn
 static void __init memory_present(int nid, unsigned long start, unsigned long end)
 {
 	unsigned long pfn;
 
-#ifdef CONFIG_SPARSEMEM_EXTREME
-	if (unlikely(!mem_section)) {
+#ifdef CONFIG_SPARSEMEM_EXTREME // 常态
+	if (unlikely(!mem_section)) { // 第一次进来的时候，要初始化这个二维数组
 		unsigned long size, align;
 
 		size = sizeof(struct mem_section*) * NR_SECTION_ROOTS;
@@ -266,19 +268,19 @@ static void __init memory_present(int nid, unsigned long start, unsigned long en
 	}
 #endif
 
-	start &= PAGE_SECTION_MASK;
+	start &= PAGE_SECTION_MASK;	// start 就是 pfn，这里将 start 的低位置 0 确保其是当前 section 的起点
 	mminit_validate_memmodel_limits(&start, &end);
 	for (pfn = start; pfn < end; pfn += PAGES_PER_SECTION) {
-		unsigned long section = pfn_to_section_nr(pfn);
+		unsigned long section = pfn_to_section_nr(pfn);	// pfn 的高位就是 section 的 id
 		struct mem_section *ms;
 
 		sparse_index_init(section, nid);
-		set_section_nid(section, nid);
+		set_section_nid(section, nid);	// 设置 该 section 对应的 numaid
 
 		ms = __nr_to_section(section);
 		if (!ms->section_mem_map) {
 			ms->section_mem_map = sparse_encode_early_nid(nid) |
-							SECTION_IS_ONLINE;
+							SECTION_IS_ONLINE;	// 这个指针的高位 encode 了一些信息
 			section_mark_present(ms);
 		}
 	}
@@ -289,11 +291,14 @@ static void __init memory_present(int nid, unsigned long start, unsigned long en
  * This is a convenience function that is useful to mark all of the systems
  * memory as present during initialization.
  */
+// 遍历所有的 page，来设置 mem_section 结构。即将 page 与 mem_section 关联起来
 static void __init memblocks_present(void)
 {
 	unsigned long start, end;
 	int i, nid;
 
+	// 逐个 numa node 来做处理, 获取对应 numa node 的 id
+	// start / end 都是 pfn
 	for_each_mem_pfn_range(i, MAX_NUMNODES, &start, &end, &nid)
 		memory_present(nid, start, end);
 }
@@ -572,6 +577,7 @@ failed:
  * Allocate the accumulated non-linear sections, allocate a mem_map
  * for each and record the physical to section mapping.
  */
+// refer to: Documentation/vm/memory-model.rst
 void __init sparse_init(void)
 {
 	unsigned long pnum_end, pnum_begin, map_count = 1;

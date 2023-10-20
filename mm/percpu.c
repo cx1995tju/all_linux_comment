@@ -25,7 +25,7 @@
  * registers according to the cpu to unit mappings and offsetting the
  * base address using pcpu_unit_size.
  *
- * There is special consideration for the first chunk which must handle
+ * There is special consideration for the first chunk which must handle			_here_
  * the static percpu variables in the kernel image as allocation services
  * are not online yet.  In short, the first chunk is structured like so:
  *
@@ -2594,6 +2594,10 @@ void __init pcpu_setup_first_chunk(const struct pcpu_alloc_info *ai,
 
 #ifdef CONFIG_SMP
 
+// refer to:
+//	kernel-parameters.txt percpu_alloc	
+//	mm/percpu.c 注释
+// 对于 first chunk 用哪一种 allocator
 const char * const pcpu_fc_names[PCPU_FC_NR] __initconst = {
 	[PCPU_FC_AUTO]	= "auto",
 	[PCPU_FC_EMBED]	= "embed",

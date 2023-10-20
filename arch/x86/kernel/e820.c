@@ -1004,6 +1004,7 @@ void __init e820__reserve_setup_data(void)
 
 	while (pa_data) {
 		data = early_memremap(pa_data, sizeof(*data));
+		// 会将 reserve 的信息，更新到 e820 map 中。dmesg 中可以看到对应打印信息
 		e820__range_update(pa_data, sizeof(*data)+data->len, E820_TYPE_RAM, E820_TYPE_RESERVED_KERN);
 
 		/*

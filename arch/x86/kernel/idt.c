@@ -250,6 +250,7 @@ static const __initconst struct idt_data ist_idts[] = {
  * handler from the early_idt_handler_array to initialize the early page
  * tables.
  */
+//  setups #PF handler (we will look on it in the chapter about interrupts)
 void __init idt_setup_early_pf(void)
 {
 	idt_setup_from_table(idt_table, early_pf_idts,

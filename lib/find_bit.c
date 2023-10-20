@@ -137,6 +137,7 @@ EXPORT_SYMBOL(find_first_zero_bit);
 #endif
 
 #ifndef find_last_bit
+// 找到最高位 1 的序号
 unsigned long find_last_bit(const unsigned long *addr, unsigned long size)
 {
 	if (size) {

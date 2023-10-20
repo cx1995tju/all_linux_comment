@@ -115,9 +115,7 @@ enum fixed_addresses {
 	FIX_APEI_GHES_NMI,
 #endif
 
-	__end_of_permanent_fixed_addresses,
-
-	// 这个枚举一共是 512 项，前面的是永远固定死的。后面的这部分是自由使用的
+	__end_of_permanent_fixed_addresses,	// 其值就是前面的 枚举值的 entries 数目 // 这个枚举一共是 512 项，前面的是永远固定死的。后面的这部分是自由使用的
 	/*
 	 * 512 temporary boot-time mappings, used by early_ioremap(),
 	 * before ioremap() is functional.
@@ -142,7 +140,7 @@ enum fixed_addresses {
 #ifdef CONFIG_INTEL_TXT
 	FIX_TBOOT_BASE,
 #endif
-	__end_of_fixed_addresses
+	__end_of_fixed_addresses	// __end_of_fixed_addresses - FIX_BTMAP_END 就是后面这部分 枚举值的 entries 数目
 };
 
 

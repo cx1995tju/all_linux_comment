@@ -300,6 +300,8 @@ static void __init early_reserve_initrd(void)
 	memblock_reserve(ramdisk_image, ramdisk_end - ramdisk_image);
 }
 
+// refer to: early_reserve_initrd
+// 这里是将 initrd 移动到 direct map 部分的内存
 static void __init reserve_initrd(void)
 {
 	/* Assume only end is not page aligned */
@@ -317,14 +319,14 @@ static void __init reserve_initrd(void)
 			ramdisk_end - 1);
 
 	if (pfn_range_is_mapped(PFN_DOWN(ramdisk_image),
-				PFN_DOWN(ramdisk_end))) {
+				PFN_DOWN(ramdisk_end))) {	// 常态, ramdisk_image 所在部分已经是 direct map 了
 		/* All are mapped, easy case */
-		initrd_start = ramdisk_image + PAGE_OFFSET;
-		initrd_end = initrd_start + ramdisk_size;
+		initrd_start = ramdisk_image + PAGE_OFFSET;	// direct map 虚拟内存
+		initrd_end = initrd_start + ramdisk_size;	// direct map 部分虚拟内存
 		return;
 	}
 
-	relocate_initrd();
+	relocate_initrd(); // 关键
 
 	memblock_free(ramdisk_image, ramdisk_end - ramdisk_image);	// 将前面early reserver 的部分释放掉。
 }
@@ -375,18 +377,18 @@ static void __init memblock_x86_reserve_range_setup_data(void)
 	struct setup_data *data;
 	u64 pa_data;
 
-	pa_data = boot_params.hdr.setup_data;
+	pa_data = boot_params.hdr.setup_data;	// pa_data 开始的这一段空间留出来咯
 	while (pa_data) {
 		data = early_memremap(pa_data, sizeof(*data));	// 初期的时候，都是一边用，一边建立 pagetable; 用于就移除
-		memblock_reserve(pa_data, sizeof(*data) + data->len);
+		memblock_reserve(pa_data, sizeof(*data) + data->len);	// 有了虚拟地址, 底下的 data-> 才能生效
 
 		if (data->type == SETUP_INDIRECT &&
 		    ((struct setup_indirect *)data->data)->type != SETUP_INDIRECT)
 			memblock_reserve(((struct setup_indirect *)data->data)->addr,
 					 ((struct setup_indirect *)data->data)->len);
 
-		pa_data = data->next;
-		early_memunmap(data, sizeof(*data));
+		pa_data = data->next
+		early_memunmap(data, sizeof(*data)); // 用完就拆除
 	}
 }
 
@@ -659,11 +661,13 @@ static void __init trim_snb_memory(void)
  *
  * If this gets used more widely it could use a real dispatch mechanism.
  */
+// trims certain memory regions started from 0x20050000, 0x20110000, etc. these regions must be excluded because Sandy Bridge has problems with these regions,
 static void __init trim_platform_memory_ranges(void)
 {
 	trim_snb_memory();
 }
 
+// e820 table 中的前 4KB 留下来给 bios 使用
 static void __init trim_bios_range(void)
 {
 	/*
@@ -688,10 +692,11 @@ static void __init trim_bios_range(void)
 }
 
 /* called before trim_bios_range() to spare extra sanitize */
+// 在 e820 map 中继续增加一些 保留的内存空间
 static void __init e820_add_kernel_range(void)
 {
-	u64 start = __pa_symbol(_text);
-	u64 size = __pa_symbol(_end) - start;
+	u64 start = __pa_symbol(_text);	// kernel 代码段开始的位置, 注意哟，__pa_symbol 里对 _text 做了修正的。_text 并不是真正加载 kernel 代码的虚拟地址的。因为可能有 kaslr
+	u64 size = __pa_symbol(_end) - start;	// kernel 代码段的大小
 
 	/*
 	 * Complain if .text .data and .bss are not marked as E820_TYPE_RAM and
@@ -732,6 +737,7 @@ static int __init parse_reservelow(char *p)
 
 early_param("reservelow", parse_reservelow);
 
+// reserves the first 4 kilobyte page in memblock,
 static void __init trim_low_memory_range(void)
 {
 	memblock_reserve(0, ALIGN(reserve_low, PAGE_SIZE));
@@ -1090,7 +1096,7 @@ void __init setup_arch(char **cmdline_p)
 	trim_platform_memory_ranges();
 	trim_low_memory_range();
 
-	init_mem_mapping();
+	init_mem_mapping(); // 重要，这里构建了 direct mapping
 
 	idt_setup_early_pf();
 
@@ -1150,7 +1156,7 @@ void __init setup_arch(char **cmdline_p)
 	early_acpi_boot_init();
 
 	initmem_init();
-	dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT);
+	dma_contiguous_reserve(max_pfn_mapped << PAGE_SHIFT);	// 参数是最大的已经插入的物理内存 pfn
 
 	if (boot_cpu_has(X86_FEATURE_GBPAGES))
 		hugetlb_cma_reserve(PUD_SHIFT - PAGE_SHIFT);
@@ -1166,7 +1172,7 @@ void __init setup_arch(char **cmdline_p)
 	if (!early_xdbc_setup_hardware())
 		early_xdbc_register_console();
 
-	x86_init.paging.pagetable_init();
+	x86_init.paging.pagetable_init(); // arch/x86/mm/init_64.c:paging_init()
 
 	kasan_init();
 

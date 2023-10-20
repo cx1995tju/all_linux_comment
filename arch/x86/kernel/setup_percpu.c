@@ -185,7 +185,7 @@ void __init setup_per_cpu_areas(void)
 		pcpu_chosen_fc = PCPU_FC_PAGE;
 #endif
 	rc = -EINVAL;
-	if (pcpu_chosen_fc != PCPU_FC_PAGE) {
+	if (pcpu_chosen_fc != PCPU_FC_PAGE) { // refer to: percpu_alloc_setup()
 		const size_t dyn_size = PERCPU_MODULE_RESERVE +
 			PERCPU_DYNAMIC_RESERVE - PERCPU_FIRST_CHUNK_RESERVE;
 		size_t atom_size;

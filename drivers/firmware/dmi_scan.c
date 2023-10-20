@@ -648,6 +648,9 @@ static int __init dmi_smbios3_present(const u8 *buf)
 	return 1;
 }
 
+// go through SMBIOS structures and extracts information, 两种访问 smbios structures 的方法:
+// - 通过 EFI configuration table 获取 pointer
+// - 全量扫描 物理地址 0xf0000~0xfffff
 static void __init dmi_scan_machine(void)
 {
 	char __iomem *p, *q;
@@ -696,8 +699,8 @@ static void __init dmi_scan_machine(void)
 			dmi_available = 1;
 			return;
 		}
-	} else if (IS_ENABLED(CONFIG_DMI_SCAN_MACHINE_NON_EFI_FALLBACK)) {
-		p = dmi_early_remap(SMBIOS_ENTRY_POINT_SCAN_START, 0x10000);
+	} else if (IS_ENABLED(CONFIG_DMI_SCAN_MACHINE_NON_EFI_FALLBACK)) {	// 全量扫描 0xf0000~0xfffff 空间
+		p = dmi_early_remap(SMBIOS_ENTRY_POINT_SCAN_START, 0x10000); // 扫描之前先映射
 		if (p == NULL)
 			goto error;
 
@@ -733,7 +736,7 @@ static void __init dmi_scan_machine(void)
 			}
 			memcpy(buf, buf + 16, 16);
 		}
-		dmi_early_unmap(p, 0x10000);
+		dmi_early_unmap(p, 0x10000);	// 用完就删除咯
 	}
  error:
 	pr_info("DMI not present or invalid.\n");

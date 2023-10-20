@@ -1161,11 +1161,11 @@ static inline struct zoneref *first_zones_zonelist(struct zonelist *zonelist,
  * PFN_SECTION_SHIFT		pfn to/from section number
  */
 #define PA_SECTION_SHIFT	(SECTION_SIZE_BITS)
-#define PFN_SECTION_SHIFT	(SECTION_SIZE_BITS - PAGE_SHIFT)
+#define PFN_SECTION_SHIFT	(SECTION_SIZE_BITS - PAGE_SHIFT)	// 一个物理地址低 SECTION_SIZE_BITS 位是 section 内部的索引，其中低PAGE_SHIFT 位是 page 内 offset，那么 SECTION_SIZE_BITS - PAGE_SHIFT 就是 section 内 pfn 的索引位数。那么一个 section 内的 page 数目就是 2^(SECTION_SIZE_BITS - PAGE_SHIFT) 个
 
-#define NR_MEM_SECTIONS		(1UL << SECTIONS_SHIFT)
+#define NR_MEM_SECTIONS		(1UL << SECTIONS_SHIFT) // section 的数目
 
-#define PAGES_PER_SECTION       (1UL << PFN_SECTION_SHIFT)
+#define PAGES_PER_SECTION       (1UL << PFN_SECTION_SHIFT) // 一个 section 内的 page 数目
 #define PAGE_SECTION_MASK	(~(PAGES_PER_SECTION-1))
 
 #define SECTION_BLOCKFLAGS_BITS \
@@ -1217,8 +1217,8 @@ struct page;
 struct page_ext;
 struct mem_section {
 	/*
-	 * This is, logically, a pointer to an array of struct
-	 * pages.  However, it is stored with some other magic.
+	 * This is, logically, a pointer to an array of struct		// 逻辑上就是一个指针
+	 * pages.  However, it is stored with some other magic.		// 但是里面 encode 了一些 magic num 咯
 	 * (see sparse.c::sparse_init_one_section())
 	 *
 	 * Additionally during early boot we encode node id of
@@ -1228,7 +1228,7 @@ struct mem_section {
 	 * Making it a UL at least makes someone do a cast
 	 * before using it wrong.
 	 */
-	unsigned long section_mem_map;
+	unsigned long section_mem_map;	// 其高位里 encode 了一些 flags，refer to: memory_present()
 
 	struct mem_section_usage *usage;
 #ifdef CONFIG_PAGE_EXTENSION
@@ -1246,7 +1246,7 @@ struct mem_section {
 };
 
 #ifdef CONFIG_SPARSEMEM_EXTREME
-#define SECTIONS_PER_ROOT       (PAGE_SIZE / sizeof (struct mem_section))
+#define SECTIONS_PER_ROOT       (PAGE_SIZE / sizeof (struct mem_section))	// 每个 page 能够存放多少个 section 结构
 #else
 #define SECTIONS_PER_ROOT	1
 #endif

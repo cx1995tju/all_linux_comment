@@ -260,7 +260,7 @@ static __always_inline unsigned long ffz(unsigned long word)
  */
 static __always_inline unsigned long __fls(unsigned long word)
 {
-	asm("bsr %1,%0"
+	asm("bsr %1,%0"		// 找到 word 中最高的为 1 的bits，然后将该位的序号返回
 	    : "=r" (word)
 	    : "rm" (word));
 	return word;

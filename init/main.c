@@ -613,6 +613,8 @@ static inline void smp_prepare_cpus(unsigned int maxcpus) { }
  * parsing is performed in place, and we should allow a component to
  * store reference of name/value for future reference.
  */
+/* saved_command_line - will contain boot command line; */
+/* static_command_line - will contain command line for parameters parsing. */
 static void __init setup_command_line(char *command_line)
 {
 	size_t len, xlen = 0, ilen = 0;
@@ -874,7 +876,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
-	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
+	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */ // arch/x86/kernel/smp.c:native_smp_prepare_boot_cpu()
 	boot_cpu_hotplug_init();
 
 	build_all_zonelists(NULL);

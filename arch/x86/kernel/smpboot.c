@@ -1390,7 +1390,7 @@ void arch_thaw_secondary_cpus_end(void)
  */
 void __init native_smp_prepare_boot_cpu(void)
 {
-	int me = smp_processor_id();
+	int me = smp_processor_id();	// 在 start_kernel 进入这里的时候，因为是 BSP 在执行，所以这里的 id 就是 0
 	switch_to_new_gdt(me);
 	/* already set me in cpu_online_mask in boot_cpu_init() */
 	cpumask_set_cpu(me, cpu_callout_mask);

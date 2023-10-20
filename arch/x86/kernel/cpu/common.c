@@ -64,6 +64,19 @@
 u32 elf_hwcap2 __read_mostly;
 
 /* all of these masks are initialized in setup_cpu_local_masks() */
+
+/* CX: After bootstrap processor initialized, it updates the cpu_callout_mask 
+ * to indicate which secondary processor can be initialized next. 
+ * All other or secondary processors can do some initialization stuff before 
+ * and check the cpu_callout_mask on the bootstrap processor bit. Only after 
+ * the bootstrap processor filled the cpu_callout_mask with this secondary processor, 
+ * it will continue the rest of its initialization. 
+ *
+ * After that the certain processor finish its initialization process, the processor 
+ * sets bit in the cpu_callin_mask. Once the bootstrap processor finds the bit in the 
+ * cpu_callin_mask for the current secondary processor, this processor repeats the same 
+ * procedure for initialization of one of the remaining secondary processors. 
+ */
 cpumask_var_t cpu_initialized_mask;
 cpumask_var_t cpu_callout_mask;
 cpumask_var_t cpu_callin_mask;
@@ -112,6 +125,7 @@ static const struct cpu_dev default_cpu = {
 
 static const struct cpu_dev *this_cpu = &default_cpu;
 
+// 注意，这里是一个 PER CPU 的变量
 DEFINE_PER_CPU_PAGE_ALIGNED(struct gdt_page, gdt_page) = { .gdt = {
 #ifdef CONFIG_X86_64
 	/*

@@ -23,8 +23,9 @@
 #  define MAX_PHYSMEM_BITS	32
 # endif
 #else /* CONFIG_X86_32 */
-# define SECTION_SIZE_BITS	27 /* matt - 128 is convenient right now */
-# define MAX_PHYSMEM_BITS	(pgtable_l5_enabled() ? 52 : 46)
+# define SECTION_SIZE_BITS	27 /* matt - 128 is convenient right now */	// 定义了一个 section 最多代表多少的物理内存空间，2^27
+# define MAX_PHYSMEM_BITS	(pgtable_l5_enabled() ? 52 : 46)	// 那么一共有 2^(MAX_PHYSMEM_BITS - SECTION_SIZE_BITS) 个 section
+// 换句话说，一个物理地址，低 27位 是 section 内部的索引, 接下来的 52 - 27 位是用来索引 section 的
 #endif
 
 #endif /* CONFIG_SPARSEMEM */

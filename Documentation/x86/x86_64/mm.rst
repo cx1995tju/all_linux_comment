@@ -45,9 +45,9 @@ Complete virtual memory map with 4-level page tables
    ffff880000000000 | -120    TB | ffff887fffffffff |  0.5 TB | LDT remap for PTI
    ffff888000000000 | -119.5  TB | ffffc87fffffffff |   64 TB | direct mapping of _all_ physical memory (page_offset_base) // (所有物理内存都会在映射到这里的)这部分的va 和pa 的转换就是减去一个偏移就可以了 pa = va - page_offset_base
    ffffc88000000000 |  -55.5  TB | ffffc8ffffffffff |  0.5 TB | ... unused hole
-   ffffc90000000000 |  -55    TB | ffffe8ffffffffff |   32 TB | vmalloc/ioremap space (vmalloc_base) // vmalloc 区 / ioremap
+   ffffc90000000000 |  -55    TB | ffffe8ffffffffff |   32 TB | vmalloc/ioremap space (vmalloc_base) // vmalloc 区 / ioremap, 注意，kaslr 情况下，这几个 base 都会被修正的
    ffffe90000000000 |  -23    TB | ffffe9ffffffffff |    1 TB | ... unused hole
-   ffffea0000000000 |  -22    TB | ffffeaffffffffff |    1 TB | virtual memory map (vmemmap_base) //内核使用了稀疏内存模型的话, 内核的虚拟地址可以映射到这里, 物理内存的所有struct page结构都映射到这里
+   ffffea0000000000 |  -22    TB | ffffeaffffffffff |    1 TB | virtual memory map (vmemmap_base) //内核使用了稀疏内存模型(SPARSEMEM)的话, 内核的虚拟地址可以映射到这里, 物理内存的所有 `struct page` 结构都映射到这里, refer to: Documentation/vm/memory-model.rst
    ffffeb0000000000 |  -21    TB | ffffebffffffffff |    1 TB | ... unused hole
    ffffec0000000000 |  -20    TB | fffffbffffffffff |   16 TB | KASAN shadow memory
   __________________|____________|__________________|_________|____________________________________________________________
@@ -63,7 +63,7 @@ Complete virtual memory map with 4-level page tables
    ffffff8000000000 | -512    GB | ffffffeeffffffff |  444 GB | ... unused hole
    ffffffef00000000 |  -68    GB | fffffffeffffffff |   64 GB | EFI region mapping space
    ffffffff00000000 |   -4    GB | ffffffff7fffffff |    2 GB | ... unused hole
-   ffffffff80000000 |   -2    GB | ffffffff9fffffff |  512 MB | kernel text mapping, mapped to physical address 0       // kernel 的代码段，也是按照顺序映射到物理地址0开始的部分的。即这部分的地址减去 0xffffffff80000000 就可以得到物理地址。前提是进入保护模式咯。所以在初始化的时候，构建的 page table 都是按照这个来的
+   ffffffff80000000 |   -2    GB | ffffffff9fffffff |  512 MB | kernel text mapping, mapped to physical address 0       // kernel 的代码段，也是按照顺序映射到物理地址0开始的部分的。即这部分的地址减去 0xffffffff80000000 就可以得到物理地址。前提是进入保护模式咯。所以在初始化的时候，构建的 page table 都是按照这个来的。注意 kernel text 被加载的位置是 这个 base + __PHYSICAL_START, 一般是 0 + 16MB 的位置。其中 base 受 kaslr 的影响。__PHYSICAL_START 受编译期配置的影响
    ffffffff80000000 |-2048    MB |                  |         |
    ffffffffa0000000 |-1536    MB | fffffffffeffffff | 1520 MB | module mapping space
    ffffffffff000000 |  -16    MB |                  |         |

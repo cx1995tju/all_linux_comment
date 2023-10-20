@@ -83,6 +83,7 @@ static inline size_t real_mode_size_needed(void)
 	return ALIGN(real_mode_blob_end - real_mode_blob, PAGE_SIZE);
 }
 
+// setups trampoline to the real mode code.
 static inline void set_real_mode_mem(phys_addr_t mem)
 {
 	real_mode_header = (struct real_mode_header *) __va(mem);

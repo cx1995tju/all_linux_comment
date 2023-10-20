@@ -125,6 +125,8 @@ void __init io_delay_init(void)
 		dmi_check_system(io_delay_0xed_port_dmi_table);
 }
 
+// refer to: kernel-parameters.txt io_delay 参数
+// 有好多种 io_delay 的方法
 static int __init io_delay_param(char *s)
 {
 	if (!s)

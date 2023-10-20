@@ -481,15 +481,15 @@ SYM_CODE_START(startup_64)		// long mode 的起始地址, 注意这里可能是�
 	notq	%rax
 	andq	%rax, %rbp			
 	cmpq	$LOAD_PHYSICAL_ADDR, %rbp	// LOAD_PHYSICAL_ADDR 是用来加载解压后的内核的位置(物理地址)
-	jae	1f
+	jae	1f	// %rbp 至少要在 LOAD_PHYSICAL_ADDR 之上
 #endif
-	movq	$LOAD_PHYSICAL_ADDR, %rbp	// 至此 %rbp 记录解压后的内核保存的物理地址, 而且是对齐的
+	movq	$LOAD_PHYSICAL_ADDR, %rbp	// 至此 %rbp 记录解压后的内核保存的物理地址, 而且是对齐的。默认是 16MB 位置
 1:
 
 	/* Target address to relocate to for decompression */
 	movl	BP_init_size(%rsi), %ebx
-	subl	$ rva(_end), %ebx
-	addq	%rbp, %rbx		// rbx 保存的是 target address 了
+	subl	$ rva(_end), %ebx	// init_size 减去整个 protected 代码段的大小
+	addq	%rbp, %rbx
 
 	/* Set up the stack */
 	leaq	rva(boot_stack_end)(%rbx), %rsp // boot 阶段临时使用的一个栈空间
@@ -600,13 +600,13 @@ trampoline_return:
 	movl	$(_bss - startup_32), %ecx	// _bss - startup_32 是 protected mode 的代码(包含压缩部分以及当前正在执行的未压缩的部分), refer to: arch/x86/boot/compressed/vmlinux.lds.S
 	shrl	$3, %ecx
 	std
-	rep	movsq	// rsi 指向的内容，mov 到 rdi 指向的位置
+	rep	movsq	// rsi 指向的内容，mov 到 rdi 指向的位置。注意哟，这里的 copy 是的protected mode code。不包含未压缩的那部分，也就是本文件
 	cld
 	popq	%rsi
 
 	/*
 	 * The GDT may get overwritten either during the copy we just did or
-	 * during extract_kernel below. To avoid any issues, repoint the GDTR  // 注意，前面我们将未压缩的那部分 protected mode code 也copy 过来了，即: 当前文件, 所以 gdt 部分也copy 过来了
+	 * during extract_kernel below. To avoid any issues, repoint the GDTR
 	 * to the new copy of the GDT.
 	 */
 	leaq	rva(gdt64)(%rbx), %rax
@@ -675,7 +675,7 @@ SYM_FUNC_START_LOCAL_NOALIGN(.Lrelocated)
 	pushq	%rsi			/* Save the real mode argument */
 	movq	%rsi, %rdi		/* real mode address */
 	leaq	boot_heap(%rip), %rsi	/* malloc area for uncompression */
-	leaq	input_data(%rip), %rdx  /* input_data */	// 编译 linux 后会生成一个 piggy.S 的文件，里面有这个符号。是 arch/x86/boot/compressed/mkpiggy.c: 生成的
+	leaq	input_data(%rip), %rdx  /* input_data */	// 编译 linux 后会生成一个 piggy.S 的文件，里面有这个符号。是 arch/x86/boot/compressed/mkpiggy.c: 生成的。这里的 input_data 是包含 这里的未压缩部分的内核代码的。即这里的head_64.S 的
 	movl	input_len(%rip), %ecx	/* input_len */
 	movq	%rbp, %r8		/* output target address vmlinux 解压后的 LOAD 部分, 会放置到 output 位置, 即解压后的第一条指令会在这个位置。objudmp -Sl vmlinux 可以知道第一条指令就是 arch/x86/kernel/head_64.S:startup_64 */
 	movl	output_len(%rip), %r9d	/* decompressed length, end of relocs  */

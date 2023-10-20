@@ -417,6 +417,7 @@ void __init init_extra_mapping_uc(unsigned long phys, unsigned long size)
  * is rounded up to the 2MB boundary. This catches the invalid pmds as
  * well, as they are located before _text:
  */
+// refer to: mm.rst
 void __init cleanup_highmap(void)
 {
 	unsigned long vaddr = __START_KERNEL_map;
@@ -436,7 +437,7 @@ void __init cleanup_highmap(void)
 		if (pmd_none(*pmd))
 			continue;
 		if (vaddr < (unsigned long) _text || vaddr > end)
-			set_pmd(pmd, __pmd(0));
+			set_pmd(pmd, __pmd(0)); // 不在 _text 和 _end 之间的page table 都拆除掉
 	}
 }
 
@@ -812,6 +813,7 @@ void __init initmem_init(void)
 
 void __init paging_init(void)
 {
+	// The Sparsemem is a special foundation in the Linux kernel memory manager which used to split memory area into different memory banks in the NUMA systems. 
 	sparse_init();
 
 	/*

@@ -81,7 +81,7 @@ void __init early_ioremap_setup(void)
 			break;
 
 	// 将 enum fixed_addresses 中的虚拟地址记录下来 一共 512 entries，正好是一个 pmd
-	for (i = 0; i < FIX_BTMAPS_SLOTS; i++)
+	for (i = 0; i < FIX_BTMAPS_SLOTS; i++) // 2MB / 8 = 256KB, 一个 slot 表示 256KB 的数据
 		slot_virt[i] = __fix_to_virt(FIX_BTMAP_BEGIN - NR_FIX_BTMAPS*i);
 }
 
@@ -252,7 +252,7 @@ early_memremap_prot(resource_size_t phys_addr, unsigned long size,
 
 #define MAX_MAP_CHUNK	(NR_FIX_BTMAPS << PAGE_SHIFT)
 
-void __init copy_from_early_mem(void *dest, phys_addr_t src, unsigned long size)
+void __init copy_from_early_mem(void *dest /* 虚拟内存 */, phys_addr_t src /* 物理内存 */, unsigned long size)
 {
 	unsigned long slop, clen;
 	char *p;

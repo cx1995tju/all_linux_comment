@@ -19,6 +19,7 @@
 #endif
 
 /* Intel MP Floating Pointer Structure */
+// stores the physical address (look at second parameter) of the multiprocessor configuration table
 struct mpf_intel {
 	char signature[4];		/* "_MP_"			*/
 	unsigned int physptr;		/* Configuration table address	*/

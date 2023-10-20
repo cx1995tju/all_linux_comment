@@ -169,11 +169,11 @@ void __init dma_contiguous_reserve(phys_addr_t limit)
 	phys_addr_t selected_size = 0;
 	phys_addr_t selected_base = 0;
 	phys_addr_t selected_limit = limit;
-	bool fixed = false;
+	bool fixed = false; // If fixed is 1 we just reserve area with the memblock_reserve, if it is 0 we allocate space with the kmemleak_alloc
 
 	pr_debug("%s(limit %08lx)\n", __func__, (unsigned long)limit);
 
-	if (size_cmdline != -1) {
+	if (size_cmdline != -1) { // cma kernel cmdline: refer to early_param("cma", early_cma)
 		selected_size = size_cmdline;
 		selected_base = base_cmdline;
 		selected_limit = min_not_zero(limit_cmdline, limit);

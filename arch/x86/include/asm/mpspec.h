@@ -51,7 +51,7 @@ extern int smp_found_config;
 
 static inline void get_smp_config(void)
 {
-	x86_init.mpparse.get_smp_config(0);
+	x86_init.mpparse.get_smp_config(0);	// arch/x86/kernel/mpparse.c
 }
 
 static inline void early_get_smp_config(void)
@@ -61,7 +61,7 @@ static inline void early_get_smp_config(void)
 
 static inline void find_smp_config(void)
 {
-	x86_init.mpparse.find_smp_config();
+	x86_init.mpparse.find_smp_config();	// arch/x86/kernel/mpparse.c:default_find_smp_config()
 }
 
 #ifdef CONFIG_X86_MPPARSE

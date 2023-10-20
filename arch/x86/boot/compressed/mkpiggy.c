@@ -1,4 +1,4 @@
-// 生成的piggy.S 文件内容如下
+// 用来生成 piggy.S 的, 生成的piggy.S 文件内容如下
 /*
 .section ".rodata..compressed","a",@progbits
 .globl z_input_len
@@ -7,7 +7,7 @@ z_input_len = 5499520
 z_output_len = 30120512
 .globl input_data, input_data_end
 input_data:
-.incbin "arch/x86/boot/compressed/vmlinux.bin.xz"		// 这里是关键，直接将整个被压缩的 kernel include 到这个 .S 文件了
+.incbin "arch/x86/boot/compressed/vmlinux.bin.xz"		// 这里是关键，直接将整个被压缩的 kernel include 到这个 .S 文件了。 _注意不包含没有压缩的那部分 protected mode 代码_
 input_data_end:
 .section ".rodata","a",@progbits
 .globl input_len

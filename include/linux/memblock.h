@@ -85,7 +85,7 @@ struct memblock {
 	struct memblock_type reserved;
 };
 
-extern struct memblock memblock;
+extern struct memblock memblock;	// 启动阶段的内存管理器
 
 #ifndef CONFIG_ARCH_KEEP_MEMBLOCK
 #define __init_memblock __meminit
@@ -404,6 +404,7 @@ void *memblock_alloc_try_nid(phys_addr_t size, phys_addr_t align,
 			     phys_addr_t min_addr, phys_addr_t max_addr,
 			     int nid);
 
+// boot 阶段的内存分配器
 static inline void * __init memblock_alloc(phys_addr_t size,  phys_addr_t align)
 {
 	return memblock_alloc_try_nid(size, align, MEMBLOCK_LOW_LIMIT,

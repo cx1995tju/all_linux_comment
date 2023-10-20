@@ -6,7 +6,7 @@
 
 #ifdef __CHECKER__
 /* address spaces */
-# define __kernel	__attribute__((address_space(0)))
+# define __kernel	__attribute__((address_space(0)))	// 注意，这里不是 GCC 的 attribute，而是 Sparse 的 attribute
 # define __user		__attribute__((noderef, address_space(__user)))
 # define __iomem	__attribute__((noderef, address_space(__iomem)))
 # define __percpu	__attribute__((noderef, address_space(__percpu)))

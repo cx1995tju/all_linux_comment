@@ -58,7 +58,7 @@ EXPORT_SYMBOL(ptrs_per_p4d);
 #endif
 
 #ifdef CONFIG_DYNAMIC_MEMORY_LAYOUT
-unsigned long page_offset_base __ro_after_init = __PAGE_OFFSET_BASE_L4;// 这个是最终的page_offset，会根据各种配置基于 __PAGE_OFFSET_BASE_L[4|5]  做修正的。譬如：KASLR 就会影响的
+unsigned long page_offset_base __ro_after_init = __PAGE_OFFSET_BASE_L4;// 这个是最终的page_offset，会根据各种配置基于 __PAGE_OFFSET_BASE_L[4|5]  做修正的。其不是物理地址，仅仅是一个 page_offset_base。如果开启咯 kaslr 的话，这个值也不是真正的 kernel 虚拟地址的偏移
 EXPORT_SYMBOL(page_offset_base);
 unsigned long vmalloc_base __ro_after_init = __VMALLOC_BASE_L4;
 EXPORT_SYMBOL(vmalloc_base);

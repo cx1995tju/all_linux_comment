@@ -46,12 +46,13 @@
  * linkage errors occur due the compiler generating the wrong code to access
  * that section.
  */
+// 这个变量会被放在 .data..percpu section
 #define __PCPU_ATTRS(sec)						\
 	__percpu __attribute__((section(PER_CPU_BASE_SECTION sec)))	\
 	PER_CPU_ATTRIBUTES
 
 #define __PCPU_DUMMY_ATTRS						\
-	__section(".discard") __attribute__((unused))
+	__section(".discard") __attribute__((unused))	// 放在 .discard section 查看链接脚本，可以知道在链接阶段这个 section 会被 discard 
 
 /*
  * s390 and alpha modules require percpu variables to be defined as
