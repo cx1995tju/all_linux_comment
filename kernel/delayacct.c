@@ -25,6 +25,7 @@ static int __init delayacct_setup_disable(char *str)
 }
 __setup("nodelayacct", delayacct_setup_disable);
 
+// per-task delay accounting,
 void delayacct_init(void)
 {
 	delayacct_cache = KMEM_CACHE(task_delay_info, SLAB_PANIC|SLAB_ACCOUNT);

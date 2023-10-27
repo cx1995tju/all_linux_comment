@@ -864,6 +864,7 @@ static int arp_process(struct net *net, struct sock *sk, struct sk_buff *skb)
 
 	/* Update our ARP tables */
 
+	// 在 发送 arp 请求的时候会创建对应的 neigh 项，此时应该就可以 lookup 到
 	n = __neigh_lookup(&arp_tbl, &sip, dev, 0);
 
 	addr_type = -1;

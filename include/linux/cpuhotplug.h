@@ -243,6 +243,7 @@ static inline int cpuhp_setup_state_cpuslocked(enum cpuhp_state state,
  * Same as @cpuhp_setup_state except that no calls are executed are invoked
  * during installation of this callback. NOP if SMP=n or HOTPLUG_CPU=n.
  */
+// 安装一些回调函数处理 CPU hotplug 的事件
 static inline int cpuhp_setup_state_nocalls(enum cpuhp_state state,
 					    const char *name,
 					    int (*startup)(unsigned int cpu),

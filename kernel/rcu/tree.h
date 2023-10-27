@@ -37,6 +37,8 @@ struct rcu_exp_work {
 /*
  * Definition for node within the RCU grace-period-detection hierarchy.
  */
+
+// 记录着该 node 上当前 grace_period 的信息, grace period 是否结束
 struct rcu_node {
 	raw_spinlock_t __private lock;	/* Root rcu_node's lock protects */
 					/*  some rcu_state fields as well as */
@@ -259,7 +261,7 @@ struct rcu_data {
 #define RCU_NOCB_WAKE		1
 #define RCU_NOCB_WAKE_FORCE	2
 
-#define RCU_JIFFIES_TILL_FORCE_QS (1 + (HZ > 250) + (HZ > 500))
+#define RCU_JIFFIES_TILL_FORCE_QS (1 + (HZ > 250) + (HZ > 500)) // 1 or 2 or 3
 					/* For jiffies_till_first_fqs and */
 					/*  and jiffies_till_next_fqs. */
 
@@ -291,10 +293,13 @@ do {									\
  * by ->level[2]).  The number of levels is determined by the number of
  * CPUs and by CONFIG_RCU_FANOUT.  Small systems will have a "hierarchy"
  * consisting of a single rcu_node.
+ *
+ * 具体的 m 以及 level 数目，见 NUM_RCU_NODES 的定义
+ *
  */
 struct rcu_state {
-	struct rcu_node node[NUM_RCU_NODES];	/* Hierarchy. */
-	struct rcu_node *level[RCU_NUM_LVLS + 1];
+	struct rcu_node node[NUM_RCU_NODES];	/* Hierarchy. */ // 每个 node 对应 RCU_FANOUT_LEAF 个 CPU, 默认值是 16
+	struct rcu_node *level[RCU_NUM_LVLS + 1]; // 见前文注释，用来索引不同 level 的第一个 node
 						/* Hierarchy levels (+1 to */
 						/*  shut bogus gcc warning) */
 	int ncpus;				/* # CPUs seen so far. */

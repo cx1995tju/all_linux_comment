@@ -43,6 +43,13 @@ extern void proc_sched_set_task(struct task_struct *p);
 #endif
 
 /* Attach to any functions which should be ignored in wchan output. */
+/* The purpose of the prefix is to put the compiled code of the function
+ * into a special section of the object file, namely, .sched.text . This
+ * information enables the kernel to ignore all scheduling-related calls
+ * when a stack dump or similar information needs to be shown. Since the
+ * scheduler function calls are not part of the regular code flow, they
+ * are of no interest in such cases.
+ * */
 #define __sched		__section(".sched.text")
 
 /* Linker adds these: start and end of __sched functions */

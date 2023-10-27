@@ -74,6 +74,7 @@ int proc_setup_self(struct super_block *s)
 	return ret;
 }
 
+// 给 /proc/self 分配 inode
 void __init proc_self_init(void)
 {
 	proc_alloc_inum(&self_inum);

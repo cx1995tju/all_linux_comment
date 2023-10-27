@@ -303,8 +303,9 @@ void __init proc_root_init(void)
 #endif
 	proc_tty_init();
 	proc_mkdir("bus", NULL);
-	proc_sys_init();
+	proc_sys_init(); // /proc/sys 初始化 sysctl 机制
 
+	// 注册 proc 的 fs
 	register_filesystem(&proc_fs_type);
 }
 

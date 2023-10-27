@@ -4631,14 +4631,15 @@ EXPORT_SYMBOL_GPL(handle_mm_fault);
  */
 int __p4d_alloc(struct mm_struct *mm, pgd_t *pgd, unsigned long address)
 {
-	p4d_t *new = p4d_alloc_one(mm, address);
+	p4d_t *new = p4d_alloc_one(mm, address); // 就是分配了一个 page 噻
 	if (!new)
 		return -ENOMEM;
 
 	smp_wmb(); /* See comment in __pte_alloc */
 
 	spin_lock(&mm->page_table_lock);
-	if (pgd_present(*pgd))		/* Another has populated it */
+	// 为啥不一开始就检查？？？
+	if (pgd_present(*pgd))		/* Another has populated it */ // pgd 指向的那个 p4d 在内存里
 		p4d_free(mm, new);
 	else
 		pgd_populate(mm, pgd, new);

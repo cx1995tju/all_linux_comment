@@ -5,7 +5,7 @@
 #include "sched.h"
 
 #define WAIT_TABLE_BITS 8
-#define WAIT_TABLE_SIZE (1 << WAIT_TABLE_BITS)
+#define WAIT_TABLE_SIZE (1 << WAIT_TABLE_BITS)	// 2^8 = 256 个 等待队列
 
 static wait_queue_head_t bit_wait_table[WAIT_TABLE_SIZE] __cacheline_aligned;
 
@@ -242,6 +242,7 @@ __sched int bit_wait_io_timeout(struct wait_bit_key *word, int mode)
 }
 EXPORT_SYMBOL_GPL(bit_wait_io_timeout);
 
+// 初始化一批 等待队列
 void __init wait_bit_init(void)
 {
 	int i;

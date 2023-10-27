@@ -76,6 +76,9 @@ u64 get_jiffies_64(void)
 EXPORT_SYMBOL(get_jiffies_64);
 #endif
 
+
+// refer to: arch/x86/kernel/vmlinux.lds.S . jiffies 就是 jiffies_64
+// kernel/time/timer.c
 EXPORT_SYMBOL(jiffies);
 
 static int __init init_jiffies_clocksource(void)

@@ -349,7 +349,7 @@ corresponding physical address.
 
 init_top_pgt
 ------------
-
+    // 内核用来做虚拟地址映射的。不是 direct map 那部分
 Used to walk through the whole page table and convert virtual addresses
 to physical addresses. The init_top_pgt is somewhat similar to
 swapper_pg_dir, but it is only used in x86_64.

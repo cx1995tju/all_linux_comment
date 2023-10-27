@@ -860,8 +860,10 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->sum_exec_runtime += delta_exec;
 	schedstat_add(cfs_rq->exec_clock, delta_exec);
 
+	// 实际之心时间，结合 weight 来得到 vruntime 的增长
+	// weight 受 nice 值，当前 runqueue 的task 数目等影响
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
-	update_min_vruntime(cfs_rq);
+	update_min_vruntime(cfs_rq); // 判断 runqueue 的 min vruntime 是不是要更新
 
 	if (entity_is_task(curr)) {
 		struct task_struct *curtask = task_of(curr);
@@ -11263,7 +11265,7 @@ void show_numa_stats(struct task_struct *p, struct seq_file *m)
 __init void init_sched_fair_class(void)
 {
 #ifdef CONFIG_SMP
-	open_softirq(SCHED_SOFTIRQ, run_rebalance_domains);
+	open_softirq(SCHED_SOFTIRQ, run_rebalance_domains); // 多一个 SOFTIRQ
 
 #ifdef CONFIG_NO_HZ_COMMON
 	nohz.next_balance = jiffies;

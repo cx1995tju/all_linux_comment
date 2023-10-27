@@ -389,7 +389,7 @@ enum zone_type {
 	 * performed on pages in ZONE_NORMAL if the DMA devices support
 	 * transfers to all addressable memory.
 	 */
-	ZONE_NORMAL,
+	ZONE_NORMAL,	// > 4GB 的部分
 #ifdef CONFIG_HIGHMEM
 	/*
 	 * A memory area that is only addressable by the kernel through
@@ -399,7 +399,7 @@ enum zone_type {
 	 * table entries on i386) for each page that the kernel needs to
 	 * access.
 	 */
-	ZONE_HIGHMEM,
+	ZONE_HIGHMEM, // x86_64 不需要了
 #endif
 	/*
 	 * ZONE_MOVABLE is similar to ZONE_NORMAL, except that it contains

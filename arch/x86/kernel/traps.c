@@ -1139,6 +1139,7 @@ DEFINE_IDTENTRY_SW(iret_error)
 }
 #endif
 
+// trap 初始化
 void __init trap_init(void)
 {
 	/* Init cpu_entry_area before IST entries are set up */

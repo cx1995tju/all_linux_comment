@@ -2254,7 +2254,7 @@ static inline int deliver_skb(struct sk_buff *skb,
 	if (unlikely(skb_orphan_frags_rx(skb, GFP_ATOMIC)))
 		return -ENOMEM;
 	refcount_inc(&skb->users);
-	return pt_prev->func(skb, skb->dev, pt_prev, orig_dev);
+	return pt_prev->func(skb, skb->dev, pt_prev, orig_dev);	// %arp_rcv
 }
 
 static inline void deliver_ptype_list_skb(struct sk_buff *skb,
@@ -6058,7 +6058,7 @@ static gro_result_t napi_skb_finish(struct napi_struct *napi,
 				    gro_result_t ret)
 {
 	switch (ret) {
-	case GRO_NORMAL:
+	case GRO_NORMAL:	// 常态
 		gro_normal_one(napi, skb);
 		break;
 

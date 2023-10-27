@@ -118,7 +118,7 @@ Complete virtual memory map with 5-level page tables
                     |            |                  |         | vaddr_end for KASLR
    fffffe0000000000 |   -2    TB | fffffe7fffffffff |  0.5 TB | cpu_entry_area mapping
    fffffe8000000000 |   -1.5  TB | fffffeffffffffff |  0.5 TB | ... unused hole
-   ffffff0000000000 |   -1    TB | ffffff7fffffffff |  0.5 TB | %esp fixup stacks
+   ffffff0000000000 |   -1    TB | ffffff7fffffffff |  0.5 TB | %esp fixup stacks // refer to: init_espfix_bsp(), prevents leaking of 31:16 bits of the esp register during returning to 16-bit stack.
    ffffff8000000000 | -512    GB | ffffffeeffffffff |  444 GB | ... unused hole
    ffffffef00000000 |  -68    GB | fffffffeffffffff |   64 GB | EFI region mapping space
    ffffffff00000000 |   -4    GB | ffffffff7fffffff |    2 GB | ... unused hole

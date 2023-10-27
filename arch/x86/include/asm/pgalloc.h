@@ -157,7 +157,8 @@ static inline p4d_t *p4d_alloc_one(struct mm_struct *mm, unsigned long addr)
 
 	if (mm == &init_mm)
 		gfp &= ~__GFP_ACCOUNT;
-	return (p4d_t *)get_zeroed_page(gfp);
+	// 1 个 page 4KB，一个 p4d_t 8B。所以 一个 page 可以保存 512 个 p4d_t
+	return (p4d_t *)get_zeroed_page(gfp); // 拿一个 全0 的 page，用来保存 p4d_t
 }
 
 static inline void p4d_free(struct mm_struct *mm, p4d_t *p4d)

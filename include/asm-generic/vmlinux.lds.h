@@ -125,6 +125,7 @@
  * used to determine the order of the priority of each sched class in
  * relation to each other.
  */
+// 在这里强制安排了 几个 sched_class 的顺序, 越靠后，优先级越高
 #define SCHED_DATA				\
 	STRUCT_ALIGN();				\
 	__begin_sched_classes = .;		\

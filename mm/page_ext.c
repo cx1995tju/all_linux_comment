@@ -163,6 +163,8 @@ static int __init alloc_node_page_ext(int nid)
 	return 0;
 }
 
+// 如果是 CONFIG_SPARSE_MEM 这里是空函数
+// init extended data per page handling
 void __init page_ext_init_flatmem(void)
 {
 

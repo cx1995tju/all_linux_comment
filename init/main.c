@@ -686,7 +686,9 @@ noinline void __ref rest_init(void)
 	 * the init task will end up wanting to create kthreads, which, if
 	 * we schedule it before we create kthreadd, will OOPS.
 	 */
-	pid = kernel_thread(kernel_init, NULL, CLONE_FS);
+
+	// kernel_init()->kernel_init_freeable() 这个 thread 里面 执行到 smp_init() 里去 boot secondary cpu
+	pid = kernel_thread(kernel_init, NULL, CLONE_FS); // 这里的 kernel_init 是 pid 1, 最后就是从这里进入用户态的 /sbin/init 的
 	/*
 	 * Pin init on the boot CPU. Task migration is not properly working
 	 * until sched_init_smp() has been run. It will set the allowed
@@ -698,7 +700,7 @@ noinline void __ref rest_init(void)
 	rcu_read_unlock();
 
 	numa_default_policy();
-	pid = kernel_thread(kthreadd, NULL, CLONE_FS | CLONE_FILES);
+	pid = kernel_thread(kthreadd, NULL, CLONE_FS | CLONE_FILES); // 这里 kthreadd 是 pid 2, 管理 kthread 的线程
 	rcu_read_lock();
 	kthreadd_task = find_task_by_pid_ns(pid, &init_pid_ns);
 	rcu_read_unlock();
@@ -720,7 +722,9 @@ noinline void __ref rest_init(void)
 	 */
 	schedule_preempt_disabled();
 	/* Call into cpu_idle with preempt disabled */
-	cpu_startup_entry(CPUHP_ONLINE);
+	// 当前 ctx 会变成 idle_task ??? 但是当前这个 ctx 都没有对应的 task_struct 的，其应该永远调度不回来的
+	// 这个进程是 pid 0, 其 task 就是 0 号，也就是 init_task
+	cpu_startup_entry(CPUHP_ONLINE); // 调度回来的时候，进入这里就进入了 idle 咯
 }
 
 /* Check for early params. */
@@ -769,7 +773,7 @@ void __init __weak smp_setup_processor_id(void)
 {
 }
 
-# if THREAD_SIZE >= PAGE_SIZE
+# if THREAD_SIZE >= PAGE_SIZE // 常态
 void __init __weak thread_stack_cache_init(void)
 {
 }
@@ -830,9 +834,9 @@ static void __init mm_init(void)
 	init_debug_pagealloc();
 	report_meminit();
 	mem_init();
-	kmem_cache_init();
-	kmemleak_init();
-	pgtable_init();
+	kmem_cache_init();	// kernel cache 机制
+	kmemleak_init();	// kernel memory leak detector
+	pgtable_init(); // initializes the page->ptl kernel cache
 	debug_objects_mem_init();
 	vmalloc_init();
 	ioremap_huge_init();
@@ -849,7 +853,7 @@ void __init __weak arch_call_rest_init(void)
 
 // kernel generic code 的开始位置
 // 各种子系统的初始化入口，最后 load 第一个用户态进程 init
-asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
+asmlinkage __visible void __init __no_sanitize_address start_kernel(void)	// > 4GB 的部分
 {
 	char *command_line;
 	char *after_dashes;
@@ -884,7 +888,10 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 
 	pr_notice("Kernel command line: %s\n", saved_command_line);
 	/* parameters may set static keys */
+	// refer to: https://lwn.net/Articles/412072/
 	jump_label_init();
+	 // we have call it at setup_arch，why we call it again?
+	 //Answer is simple: we call this function in the architecture-specific code (x86_64 in our case), but not all architecture calls this function. And we need to call the second function parse_args to parse and handle non-early command line arguments.
 	parse_early_param();
 	after_dashes = parse_args("Booting kernel",
 				  static_command_line, __start___param,
@@ -925,7 +932,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	preempt_disable();
 	if (WARN(!irqs_disabled(),
 		 "Interrupts were enabled *very* early, fixing it\n"))
-		local_irq_disable();
+		local_irq_disable();	// 中断可抢占都被 disable 了，放心进行下去咯
 	radix_tree_init();
 
 	/*
@@ -1054,7 +1061,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	delayacct_init();
 
 	poking_init();
-	check_bugs();
+	check_bugs(); // fix some architecture-dependent bugs
 
 	acpi_subsystem_init();
 	arch_post_acpi_subsys_init();
@@ -1062,7 +1069,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	kcsan_init();
 
 	/* Do the rest non-__init'ed, we're now alive */
-	arch_call_rest_init();
+	arch_call_rest_init(); // _重要_
 
 	prevent_tail_call_optimization();
 }
@@ -1318,7 +1325,7 @@ static void __init do_initcalls(void)
  * have been touched yet, but the CPU subsystem is up and
  * running, and memory and process management works.
  *
- * Now we can finally start doing some real work..
+ * Now we can finally start doing some real work..			// Yes, real work is coming
  */
 static void __init do_basic_setup(void)
 {
@@ -1412,6 +1419,8 @@ void __weak free_initmem(void)
 	free_initmem_default(POISON_FREE_INITMEM);
 }
 
+// refer to：rest_init
+// 这个函数就是 pid 1 的进程入口，最后会进入 用户态执行 /sbin/init 等
 static int __ref kernel_init(void *unused)
 {
 	int ret;
@@ -1437,6 +1446,7 @@ static int __ref kernel_init(void *unused)
 
 	do_sysctl_args();
 
+	// 尝试运行第一个用户态进程了 /init。注意，不是 fork 形式，而是当前这个 task_struct, 即 pid 1 直接去 run 用户态程序
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret)
@@ -1451,6 +1461,8 @@ static int __ref kernel_init(void *unused)
 	 * The Bourne shell can be used instead of init if we are
 	 * trying to recover a really broken machine.
 	 */
+	// 前面没有run起来的话，就在这里run了
+	// 这里的值来自于 kernel启动参数 `init=XXX`
 	if (execute_command) {
 		ret = run_init_process(execute_command);
 		if (!ret)
@@ -1468,11 +1480,12 @@ static int __ref kernel_init(void *unused)
 			return 0;
 	}
 
+	// 最后会回落到这里运行用户态程序
 	if (!try_to_run_init_process("/sbin/init") ||
 	    !try_to_run_init_process("/etc/init") ||
 	    !try_to_run_init_process("/bin/init") ||
 	    !try_to_run_init_process("/bin/sh"))
-		return 0;
+		return 0;	// 进入用户态后，永远不返回的
 
 	panic("No working init found.  Try passing init= option to kernel. "
 	      "See Linux Documentation/admin-guide/init.rst for guidance.");
@@ -1493,6 +1506,8 @@ void __init console_on_rootfs(void)
 	fput(file);
 }
 
+// 启动了 non boot cpu
+// 挂载了 initramfs
 static noinline void __init kernel_init_freeable(void)
 {
 	/*
@@ -1501,7 +1516,12 @@ static noinline void __init kernel_init_freeable(void)
 	wait_for_completion(&kthreadd_done);
 
 	/* Now the scheduler is fully set up and can do blocking allocations */
+
+	/* CX: which means that system is already running,
+	 * set allowed cpus/mems to all CPUs and NUMA nodes
+	 * with the set_mems_allowed function, */
 	gfp_allowed_mask = __GFP_BITS_MASK;
+
 
 	/*
 	 * init can allocate pages on any node
@@ -1510,7 +1530,7 @@ static noinline void __init kernel_init_freeable(void)
 
 	cad_pid = task_pid(current);
 
-	smp_prepare_cpus(setup_max_cpus);
+	smp_prepare_cpus(setup_max_cpus); // 为 secondary cpu 做准备
 
 	workqueue_init();
 
@@ -1519,7 +1539,7 @@ static noinline void __init kernel_init_freeable(void)
 	do_pre_smp_initcalls();
 	lockup_detector_init();
 
-	smp_init();
+	smp_init(); // 这里面启动 non boot cpu
 	sched_init_smp();
 
 	padata_init();
@@ -1533,13 +1553,14 @@ static noinline void __init kernel_init_freeable(void)
 
 	console_on_rootfs();
 
+	// 重要，这里开始挂载 ramdisk 咯
 	/*
 	 * check if there is an early userspace init.  If yes, let it do all
 	 * the work
 	 */
 	if (init_eaccess(ramdisk_execute_command) != 0) {
 		ramdisk_execute_command = NULL;
-		prepare_namespace();
+		prepare_namespace(); // 这里挂载了 initramfs
 	}
 
 	/*

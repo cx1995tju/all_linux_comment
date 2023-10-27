@@ -62,7 +62,7 @@ static DEFINE_MUTEX(espfix_init_mutex);
 #define ESPFIX_MAX_PAGES  DIV_ROUND_UP(CONFIG_NR_CPUS, ESPFIX_STACKS_PER_PAGE)
 static void *espfix_pages[ESPFIX_MAX_PAGES];
 
-static __page_aligned_bss pud_t espfix_pud_page[PTRS_PER_PUD]
+static __page_aligned_bss pud_t espfix_pud_page[PTRS_PER_PUD] // 一个 page 大小。里面存的都是 pud entries
 	__aligned(PAGE_SIZE);
 
 static unsigned int page_random, slot_random;
@@ -111,6 +111,8 @@ static void init_espfix_random(void)
 		& (ESPFIX_PAGE_SPACE - 1);
 }
 
+// refer to: mm.rst
+// prevents leaking of 31:16 bits of the esp register during returning to 16-bit stack.
 void __init init_espfix_bsp(void)
 {
 	pgd_t *pgd;
@@ -118,11 +120,11 @@ void __init init_espfix_bsp(void)
 
 	/* Install the espfix pud into the kernel page directory */
 	pgd = &init_top_pgt[pgd_index(ESPFIX_BASE_ADDR)];
-	p4d = p4d_alloc(&init_mm, pgd, ESPFIX_BASE_ADDR);
+	p4d = p4d_alloc(&init_mm, pgd, ESPFIX_BASE_ADDR);	// 分配 p4d
 	p4d_populate(&init_mm, p4d, espfix_pud_page);
 
 	/* Randomize the locations */
-	init_espfix_random();
+	init_espfix_random(); // 初始化两个变量, 对 esp fix 所在的 page 做一些随机化的工作
 
 	/* The rest is the same as for any other processor */
 	init_espfix_ap(0);

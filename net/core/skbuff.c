@@ -532,7 +532,7 @@ struct sk_buff *__napi_alloc_skb(struct napi_struct *napi, unsigned int len,
 
 skb_success:
 	skb_reserve(skb, NET_SKB_PAD + NET_IP_ALIGN);
-	skb->dev = napi->dev;
+	skb->dev = napi->dev;	// driver 填充 rxq 的skb 的时候，就设置好了这个 dev 指针咯
 
 skb_fail:
 	return skb;

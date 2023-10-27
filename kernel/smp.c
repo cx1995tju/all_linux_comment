@@ -800,6 +800,8 @@ void __init setup_nr_cpu_ids(void)
 }
 
 /* Called by boot processor to activate the rest. */
+
+// 在这里面去 boot secondary CPU 的
 void __init smp_init(void)
 {
 	int num_nodes, num_cpus;
@@ -809,7 +811,7 @@ void __init smp_init(void)
 
 	pr_info("Bringing up secondary CPUs ...\n");
 
-	bringup_nonboot_cpus(setup_max_cpus);
+	bringup_nonboot_cpus(setup_max_cpus);	// Hey, Here it is
 
 	num_nodes = num_online_nodes();
 	num_cpus  = num_online_cpus();

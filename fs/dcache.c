@@ -3211,6 +3211,7 @@ static void __init dcache_init(void)
 struct kmem_cache *names_cachep __read_mostly;
 EXPORT_SYMBOL(names_cachep);
 
+// vfs 初始化
 void __init vfs_caches_init_early(void)
 {
 	int i;
@@ -3222,6 +3223,7 @@ void __init vfs_caches_init_early(void)
 	inode_init_early();
 }
 
+// vfs 初始化
 void __init vfs_caches_init(void)
 {
 	names_cachep = kmem_cache_create_usercopy("names_cache", PATH_MAX, 0,

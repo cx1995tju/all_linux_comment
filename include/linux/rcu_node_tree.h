@@ -41,23 +41,23 @@
 #ifdef CONFIG_RCU_FANOUT_LEAF
 #define RCU_FANOUT_LEAF CONFIG_RCU_FANOUT_LEAF
 #else /* #ifdef CONFIG_RCU_FANOUT_LEAF */
-#define RCU_FANOUT_LEAF 16
+#define RCU_FANOUT_LEAF 16	// 默认值 16
 #endif /* #else #ifdef CONFIG_RCU_FANOUT_LEAF */
 
-#define RCU_FANOUT_1	      (RCU_FANOUT_LEAF)
-#define RCU_FANOUT_2	      (RCU_FANOUT_1 * RCU_FANOUT)
-#define RCU_FANOUT_3	      (RCU_FANOUT_2 * RCU_FANOUT)
-#define RCU_FANOUT_4	      (RCU_FANOUT_3 * RCU_FANOUT)
+#define RCU_FANOUT_1	      (RCU_FANOUT_LEAF)				// 默认值 16, 每个 叶子节点对应 16个 CPU
+#define RCU_FANOUT_2	      (RCU_FANOUT_1 * RCU_FANOUT)		// 64位系统，RCU_FANOUT 默认值 64, 倒数第二层的节点，每个节点对应 16 * 64 = 1024 个 cpu
+#define RCU_FANOUT_3	      (RCU_FANOUT_2 * RCU_FANOUT) // default 65536
+#define RCU_FANOUT_4	      (RCU_FANOUT_3 * RCU_FANOUT) // default: 64 * 64 * 1024 
 
-#if NR_CPUS <= RCU_FANOUT_1
+#if NR_CPUS <= RCU_FANOUT_1	// 常态 16
 #  define RCU_NUM_LVLS	      1
 #  define NUM_RCU_LVL_0	      1
 #  define NUM_RCU_NODES	      NUM_RCU_LVL_0
 #  define NUM_RCU_LVL_INIT    { NUM_RCU_LVL_0 }
 #  define RCU_NODE_NAME_INIT  { "rcu_node_0" }
 #  define RCU_FQS_NAME_INIT   { "rcu_node_fqs_0" }
-#elif NR_CPUS <= RCU_FANOUT_2
-#  define RCU_NUM_LVLS	      2
+#elif NR_CPUS <= RCU_FANOUT_2	// 常态, <= 1024
+#  define RCU_NUM_LVLS	      2		// 只有两层
 #  define NUM_RCU_LVL_0	      1
 #  define NUM_RCU_LVL_1	      DIV_ROUND_UP(NR_CPUS, RCU_FANOUT_1)
 #  define NUM_RCU_NODES	      (NUM_RCU_LVL_0 + NUM_RCU_LVL_1)

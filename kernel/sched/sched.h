@@ -517,7 +517,7 @@ struct cfs_bandwidth { };
 
 /* CFS-related fields in a runqueue */
 struct cfs_rq {
-	struct load_weight	load;
+	struct load_weight	load;	// 权重, runqueue 上所有调度实体总的权重值
 	unsigned int		nr_running;
 	unsigned int		h_nr_running;      /* SCHED_{NORMAL,BATCH,IDLE} */
 	unsigned int		idle_h_nr_running; /* SCHED_IDLE */
@@ -528,7 +528,7 @@ struct cfs_rq {
 	u64			min_vruntime_copy;
 #endif
 
-	struct rb_root_cached	tasks_timeline;
+	struct rb_root_cached	tasks_timeline;	// 一颗红黑树
 
 	/*
 	 * 'curr' points to currently running entity on this cfs_rq.
@@ -775,6 +775,12 @@ struct perf_domain {
  * object.
  *
  */
+/* The real-time scheduler requires global resources to make scheduling decision.
+ * But unfortunately scalability bottlenecks appear as the number of CPUs increase.
+ * The concept of root domains was introduced for improving scalability and avoid
+ * such bottlenecks. Instead of bypassing over all run queues, the scheduler gets
+ * information about a CPU where/from to push/pull a real-time task from the root_domain
+ * structure. */
 struct root_domain {
 	atomic_t		refcount;
 	atomic_t		rto_count;
@@ -892,6 +898,9 @@ DECLARE_STATIC_KEY_FALSE(sched_uclamp_used);
  * (such as the load balancing or the thread migration code), lock
  * acquire operations must be ordered by ascending &runqueue.
  */
+// 各个调度类要在此基础上扩展，譬如: %cfs_rq
+
+
 struct rq {
 	/* runqueue lock: */
 	raw_spinlock_t		lock;
@@ -900,7 +909,7 @@ struct rq {
 	 * nr_running and cpu_load should be in the same cacheline because
 	 * remote CPUs use both these fields when doing load calculation.
 	 */
-	unsigned int		nr_running;
+	unsigned int		nr_running;	// runnable process in these queue
 #ifdef CONFIG_NUMA_BALANCING
 	unsigned int		nr_numa_running;
 	unsigned int		nr_preferred_running;
@@ -946,16 +955,16 @@ struct rq {
 	 */
 	unsigned long		nr_uninterruptible;
 
-	struct task_struct __rcu	*curr;
-	struct task_struct	*idle;
-	struct task_struct	*stop;
+	struct task_struct __rcu	*curr;	// 指向当前正在 run 的 task
+	struct task_struct	*idle;	// no runnable process 的时候，run 这个 task
+	struct task_struct	*stop;	// 用于 停止 CPU 的进程
 	unsigned long		next_balance;
-	struct mm_struct	*prev_mm;
+	struct mm_struct	*prev_mm;	// 上一次被切换进程的mm。为了优化调度到 内核线程后又调度回来的case。
 
 	unsigned int		clock_update_flags;
-	u64			clock;
+	u64			clock;	// 一个递增的时间，runqueue 从初始化到现在的时间
 	/* Ensure that all clocks are in the same cache line */
-	u64			clock_task ____cacheline_aligned;
+	u64			clock_task ____cacheline_aligned;	// cpu 上所有调度实体运行的时间，刨除掉 中断等。当然这取决于 CONFIG_IRQ_TIME_ACCOUNTING 配置
 	u64			clock_pelt;
 	unsigned long		lost_idle_time;
 
@@ -1016,7 +1025,7 @@ struct rq {
 #endif
 
 	/* calc_load related fields */
-	unsigned long		calc_load_update;
+	unsigned long		calc_load_update; // 记录的是 jiffies
 	long			calc_load_active;
 
 #ifdef CONFIG_SCHED_HRTICK
@@ -1782,13 +1791,17 @@ struct sched_class {
 	int uclamp_enabled;
 #endif
 
-	void (*enqueue_task) (struct rq *rq, struct task_struct *p, int flags);
+	void (*enqueue_task) (struct rq *rq, struct task_struct *p, int flags);	// 将一个 task 添加到 runqueue(runqueue 不是 queue 而是红黑树)
 	void (*dequeue_task) (struct rq *rq, struct task_struct *p, int flags);
-	void (*yield_task)   (struct rq *rq);
+	void (*yield_task)   (struct rq *rq);					// 一个进程想要放弃 cpu 的时候，可以用 sched_yield(), 最终会进入这个 cb
 	bool (*yield_to_task)(struct rq *rq, struct task_struct *p);
 
+	/* check_preempt_curr is used to preempt the current task with a newly woken task if this is necessary.
+	 * The function is called, for instance, when a new task is woken up with wake_up_new_task. */
 	void (*check_preempt_curr)(struct rq *rq, struct task_struct *p, int flags);
 
+	/* pick_next_task selects the next task that is supposed to run,
+	 * while put_prev_task is called before the currently executing task is replaced with another one. */ 
 	struct task_struct *(*pick_next_task)(struct rq *rq);
 
 	void (*put_prev_task)(struct rq *rq, struct task_struct *p);
@@ -1807,9 +1820,9 @@ struct sched_class {
 	void (*rq_online)(struct rq *rq);
 	void (*rq_offline)(struct rq *rq);
 #endif
-
+	// periodic scheduler each time it is activated. 
 	void (*task_tick)(struct rq *rq, struct task_struct *p, int queued);
-	void (*task_fork)(struct task_struct *p);
+	void (*task_fork)(struct task_struct *p); // fork 的时候调用
 	void (*task_dead)(struct task_struct *p);
 
 	/*

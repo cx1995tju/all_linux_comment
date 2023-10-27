@@ -313,6 +313,7 @@ static void free_thread_stack(struct task_struct *tsk)
 	kmem_cache_free(thread_stack_cache, tsk->stack);
 }
 
+// thread stack 的 size 比较小的话，就会用 kmem cache 管理
 void thread_stack_cache_init(void)
 {
 	thread_stack_cache = kmem_cache_create_usercopy("thread_stack",
@@ -790,6 +791,7 @@ static void task_struct_whitelist(unsigned long *offset, unsigned long *size)
 }
 #endif /* CONFIG_ARCH_TASK_STRUCT_ALLOCATOR */
 
+// 为 task_struct 分配 kmem cache
 void __init fork_init(void)
 {
 	int i;
@@ -809,7 +811,7 @@ void __init fork_init(void)
 #endif
 
 	/* do the arch specific task caches init */
-	arch_task_cache_init();
+	arch_task_cache_init(); // 大部分架构没有
 
 	set_max_threads(MAX_THREADS);
 
@@ -2776,6 +2778,7 @@ static void sighand_ctor(void *data)
 	init_waitqueue_head(&sighand->signalfd_wqh);
 }
 
+// proc fs 需要的一些cache
 void __init proc_caches_init(void)
 {
 	unsigned int mm_size;

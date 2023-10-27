@@ -32,6 +32,7 @@ extern struct exception_table_entry __stop___ex_table[];
 u32 __initdata __visible main_extable_sort_needed = 1;
 
 /* Sort the kernel's built-in exception table */
+// 在 内核镜像的 __start___ex_table __stop___ex_table 之间
 void __init sort_main_extable(void)
 {
 	if (main_extable_sort_needed &&

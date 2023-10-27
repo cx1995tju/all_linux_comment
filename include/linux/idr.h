@@ -1,3 +1,5 @@
+// refer to: Documentation/core-api/idr.rst
+//
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * include/linux/idr.h

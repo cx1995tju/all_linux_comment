@@ -1284,6 +1284,7 @@ failed:
 	panic("Failed to pre-allocate %s pages for vmalloc area\n", lvl);
 }
 
+// release all bootmem
 void __init mem_init(void)
 {
 	pci_iommu_alloc();
@@ -1291,7 +1292,7 @@ void __init mem_init(void)
 	/* clear_bss() already clear the empty_zero_page */
 
 	/* this will put all memory onto the freelists */
-	memblock_free_all();
+	memblock_free_all();	// 启动阶段用的 memblock 不用咯，释放掉了, 现在要初始化最终的 mem 子系统咯
 	after_bootmem = 1;
 	x86_init.hyper.init_after_bootmem();
 

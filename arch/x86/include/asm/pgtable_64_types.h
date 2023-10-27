@@ -10,6 +10,12 @@
 
 /*
  * These are used to make use of C type-checking..
+ *
+ * pgd
+ * p4d
+ * pud
+ * pmd
+ * pte
  */
 typedef unsigned long	pteval_t;
 typedef unsigned long	pmdval_t;
@@ -149,7 +155,7 @@ extern unsigned int ptrs_per_p4d;
 #define MODULES_LEN		(MODULES_END - MODULES_VADDR)
 
 #define ESPFIX_PGD_ENTRY	_AC(-2, UL)
-#define ESPFIX_BASE_ADDR	(ESPFIX_PGD_ENTRY << P4D_SHIFT)
+#define ESPFIX_BASE_ADDR	(ESPFIX_PGD_ENTRY << P4D_SHIFT) // -1TB , refer to: x86_64/mm.rst
 
 #define CPU_ENTRY_AREA_PGD	_AC(-4, UL)
 #define CPU_ENTRY_AREA_BASE	(CPU_ENTRY_AREA_PGD << P4D_SHIFT)

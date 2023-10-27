@@ -311,7 +311,7 @@ static inline pgprot_t pgprot_nx(pgprot_t prot)
 				 _PAGE_SOFTW1 | _PAGE_SOFTW2 | _PAGE_SOFTW3)
 
 #else
-/* No need to mask any bits for !PAE */
+/* No need to mask any bits for !PAE */ // here
 #define PGD_ALLOWED_BITS	(~0ULL)
 #endif
 

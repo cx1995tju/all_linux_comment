@@ -45,4 +45,3 @@ Further TODOs:
   log it all by iterating over **all** results (very important usability fix).
 - Try to make the implementation itself more helpful in general, e.g. by
   providing additional error messages at affected places.
-

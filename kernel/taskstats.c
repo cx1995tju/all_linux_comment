@@ -667,6 +667,7 @@ static struct genl_family family __ro_after_init = {
 };
 
 /* Needed early in initialization */
+// exports per-task statistic to the user-space
 void __init taskstats_init_early(void)
 {
 	unsigned int i;

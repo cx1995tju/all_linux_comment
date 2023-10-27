@@ -75,8 +75,8 @@ struct memblock_type {	// 用来表示一个 memblock_region 的数组
  * struct memblock - memblock allocator metadata
  * @bottom_up: is bottom up direction?
  * @current_limit: physical address of the current allocation limit
- * @memory: usable memory regions
- * @reserved: reserved memory regions
+ * @memory: usable memory regions			// 可用的部分
+ * @reserved: reserved memory regions			// 已经使用被分配的部分
  */
 struct memblock {
 	bool bottom_up;  /* is bottom up direction? */ // true 表示 从下到上的分配, 即正常方式

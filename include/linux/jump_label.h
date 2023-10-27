@@ -2,8 +2,11 @@
 #ifndef _LINUX_JUMP_LABEL_H
 #define _LINUX_JUMP_LABEL_H
 
-/*
- * Jump label support
+/* Documentation/staging/static-keys.rst
+ * Jump label support // refer to: https://lwn.net/Articles/412072/		key concept: self modify code
+ *	- 简单的说，就是优化那些大部分时候判断条件都是确定的分支，譬如：用来做 tracing 判断的代码, 只会在很少的时候 enable tracing, 才会开启分支。但是常态运行中，分支也是有消耗的
+ *	- 解决原理: 预处理器将这些分支指令处理为 nop 指令，并且记录下这些指令的位置。在enable 这些分支的时候，将 nop 指令替换为对应的 jump 指令 (self-modify code)
+ * 
  *
  * Copyright (C) 2009-2012 Jason Baron <jbaron@redhat.com>
  * Copyright (C) 2011-2012 Red Hat, Inc., Peter Zijlstra
@@ -40,7 +43,7 @@
  * and static_branch_likely() statements.
  *
  * At runtime we can change the branch target by setting the key
- * to true via a call to static_branch_enable(), or false using
+ * to true via a call to static_branch_enable(), or false using				_Here it is_
  * static_branch_disable(). If the direction of the branch is switched by
  * these calls then we run-time modify the branch target via a
  * no-op -> jump or jump -> no-op conversion. For example, for an

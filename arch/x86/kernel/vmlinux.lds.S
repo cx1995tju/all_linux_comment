@@ -45,7 +45,7 @@ OUTPUT_ARCH(i386:x86-64)
 ENTRY(phys_startup_64)		// 这个链接脚本得到的 目标 elf 文件，就是被压缩的内核，解压后，会从elf 文件拿到 entry，然后从这里作为入口执行
 #endif
 
-jiffies = jiffies_64;
+jiffies = jiffies_64; // 将 jiffies 这个符号的地址安排的和 jiffies_64 一样。 即这两个符号实际对应一个地址
 
 #if defined(CONFIG_X86_64)
 /*
@@ -165,7 +165,7 @@ SECTIONS
 		_sdata = .;
 
 		/* init_task */
-		INIT_TASK_DATA(THREAD_SIZE)
+		INIT_TASK_DATA(THREAD_SIZE) // 这里强制搞两个以 INIT_TASK
 
 #ifdef CONFIG_X86_32
 		/* 32 bit has nosave before _edata */

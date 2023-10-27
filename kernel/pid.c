@@ -617,9 +617,9 @@ void __init pid_idr_init(void)
 				PIDS_PER_CPU_MIN * num_possible_cpus());
 	pr_info("pid_max: default: %u minimum: %u\n", pid_max, pid_max_min);
 
-	idr_init(&init_pid_ns.idr);
+	idr_init(&init_pid_ns.idr);	// 初始化一个 idr，用来分配 id
 
-	init_pid_ns.pid_cachep = KMEM_CACHE(pid,
+	init_pid_ns.pid_cachep = KMEM_CACHE(pid,	// 创建一个 kcache，用来分配 pid 结构
 			SLAB_HWCACHE_ALIGN | SLAB_PANIC | SLAB_ACCOUNT);
 }
 

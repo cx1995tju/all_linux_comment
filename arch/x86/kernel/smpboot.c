@@ -213,6 +213,7 @@ static int enable_start_cpu0;
 /*
  * Activate a secondary processor.
  */
+// 次 CPU 从这里开始运行
 static void notrace start_secondary(void *unused)
 {
 	/*

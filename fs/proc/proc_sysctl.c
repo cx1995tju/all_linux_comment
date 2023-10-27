@@ -1697,6 +1697,7 @@ void retire_sysctl_set(struct ctl_table_set *set)
 	WARN_ON(!RB_EMPTY_ROOT(&set->dir.root));
 }
 
+// /proc/sys 初始化 sysctl 机制
 int __init proc_sys_init(void)
 {
 	struct proc_dir_entry *proc_sys_root;

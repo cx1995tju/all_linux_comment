@@ -16,7 +16,7 @@ units were driven by the HZ tick, so the smallest timeslice was 1/HZ.
 In the O(1) scheduler (in 2003) we changed negative nice levels to be
 much stronger than they were before in 2.4 (and people were happy about
 that change), and we also intentionally calibrated the linear timeslice
-rule so that nice +19 level would be _exactly_ 1 jiffy. To better
+rule so that nice +19 level would be _exactly_ 1 jiffy. To better               // nice 值是 +19 的话，其 timeslice 就是 1 jiffy，即一个时钟中断的时间
 understand it, the timeslice graph went like this (cheesy ASCII art
 alert!)::
 
@@ -48,7 +48,7 @@ millisec) rescheduling. (and would thus trash the cache, etc. Remember,
 this was long ago when hardware was weaker and caches were smaller, and
 people were running number crunching apps at nice +19.)
 
-So for HZ=1000 we changed nice +19 to 5msecs, because that felt like the
+So for HZ=1000 we changed nice +19 to 5msecs, because that felt like the        // nice +19 不是 1 jiffy 的时间片咯，而是 5ms
 right minimal granularity - and this translates to 5% CPU utilization.
 But the fundamental HZ-sensitive property for nice+19 still remained,
 and we never got a single complaint about nice +19 being too _weak_ in

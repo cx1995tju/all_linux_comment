@@ -322,9 +322,10 @@ struct sched_info {
 # define SCHED_CAPACITY_SHIFT		SCHED_FIXEDPOINT_SHIFT
 # define SCHED_CAPACITY_SCALE		(1L << SCHED_CAPACITY_SHIFT)
 
+// refer to: sched_prio_to_weight
 struct load_weight {
 	unsigned long			weight;
-	u32				inv_weight;
+	u32				inv_weight;	// 用于 weight 的除法运算
 };
 
 /**
@@ -448,17 +449,19 @@ struct sched_statistics {
 #endif
 };
 
+// 将一个 task 的调度部分抽象出来，作为一个调度实体。而不仅仅局限于调度某个线程
+// 譬如：调度某个 group
 struct sched_entity {
 	/* For load-balancing: */
-	struct load_weight		load;
-	struct rb_node			run_node;
+	struct load_weight		load; // 权重
+	struct rb_node			run_node;	// 用于嵌入红黑树
 	struct list_head		group_node;
-	unsigned int			on_rq;
+	unsigned int			on_rq;		// 是否在 runqueue 中
 
 	u64				exec_start;
-	u64				sum_exec_runtime;
-	u64				vruntime;
-	u64				prev_sum_exec_runtime;
+	u64				sum_exec_runtime;	// 执行时间需要记录下来，用于 CFS。调度类的 update_curr() cb 里会更新。每次更新的时候，都是 += curr_time - exec_start; exec_start = curr_time;
+	u64				vruntime;	// 该调度实体的虚拟时钟，每次选择进程的时候，就是选择虚拟时钟最小的进程
+	u64				prev_sum_exec_runtime;	// 进程 被 take off cpu 的时候，sum_exec_runtime 被保存在这里。但是 sum_exec_runtime 不会被清空，还是单调递增的
 
 	u64				nr_migrations;
 
@@ -486,11 +489,11 @@ struct sched_entity {
 #endif
 };
 
-struct sched_rt_entity {
+struct sched_rt_entity { // real-time 调度类负责处理
 	struct list_head		run_list;
 	unsigned long			timeout;
 	unsigned long			watchdog_stamp;
-	unsigned int			time_slice;
+	unsigned int			time_slice;	// rt 调度类负责 SCHED_RR SCHED_FIFO 策略，这两个策略需要 时间片
 	unsigned short			on_rq;
 	unsigned short			on_list;
 
@@ -683,16 +686,27 @@ struct task_struct {
 #endif
 	int				on_rq;
 
-	int				prio;
-	int				static_prio;
-	int				normal_prio;
-	unsigned int			rt_priority;
+	// 有三个优先级的原因
+	// A third element is required because situations can arise in which the kernel needs to temporarily boost the priority of a process.
+	// Since these changes are not permanent, the static and normal priorities are unaffected by this. 比如：rt-mutex 场景
+	int				prio;		// scheduler 使用的 prio, refer to: effective_prio()
 
-	const struct sched_class	*sched_class;
-	struct sched_entity		se;
+	/* nice 值与static prio */
+	/*                                  -20     nice     19  */
+	/* +-------------------------------+-------------------+ */
+	/* | Realtime                      | Normal            | */
+	/* +-------------------------------+-------------------+ */
+	/* 0                             99 100             139  */
+	/* high prio                                    low prio */
+	int				static_prio;	// 进程启动时分配的，受 nice值 以及 sched_set_scheduler() 系统调用影响。但是在系统运行期间不会受其他因素影响改变的
+	int				normal_prio;	// 基于 static_prio 以及 调度策略计算的。会被子进程继承。假设两个进程 static_prio 相同，但是一个是 rt，一个是 normal。那么其最终的 normal_prio 是完全不同的	
+	unsigned int			rt_priority;	// real-time 进程的优先级 0-99 之间, 值越大，优先级越高
+
+	const struct sched_class	*sched_class;	// 该进程所属的调度类
+	struct sched_entity		se;		// 负责调度的调度实体
 	struct sched_rt_entity		rt;
 #ifdef CONFIG_CGROUP_SCHED
-	struct task_group		*sched_task_group;
+	struct task_group		*sched_task_group;	// 用于支持 group scheduling 的话
 #endif
 	struct sched_dl_entity		dl;
 
@@ -718,10 +732,10 @@ struct task_struct {
 	unsigned int			btrace_seq;
 #endif
 
-	unsigned int			policy;
-	int				nr_cpus_allowed;
+	unsigned int			policy;	// 调度策略 %SCHED_NORMAL
+	int				nr_cpus_allowed;	// 允许该进程 run 的cpu
 	const cpumask_t			*cpus_ptr;
-	cpumask_t			cpus_mask;
+	cpumask_t			cpus_mask;		// 对应的 CPU mask
 
 #ifdef CONFIG_PREEMPT_RCU
 	int				rcu_read_lock_nesting;
@@ -1718,12 +1732,12 @@ extern void ia64_set_curr_task(int cpu, struct task_struct *p);
 
 void yield(void);
 
-union thread_union {	// 注意这里是一个 union
-#ifndef CONFIG_ARCH_TASK_STRUCT_ON_STACK
-	struct task_struct task;
+union thread_union {	// 注意这里是一个 union, 表示的是一个 kernel thread stack。并且根据配置选项，判断是否在栈底安排一些数据结构
+#ifndef CONFIG_ARCH_TASK_STRUCT_ON_STACK	// 一般不设置, 这个结构太大了，太浪费栈空间咯
+	struct task_struct task;		// 注意，前面的位置是栈底部
 #endif
 #ifndef CONFIG_THREAD_INFO_IN_TASK
-	struct thread_info thread_info;
+	struct thread_info thread_info;		// 一般有该配置, 这种情况下 大部分 thread_info 信息就在 task_struct 中了，只有少部分在 这里
 #endif
 	unsigned long stack[THREAD_SIZE/sizeof(long)];
 };

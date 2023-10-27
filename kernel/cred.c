@@ -656,6 +656,7 @@ EXPORT_SYMBOL(cred_fscmp);
 /*
  * initialise the credentials stuff
  */
+// 分配一个 k cache 供 cred 机制使用 
 void __init cred_init(void)
 {
 	/* allocate a slab in which we can store credentials */

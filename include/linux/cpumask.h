@@ -36,7 +36,7 @@ typedef struct cpumask { DECLARE_BITMAP(bits, NR_CPUS); } cpumask_t;
 #if NR_CPUS == 1
 #define nr_cpu_ids		1U
 #else
-extern unsigned int nr_cpu_ids;
+extern unsigned int nr_cpu_ids; // refer to: prefill_possible_map() , kernel/smp.c。是 possible 的cpu 数目，不是 online 的 cpu 数目
 #endif
 
 #ifdef CONFIG_CPUMASK_OFFSTACK
@@ -51,9 +51,9 @@ extern unsigned int nr_cpu_ids;
  * The following particular system cpumasks and operations manage
  * possible, present, active and online cpus.
  *
- *     cpu_possible_mask- has bit 'cpu' set iff cpu is populatable
- *     cpu_present_mask - has bit 'cpu' set iff cpu is populated
- *     cpu_online_mask  - has bit 'cpu' set iff cpu available to scheduler
+ *     cpu_possible_mask- has bit 'cpu' set iff cpu is populatable		// 软件资源已经分配咯
+ *     cpu_present_mask - has bit 'cpu' set iff cpu is populated		// 已经插上了
+ *     cpu_online_mask  - has bit 'cpu' set iff cpu available to scheduler	// 正在用
  *     cpu_active_mask  - has bit 'cpu' set iff cpu available to migration
  *
  *  If !CONFIG_HOTPLUG_CPU, present == possible, and active == online.
@@ -86,6 +86,24 @@ extern unsigned int nr_cpu_ids;
  *    asking if you're online or how many CPUs there are if there is
  *    only one CPU.
  */
+
+// cat /sys/devices/system/cpu/present/kernel_max|offline|online|possible|present
+/*    kernel_max: the maximum CPU index allowed by the kernel configuration. */
+/*                [NR_CPUS-1] */
+/**/
+/*    offline:    CPUs that are not online because they have been */
+/*                HOTPLUGGED off (see cpu-hotplug.txt) or exceed the limit */
+/*                of CPUs allowed by the kernel configuration (kernel_max */
+/*                above). [~cpu_online_mask + cpus >= NR_CPUS] */
+/**/
+/*    online:     CPUs that are online and being scheduled [cpu_online_mask] */
+/**/
+/*    possible:   CPUs that have been allocated resources and can be */
+/*                brought online if they are present. [cpu_possible_mask] */	// possible + present 就可以 online 咯, 不过一般 possible 都不等于 online 的。要大于 online 的。表示的系统支持的 CPU 数目, 比如 x86 上的 ACPI
+/**/
+/*    present:    CPUs that have been identified as being present in the */
+/*                system. [cpu_present_mask] */
+
 
 extern struct cpumask __cpu_possible_mask;
 extern struct cpumask __cpu_online_mask;

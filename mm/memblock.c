@@ -1971,7 +1971,7 @@ static unsigned long __init free_low_memory_core_early(void)
 
 	memblock_clear_hotplug(0, -1);
 
-	for_each_reserved_mem_range(i, &start, &end)
+	for_each_reserved_mem_range(i, &start, &end)	// 释放所有 reserved 的 memblock
 		reserve_bootmem_region(start, end);
 
 	/*

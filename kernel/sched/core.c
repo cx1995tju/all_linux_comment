@@ -75,7 +75,7 @@ unsigned int sysctl_sched_rt_period = 1000000;
 __read_mostly int scheduler_running;
 
 /*
- * part of the period that we allow rt tasks to run in us.
+ * part of the period that we allow rt tasks to run in us.		// sched_rt_period 这么长的时间里 有 sched_rt_runtime 这么多时间是分配给 real-time task 的
  * default: 0.95s
  */
 int sysctl_sched_rt_runtime = 950000;
@@ -854,16 +854,16 @@ static void set_load_weight(struct task_struct *p, bool update_load)
 	 * SCHED_IDLE tasks get minimal weight:
 	 */
 	if (task_has_idle_policy(p)) {
-		load->weight = scale_load(WEIGHT_IDLEPRIO);
+		load->weight = scale_load(WEIGHT_IDLEPRIO); // idle 进程，最小的 weight
 		load->inv_weight = WMULT_IDLEPRIO;
 		return;
 	}
 
 	/*
-	 * SCHED_OTHER tasks have to update their load when changing their
+	 * SCHED_OTHER tasks have to update their load when changing their // SCHED_OTHER 就是 SCHED_NORMAL
 	 * weight
 	 */
-	if (update_load && p->sched_class == &fair_sched_class) {
+	if (update_load && p->sched_class == &fair_sched_class) {	// CFS
 		reweight_task(p, prio);
 	} else {
 		load->weight = scale_load(sched_prio_to_weight[prio]);
@@ -1603,6 +1603,15 @@ void deactivate_task(struct rq *rq, struct task_struct *p, int flags)
 /*
  * __normal_prio - return the priority that is based on the static prio
  */
+
+/* Now one can certainly wonder why an extra function is used for this purpose.
+ * There is a historical reason: Computing the normal priority in the old O(1)
+ * scheduler was a much trickier business. Interactive tasks had to be detected
+ * and their priority boosted, while non-interactive tasks had to be penalized
+ * to obtain good interactive behavior of the system. This required numerous
+ * heuristic calculations that either did the job well — or failed at it. The
+ * new scheduler, thankfully, does not require such magical calculations anymore.
+ * */
 static inline int __normal_prio(struct task_struct *p)
 {
 	return p->static_prio;
@@ -1622,7 +1631,7 @@ static inline int normal_prio(struct task_struct *p)
 	if (task_has_dl_policy(p))
 		prio = MAX_DL_PRIO-1;
 	else if (task_has_rt_policy(p))
-		prio = MAX_RT_PRIO-1 - p->rt_priority;
+		prio = MAX_RT_PRIO-1 - p->rt_priority;	// 99 - rt_priority
 	else
 		prio = __normal_prio(p);
 	return prio;
@@ -1635,6 +1644,16 @@ static inline int normal_prio(struct task_struct *p)
  * interactivity modifiers. Will be RT if the task got
  * RT-boosted. If not then it returns p->normal_prio.
  */
+/* | task type      | static_prio | normal_prio                  | prio           | */
+/* |----------------|-------------|------------------------------|----------------| */
+/* | non-real-time  | static_prio | static_prio                  | static_prio    | */
+/* | task           |             |                              |                | */
+/* |----------------|-------------|------------------------------|----------------| */
+/* | Priori-boosted | static_prio | static_prio                  | prio as before | */
+/* | non-real-time  |             |                              |                | */
+/* | task           |             |                              |                | */
+/* |----------------|-------------|------------------------------|----------------| */
+/* | real-time      | static_prio | MAX_RT_PRIO - 1 - rt_priorti | prio as before | */
 static int effective_prio(struct task_struct *p)
 {
 	p->normal_prio = normal_prio(p);
@@ -1643,6 +1662,8 @@ static int effective_prio(struct task_struct *p)
 	 * keep the priority unchanged. Otherwise, update priority
 	 * to the normal priority:
 	 */
+	// 为什么用 rt_prio() 而不是 task_has_rt_policy() 来判断? 
+	// This is required for non-real-time tasks that have been temporarily boosted to a real-time priority, which can happen when RT-Mutexes are in use.
 	if (!rt_prio(p->prio))
 		return p->normal_prio;
 	return p->prio;
@@ -3981,6 +4002,8 @@ unsigned long long task_sched_runtime(struct task_struct *p)
  * This function gets called by the timer code, with HZ frequency.
  * We call it with interrupts disabled.
  */
+
+// 这里没有发生 ctx switch, 最多会给一个进程 set TIF_NEED_RESCHED 的 flag
 void scheduler_tick(void)
 {
 	int cpu = smp_processor_id();
@@ -4662,7 +4685,7 @@ asmlinkage __visible void __sched schedule_user(void)
 void __sched schedule_preempt_disabled(void)
 {
 	sched_preempt_enable_no_resched();
-	schedule();
+	schedule(); // 调度咯
 	preempt_disable();
 }
 
@@ -7050,7 +7073,7 @@ int in_sched_functions(unsigned long addr)
  * Default task group.
  * Every task in system belongs to this group at bootup.
  */
-struct task_group root_task_group;
+struct task_group root_task_group;	// refer to: CONFIG_FAIR_GROUP_SCHED
 LIST_HEAD(task_groups);
 
 /* Cacheline aligned slab cache for task_group */
@@ -7060,6 +7083,7 @@ static struct kmem_cache *task_group_cache __read_mostly;
 DECLARE_PER_CPU(cpumask_var_t, load_balance_mask);
 DECLARE_PER_CPU(cpumask_var_t, select_idle_mask);
 
+// 调度机制 初始化
 void __init sched_init(void)
 {
 	unsigned long ptr = 0;
@@ -7075,20 +7099,20 @@ void __init sched_init(void)
 
 	wait_bit_init();
 
-#ifdef CONFIG_FAIR_GROUP_SCHED
+#ifdef CONFIG_FAIR_GROUP_SCHED	// cgroup 相关, 可以基于 task group 粒度分配 CPU 带宽, 一般会设置的
 	ptr += 2 * nr_cpu_ids * sizeof(void **);
 #endif
-#ifdef CONFIG_RT_GROUP_SCHED
+#ifdef CONFIG_RT_GROUP_SCHED	// cgroup 相关
 	ptr += 2 * nr_cpu_ids * sizeof(void **);
 #endif
 	if (ptr) {
-		ptr = (unsigned long)kzalloc(ptr, GFP_NOWAIT);
+		ptr = (unsigned long)kzalloc(ptr, GFP_NOWAIT); // 分配一些 空间
 
-#ifdef CONFIG_FAIR_GROUP_SCHED
-		root_task_group.se = (struct sched_entity **)ptr;
+#ifdef CONFIG_FAIR_GROUP_SCHED		// cgroup 是层次化架构，需要一个 root
+		root_task_group.se = (struct sched_entity **)ptr; // 分配了 nr_cpu_ids 的调度实体结构的二级指针
 		ptr += nr_cpu_ids * sizeof(void **);
 
-		root_task_group.cfs_rq = (struct cfs_rq **)ptr;
+		root_task_group.cfs_rq = (struct cfs_rq **)ptr;	// 又分配了这么多的 nr_cpu_ids  cfs_rq 的二级指针
 		ptr += nr_cpu_ids * sizeof(void **);
 
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
@@ -7133,10 +7157,10 @@ void __init sched_init(void)
 	autogroup_init(&init_task);
 #endif /* CONFIG_CGROUP_SCHED */
 
-	for_each_possible_cpu(i) {
+	for_each_possible_cpu(i) { // 每个 CPU 初始化一些 runqueue
 		struct rq *rq;
 
-		rq = cpu_rq(i);
+		rq = cpu_rq(i); // 前面初始化的 per-cpu 变量
 		raw_spin_lock_init(&rq->lock);
 		rq->nr_running = 0;
 		rq->calc_load_active = 0;
@@ -7166,7 +7190,7 @@ void __init sched_init(void)
 		 * We achieve this by letting root_task_group's tasks sit
 		 * directly in rq->cfs (i.e root_task_group->se[] = NULL).
 		 */
-		init_tg_cfs_entry(&root_task_group, &rq->cfs, NULL, i, NULL);
+		init_tg_cfs_entry(&root_task_group, &rq->cfs, NULL, i, NULL);	// cgroup 是
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 
 		rq->rt.rt_runtime = def_rt_bandwidth.rt_runtime;
@@ -8453,6 +8477,14 @@ void dump_cpu_task(int cpu)
  * it's +10% CPU usage. (to achieve that we use a multiplier of 1.25.
  * If a task goes up by ~10% and another task goes down by ~10% then
  * the relative distance between them is ~25%.)
+ */
+
+/*
+ * 示例: A B C D 4 个 task，nice 值为 0，故其 load 都是 1024, 每个 task 使用 25% 的 cpu
+ *
+ * 现在 task A 将 nice 值 +1，其使用的 CPU 应该是 25% * 90% = 0.225
+ *
+ * 实际其当前利用率是 820 / (1024 * 3 + 820) = 21.07%
  */
 const int sched_prio_to_weight[40] = {
  /* -20 */     88761,     71755,     56483,     46273,     36291,

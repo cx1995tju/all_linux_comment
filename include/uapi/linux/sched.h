@@ -110,6 +110,12 @@ struct clone_args {
 
 /*
  * Scheduling policies
+
+ 	- deadline调度类：SCHED_DEADLINE 调度策略
+	- rt 调度类: SCHED_FIFO, SCHED_RR
+	- CFS 调度类: SCHED_NORMAL / SCHED_BATCH / SCHED_IDLE	注：batch 和 idle 的优先级比 normal 的要低
+	- idle_sched_class: SCHED_IDLE
+
  */
 #define SCHED_NORMAL		0
 #define SCHED_FIFO		1

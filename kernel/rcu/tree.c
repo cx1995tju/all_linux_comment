@@ -2720,7 +2720,7 @@ static __latent_entropy void rcu_core(void)
 }
 
 static void rcu_core_si(struct softirq_action *h)
-{
+{ // do rcu core working for this CPU
 	rcu_core();
 }
 
@@ -4246,6 +4246,7 @@ early_initcall(rcu_spawn_gp_kthread);
  * A later core_initcall() rcu_set_runtime_mode() will switch to full
  * runtime RCU functionality.
  */
+ // 启动 rcu 机制咯
 void rcu_scheduler_starting(void)
 {
 	WARN_ON(num_online_cpus() != 1);
@@ -4257,6 +4258,8 @@ void rcu_scheduler_starting(void)
 
 /*
  * Helper function for rcu_init() that initializes the rcu_state structure.
+ *
+ * 初始化 rcu_state 结构
  */
 static void __init rcu_init_one(void)
 {
@@ -4355,7 +4358,7 @@ static void __init rcu_init_geometry(void)
 	 * value, which is a function of HZ, then adding one for each
 	 * RCU_JIFFIES_FQS_DIV CPUs that might be on the system.
 	 */
-	d = RCU_JIFFIES_TILL_FORCE_QS + nr_cpu_ids / RCU_JIFFIES_FQS_DIV;
+	d = RCU_JIFFIES_TILL_FORCE_QS + nr_cpu_ids / RCU_JIFFIES_FQS_DIV; // CPU发生了上下文切换称为经历一个 quiescent state 。这里的单位是 jiffies
 	if (jiffies_till_first_fqs == ULONG_MAX)
 		jiffies_till_first_fqs = d;
 	if (jiffies_till_next_fqs == ULONG_MAX)
@@ -4364,11 +4367,13 @@ static void __init rcu_init_geometry(void)
 
 	/* If the compile-time values are accurate, just leave. */
 	if (rcu_fanout_leaf == RCU_FANOUT_LEAF &&
-	    nr_cpu_ids == NR_CPUS)
+	    nr_cpu_ids == NR_CPUS)	// 一般不会那么巧的。哪有可能编译时指定的 CPU 数目和运行时一样呢。
 		return;
 	pr_info("Adjusting geometry for rcu_fanout_leaf=%d, nr_cpu_ids=%u\n",
 		rcu_fanout_leaf, nr_cpu_ids);
 
+	// 计算一些值, 用于调整 rcu state 中的 node 的 layout 
+	// rcu_num_nodes
 	/*
 	 * The boot-time rcu_fanout_leaf parameter must be at least two
 	 * and cannot exceed the number of bits in the rcu_node masks.
@@ -4376,7 +4381,7 @@ static void __init rcu_init_geometry(void)
 	 * limit is exceeded.
 	 */
 	if (rcu_fanout_leaf < 2 ||
-	    rcu_fanout_leaf > sizeof(unsigned long) * 8) {
+	    rcu_fanout_leaf > sizeof(unsigned long) * 8) { // 默认值是 64，所以一般不会进来
 		rcu_fanout_leaf = RCU_FANOUT_LEAF;
 		WARN_ON(1);
 		return;
@@ -4386,7 +4391,7 @@ static void __init rcu_init_geometry(void)
 	 * Compute number of nodes that can be handled an rcu_node tree
 	 * with the given number of levels.
 	 */
-	rcu_capacity[0] = rcu_fanout_leaf;
+	rcu_capacity[0] = rcu_fanout_leaf; // 这类记录 rcu_state 中 node 的每一层的容量
 	for (i = 1; i < RCU_NUM_LVLS; i++)
 		rcu_capacity[i] = rcu_capacity[i - 1] * RCU_FANOUT;
 
@@ -4408,7 +4413,7 @@ static void __init rcu_init_geometry(void)
 	/* Calculate the number of rcu_nodes at each level of the tree. */
 	for (i = 0; i < rcu_num_lvls; i++) {
 		int cap = rcu_capacity[(rcu_num_lvls - 1) - i];
-		num_rcu_lvl[i] = DIV_ROUND_UP(nr_cpu_ids, cap);
+		num_rcu_lvl[i] = DIV_ROUND_UP(nr_cpu_ids, cap);	// 计算每一层有多少 rcu_node 数目
 	}
 
 	/* Calculate the total number of rcu_node structures. */
@@ -4486,7 +4491,7 @@ void __init rcu_init(void)
 	if (dump_tree)
 		rcu_dump_rcu_node_tree();
 	if (use_softirq)
-		open_softirq(RCU_SOFTIRQ, rcu_core_si);
+		open_softirq(RCU_SOFTIRQ, rcu_core_si);	// 用于处理 rcu 的 softirq
 
 	/*
 	 * We don't need protection against CPU-hotplug here because
@@ -4494,7 +4499,7 @@ void __init rcu_init(void)
 	 * or the scheduler are operational.
 	 */
 	pm_notifier(rcu_pm_notify, 0);
-	for_each_online_cpu(cpu) {
+	for_each_online_cpu(cpu) {	// for cpu hotplug
 		rcutree_prepare_cpu(cpu);
 		rcu_cpu_starting(cpu);
 		rcutree_online_cpu(cpu);

@@ -33,7 +33,7 @@ enum pid_type
  * Referring to user space processes by holding a reference to struct
  * task_struct has a problem.  When the user space process exits
  * the now useless task_struct is still kept.  A task_struct plus a
- * stack consumes around 10K of low kernel memory.  More precisely
+ * stack consumes around 10K of low kernel memory.  More precisely	// 节省内存，就算 usespce program 持有指针不释放，问题也不大。
  * this is THREAD_SIZE + sizeof(struct task_struct).  By comparison
  * a struct pid is about 64 bytes.
  *
@@ -51,6 +51,7 @@ enum pid_type
  * find_pid_ns() using the int nr and struct pid_namespace *ns.
  */
 
+// 一个 id，用来索引底下的 pid 结构
 struct upid {
 	int nr;
 	struct pid_namespace *ns;
