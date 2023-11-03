@@ -1760,12 +1760,16 @@ DEFINE_PER_CPU(int, __preempt_count) = INIT_PREEMPT_COUNT;
 EXPORT_PER_CPU_SYMBOL(__preempt_count);
 
 /* May not be marked __init: used by software suspend */
+//  XXX: refer to Intel SDM vol2b
+/* os 初始化的时候将调用 `wrmsrl(MSR_LSTR, entry_SYSCALL_64)` 将其地址写入对应的 MSR 寄存器 */
+/* 用户态程序调用 `syscall` 指令的时候，硬件自动从其中取出地址写入到 RIP */
 void syscall_init(void)
 {
-	wrmsr(MSR_STAR, 0, (__USER32_CS << 16) | __KERNEL_CS);
-	wrmsrl(MSR_LSTAR, (unsigned long)entry_SYSCALL_64);
+	wrmsr(MSR_STAR, 0, (__USER32_CS << 16) | __KERNEL_CS);	// legacy mode syscall target
+	wrmsrl(MSR_LSTAR, (unsigned long)entry_SYSCALL_64); // syscall 入口地址保存，调用syscall 指令进入系统调用的时候，硬件自动加载该地址
 
-#ifdef CONFIG_IA32_EMULATION
+#ifdef CONFIG_IA32_EMULATION // allows legacy 32-bit programs to run under a 64-bit kernel
+	//  target rip for the compatibility mode callers;
 	wrmsrl(MSR_CSTAR, (unsigned long)entry_SYSCALL_compat);
 	/*
 	 * This only works on Intel CPUs.
@@ -1773,13 +1777,16 @@ void syscall_init(void)
 	 * This does not cause SYSENTER to jump to the wrong location, because
 	 * AMD doesn't allow SYSENTER in long mode (either 32- or 64-bit).
 	 */
+	// target cs for the sysenter instruction;
 	wrmsrl_safe(MSR_IA32_SYSENTER_CS, (u64)__KERNEL_CS);
+	// target esp for the sysenter instruction;
 	wrmsrl_safe(MSR_IA32_SYSENTER_ESP,
 		    (unsigned long)(cpu_entry_stack(smp_processor_id()) + 1));
-	wrmsrl_safe(MSR_IA32_SYSENTER_EIP, (u64)entry_SYSENTER_compat);
+	// target eip for the sysenter instruction.
+	wrmsrl_safe(MSR_IA32_SYSENTER_EIP, (u64)entry_SYSENTER_compat); // 兼容模式下使用 sysenter 命令时的 EIP
 #else
-	wrmsrl(MSR_CSTAR, (unsigned long)ignore_sysret);
-	wrmsrl_safe(MSR_IA32_SYSENTER_CS, (u64)GDT_ENTRY_INVALID_SEG);
+	wrmsrl(MSR_CSTAR, (unsigned long)ignore_sysret); // arch/x86/entry/entry_64.S		compat mode syscall target
+	wrmsrl_safe(MSR_IA32_SYSENTER_CS, (u64)GDT_ENTRY_INVALID_SEG);	// sysenter 使用的一些寄存器值
 	wrmsrl_safe(MSR_IA32_SYSENTER_ESP, 0ULL);
 	wrmsrl_safe(MSR_IA32_SYSENTER_EIP, 0ULL);
 #endif

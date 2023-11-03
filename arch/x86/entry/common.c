@@ -43,7 +43,7 @@ __visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)
 	instrumentation_begin();
 	if (likely(nr < NR_syscalls)) {
 		nr = array_index_nospec(nr, NR_syscalls);
-		regs->ax = sys_call_table[nr](regs);
+		regs->ax = sys_call_table[nr](regs); // arch/x86/entry/syscall_64.c
 #ifdef CONFIG_X86_X32_ABI
 	} else if (likely((nr & __X32_SYSCALL_BIT) &&
 			  (nr & ~__X32_SYSCALL_BIT) < X32_NR_syscalls)) {

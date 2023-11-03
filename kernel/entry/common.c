@@ -158,7 +158,7 @@ static unsigned long exit_to_user_mode_loop(struct pt_regs *regs,
 			klp_update_patch_state(current);
 
 		if (ti_work & _TIF_SIGPENDING)
-			arch_do_signal(regs);
+			arch_do_signal(regs);	// 退出到用户态的时候，需要处理信号
 
 		if (ti_work & _TIF_NOTIFY_RESUME) {
 			tracehook_notify_resume(regs);
@@ -188,7 +188,7 @@ static void exit_to_user_mode_prepare(struct pt_regs *regs)
 	lockdep_assert_irqs_disabled();
 
 	if (unlikely(ti_work & EXIT_TO_USER_MODE_WORK))
-		ti_work = exit_to_user_mode_loop(regs, ti_work);
+		ti_work = exit_to_user_mode_loop(regs, ti_work); // 这里面要做信号处理等工作
 
 	arch_exit_to_user_mode_prepare(regs, ti_work);
 
@@ -247,7 +247,7 @@ static void syscall_exit_to_user_mode_prepare(struct pt_regs *regs)
 			local_irq_enable();
 	}
 
-	rseq_syscall(regs);
+	rseq_syscall(regs); // restore reg
 
 	/*
 	 * Do one-time syscall specific work. If these work items are

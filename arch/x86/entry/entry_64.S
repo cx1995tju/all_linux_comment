@@ -92,29 +92,36 @@ SYM_CODE_END(native_usergs_sysret64)
  * with them due to bugs in both AMD and Intel CPUs.
  */
 
+// refer to: syscall_init()
+// - os 初始化的时候将调用 `wrmsrl(MSR_LSTR, entry_SYSCALL_64)` 将其地址写入对应的 MSR 寄存器
+// - 用户态程序调用 `syscall` 指令的时候，硬件自动从其中取出地址写入到 RIP
+
+
+// switches to the kernel stack and saves some general purpose registers, old stack and code segment, flags and etc... on the stack;
 SYM_CODE_START(entry_SYSCALL_64)
 	UNWIND_HINT_EMPTY
 
-	swapgs
+	swapgs /* swap gs 寄存器, 获取 MSR_KERNEL_GS_BASE 的值填充 gs 寄存器，同时保存 gs 寄存器的值。gs 寄存器用于访问 kernel per-cpu 变量 */
 	/* tss.sp2 is scratch space. */
-	movq	%rsp, PER_CPU_VAR(cpu_tss_rw + TSS_sp2)
+	movq	%rsp, PER_CPU_VAR(cpu_tss_rw + TSS_sp2)	// 保存用户态进来的老的 rsp 指针
 	SWITCH_TO_KERNEL_CR3 scratch_reg=%rsp
-	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp
+	movq	PER_CPU_VAR(cpu_current_top_of_stack), %rsp // 设置新的栈指针
 
 SYM_INNER_LABEL(entry_SYSCALL_64_safe_stack, SYM_L_GLOBAL)
 
 	/* Construct struct pt_regs on stack */
 	pushq	$__USER_DS				/* pt_regs->ss */
-	pushq	PER_CPU_VAR(cpu_tss_rw + TSS_sp2)	/* pt_regs->sp */
+	pushq	PER_CPU_VAR(cpu_tss_rw + TSS_sp2)	/* pt_regs->sp */ // 将用户态的现场保存到栈里。注意，此时 rsp 指针已经切换。是保存到 kernel 的栈中了
 	pushq	%r11					/* pt_regs->flags */
 	pushq	$__USER_CS				/* pt_regs->cs */
 	pushq	%rcx					/* pt_regs->ip */
 SYM_INNER_LABEL(entry_SYSCALL_64_after_hwframe, SYM_L_GLOBAL)
 	pushq	%rax					/* pt_regs->orig_ax */
 
-	PUSH_AND_CLEAR_REGS rax=$-ENOSYS
+	PUSH_AND_CLEAR_REGS rax=$-ENOSYS // calling.h
 
 	/* IRQs are off. */
+ // why??? 
 	movq	%rax, %rdi
 	movq	%rsp, %rsi
 	call	do_syscall_64		/* returns with IRQs disabled */
