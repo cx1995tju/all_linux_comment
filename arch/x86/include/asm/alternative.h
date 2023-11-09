@@ -55,6 +55,7 @@
 	".long 999b - .\n\t"					\
 	".popsection\n\t"
 
+// instr: instruction
 struct alt_instr {
 	s32 instr_offset;	/* original instruction */
 	s32 repl_offset;	/* offset to replacement instruction */

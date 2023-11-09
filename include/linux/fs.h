@@ -2513,11 +2513,11 @@ static inline int break_layout(struct inode *inode, bool wait)
 /* fs/open.c */
 struct audit_names;
 struct filename {
-	const char		*name;	/* pointer to actual string */
+	const char		*name;	/* pointer to actual string, pointer to a file path in kernel space */
 	const __user char	*uptr;	/* original userland pointer */
 	int			refcnt;
-	struct audit_names	*aname;
-	const char		iname[];
+	struct audit_names	*aname; /* filename from audit context */
+	const char		iname[]; /* a filename in a case when it will be less than PATH_MAX*/
 };
 static_assert(offsetof(struct filename, iname) % sizeof(long) == 0);
 
@@ -3374,6 +3374,9 @@ int __init get_filesystem_list(char *buf);
 #define __FMODE_EXEC		((__force int) FMODE_EXEC)
 #define __FMODE_NONOTIFY	((__force int) FMODE_NONOTIFY)
 
+// 前面的扩展开就是一个数组 {'\004', '\002', '\006', '\006'}
+// 所以这个宏就是访问数组的第 (x)&O_ACCMODE 个元素
+// MAY_READ MAY_WRITE
 #define ACC_MODE(x) ("\004\002\006\006"[(x)&O_ACCMODE])
 #define OPEN_FMODE(flag) ((__force fmode_t)(((flag + 1) & O_ACCMODE) | \
 					    (flag & __FMODE_NONOTIFY)))

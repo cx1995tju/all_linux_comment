@@ -1557,7 +1557,7 @@ int do_prlimit(struct task_struct *tsk, unsigned int resource,
 	}
 
 	/* protect tsk->signal and tsk->sighand from disappearing */
-	read_lock(&tasklist_lock);
+	read_lock(&tasklist_lock); // 必须加锁，因为 prlimit syscall 允许操作其他进程的 rlimit
 	if (!tsk->sighand) {
 		retval = -ESRCH;
 		goto out;

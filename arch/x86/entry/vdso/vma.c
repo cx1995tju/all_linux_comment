@@ -403,6 +403,7 @@ static int load_vdso32(void)
 #endif
 
 #ifdef CONFIG_X86_64
+/* - kernel 加载二进制文件，启动进程的时候会偷偷为每个进程映射 vdso  //  arch_setup_additional_pages() -> map_vdso_randomized() */
 int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 {
 	if (!vdso64_enabled)
@@ -448,7 +449,7 @@ static int __init init_vdso(void)
 {
 	BUILD_BUG_ON(VDSO_CLOCKMODE_MAX >= 32);
 
-	init_vdso_image(&vdso_image_64);
+	init_vdso_image(&vdso_image_64); // 这个 image 是编译时 vdso2c program 生成的 cmd_arch/x86/entry/vdso/vdso-image-64.c := arch/x86/entry/vdso/vdso2c arch/x86/entry/vdso/vdso64.so.dbg arch/x86/entry/vdso/vdso64.so arch/x86/entry/vdso/vdso-image-64.c
 
 #ifdef CONFIG_X86_X32_ABI
 	init_vdso_image(&vdso_image_x32);

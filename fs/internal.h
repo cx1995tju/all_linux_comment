@@ -123,7 +123,7 @@ extern bool mount_capable(struct fs_context *);
 struct open_flags {
 	int open_flag;
 	umode_t mode;
-	int acc_mode;
+	int acc_mode; // access mode
 	int intent;
 	int lookup_flags;
 };

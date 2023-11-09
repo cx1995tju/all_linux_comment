@@ -67,9 +67,9 @@ SYM_CODE_END(native_usergs_sysret64)
  * of SYSCALL instructions in the vDSO used, for example, as a
  * clock_gettimeofday fallback.
  *
- * 64-bit SYSCALL saves rip to rcx, clears rflags.RF, then saves rflags to r11,
+ * 64-bit SYSCALL saves rip to rcx, clears rflags.RF, then saves rflags to r11, h
  * then loads new ss, cs, and rip from previously programmed MSRs.
- * rflags gets masked by a value from another MSR (so CLD and CLAC
+ * rflags gets masked by a value from another MSR (so CLD and CLAC	//  syscall_init():MSR_SYSCALL_MASK
  * are not needed). SYSCALL does not save anything on the stack
  * and does not change rsp.
  *
@@ -120,8 +120,7 @@ SYM_INNER_LABEL(entry_SYSCALL_64_after_hwframe, SYM_L_GLOBAL)
 
 	PUSH_AND_CLEAR_REGS rax=$-ENOSYS // calling.h
 
-	/* IRQs are off. */
- // why??? 
+	/* IRQs are off. */ // why???  syscall 指令调用的时候会 clear 一些 flags。在 syscall_init() 中使用 MSR_SYSCALL_MASK MSR 指定了需要被清空的 flags
 	movq	%rax, %rdi
 	movq	%rsp, %rsi
 	call	do_syscall_64		/* returns with IRQs disabled */

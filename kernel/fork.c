@@ -2511,6 +2511,9 @@ pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 }
 
 #ifdef __ARCH_WANT_SYS_FORK
+// fork 的时候会继承 fd。
+// 一般fork() 之后，execve() 之前会关闭掉子进程的fd
+// 如果 fd 设置了 close_on_exec 那么就不需要手动关闭了
 SYSCALL_DEFINE0(fork)
 {
 #ifdef CONFIG_MMU
@@ -2883,6 +2886,7 @@ int unshare_fd(unsigned long unshare_flags, unsigned int max_fds,
 
 	if ((unshare_flags & CLONE_FILES) &&
 	    (fd && atomic_read(&fd->count) > 1)) {
+		// 如果 fd->count > 1。这里面会 clone 一个新的 files_struct 结构的
 		*new_fdp = dup_fd(fd, max_fds, &error);
 		if (!*new_fdp)
 			return error;
@@ -3026,6 +3030,7 @@ SYSCALL_DEFINE1(unshare, unsigned long, unshare_flags)
  *	the exec layer of the kernel.
  */
 
+// bprm_execve() 调用过来
 int unshare_files(struct files_struct **displaced)
 {
 	struct task_struct *task = current;

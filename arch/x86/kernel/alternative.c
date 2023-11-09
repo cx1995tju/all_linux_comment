@@ -369,6 +369,7 @@ static void __init_or_module noinline optimize_nops(struct alt_instr *a, u8 *ins
  * Marked "noinline" to cause control flow change and thus insn cache
  * to refetch changed I$ lines.
  */
+// [start, end) 范围的指令要根据不同的 CPU 替换为最优的指令
 void __init_or_module noinline apply_alternatives(struct alt_instr *start,
 						  struct alt_instr *end)
 {

@@ -975,6 +975,9 @@ EXPORT_SYMBOL(open_with_fake_path);
 #define WILL_CREATE(flags)	(flags & (O_CREAT | __O_TMPFILE))
 #define O_PATH_FLAGS		(O_DIRECTORY | O_NOFOLLOW | O_PATH | O_CLOEXEC)
 
+// does some checks that set of the given flags is valid and handles different conditions of flags and mode.
+// @flags: control opening of a file
+// @mode: permissions for newly created file
 inline struct open_how build_open_how(int flags, umode_t mode)
 {
 	struct open_how how = {
@@ -998,6 +1001,9 @@ inline int build_open_flags(const struct open_how *how, struct open_flags *op)
 	int acc_mode = ACC_MODE(flags);
 
 	/* Must never be set by userspace */
+	// why???? ???????
+	//	应该是安全问题, refer to: c6f3d81115989e274c42a852222b80d2e14ced6f
+	// 注意传入参数 how 中的 flags 是没有被修改的
 	flags &= ~(FMODE_NONOTIFY | O_CLOEXEC);
 
 	/*
@@ -1011,7 +1017,7 @@ inline int build_open_flags(const struct open_how *how, struct open_flags *op)
 		return -EINVAL;
 
 	/* Deal with the mode. */
-	if (WILL_CREATE(flags)) {
+	if (WILL_CREATE(flags)) { // refer to: man open > if neither O_CREAT nor O_TMPFILE is specified, then mode is ignored.
 		if (how->mode & ~S_IALLUGO)
 			return -EINVAL;
 		op->mode = how->mode | S_IFREG;
@@ -1030,9 +1036,15 @@ inline int build_open_flags(const struct open_how *how, struct open_flags *op)
 	if (flags & __O_TMPFILE) {
 		if ((flags & O_TMPFILE_MASK) != O_TMPFILE)
 			return -EINVAL;
-		if (!(acc_mode & MAY_WRITE))
+		if (!(acc_mode & MAY_WRITE)) // man open > O_TMPFILE must be specified with one of O_RDWR or O_WRONLY
 			return -EINVAL;
 	}
+/*
+ * The O_PATH flag allows us to obtain a file descriptor that may be used for two following purposes:
+ *   - to indicate a location in the filesystem tree;
+ *   - to perform operations that act purely at the file descriptor level.
+ * in this case the file itself is not opened, but operations like dup, fcntl and other can be used. 	
+ * */
 	if (flags & O_PATH) {
 		/* O_PATH only permits certain other flags to be set. */
 		if (flags & ~O_PATH_FLAGS)
@@ -1052,7 +1064,7 @@ inline int build_open_flags(const struct open_how *how, struct open_flags *op)
 	op->open_flag = flags;
 
 	/* O_TRUNC implies we need access checks for write permissions */
-	if (flags & O_TRUNC)
+	if (flags & O_TRUNC)	// 文件会被截断为0长度
 		acc_mode |= MAY_WRITE;
 
 	/* Allow the LSM permission hook to distinguish append
@@ -1060,8 +1072,10 @@ inline int build_open_flags(const struct open_how *how, struct open_flags *op)
 	if (flags & O_APPEND)
 		acc_mode |= MAY_APPEND;
 
-	op->acc_mode = acc_mode;
+	op->acc_mode = acc_mode; // acc_mode: access mode
 
+	// intent. It allows us to know about our intention or in other words what do we really want to do with file, open it, create, rename it or something else.
+	// So we set it to zero if our flags contains the O_PATH flag as we can't do anything related to a file content with this flag
 	op->intent = flags & O_PATH ? 0 : LOOKUP_OPEN;
 
 	if (flags & O_CREAT) {
@@ -1165,7 +1179,7 @@ static long do_sys_openat2(int dfd, const char __user *filename,
 
 	fd = get_unused_fd_flags(how->flags);
 	if (fd >= 0) {
-		struct file *f = do_filp_open(dfd, tmp, &op);
+		struct file *f = do_filp_open(dfd, tmp, &op); // 到底层文件系统区处理咯
 		if (IS_ERR(f)) {
 			put_unused_fd(fd);
 			fd = PTR_ERR(f);
@@ -1187,8 +1201,8 @@ long do_sys_open(int dfd, const char __user *filename, int flags, umode_t mode)
 
 SYSCALL_DEFINE3(open, const char __user *, filename, int, flags, umode_t, mode)
 {
-	if (force_o_largefile())
-		flags |= O_LARGEFILE;
+	if (force_o_largefile()) // 如果是 64b 系统，这里就是true，强制可以打开 >4G的文件。refer to: man open
+		flags |= O_LARGEFILE; // 32b 系统需要显示在 flag 指定才能打开 >4G 的文件
 	return do_sys_open(AT_FDCWD, filename, flags, mode);
 }
 

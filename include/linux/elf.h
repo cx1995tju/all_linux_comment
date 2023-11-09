@@ -29,7 +29,7 @@
 
 extern Elf32_Dyn _DYNAMIC [];
 #define elfhdr		elf32_hdr
-#define elf_phdr	elf32_phdr
+#define elf_phdr	elf32_phdr // elf program hedaer, 描述了 elf 文件里的 program header
 #define elf_shdr	elf32_shdr
 #define elf_note	elf32_note
 #define elf_addr_t	Elf32_Off

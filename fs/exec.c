@@ -108,6 +108,7 @@ static inline void put_binfmt(struct linux_binfmt * fmt)
 	module_put(fmt->module);
 }
 
+// 比如 /sys /proc 这些 mount point 下的文件肯定是不能执行的
 bool path_noexec(const struct path *path)
 {
 	return (path->mnt->mnt_flags & MNT_NOEXEC) ||
@@ -891,6 +892,7 @@ EXPORT_SYMBOL(transfer_args_to_stack);
 
 #endif /* CONFIG_MMU */
 
+// open 要执行的文件
 static struct file *do_open_execat(int fd, struct filename *name, int flags)
 {
 	struct file *file;
@@ -920,7 +922,7 @@ static struct file *do_open_execat(int fd, struct filename *name, int flags)
 	 */
 	err = -EACCES;
 	if (WARN_ON_ONCE(!S_ISREG(file_inode(file)->i_mode) ||
-			 path_noexec(&file->f_path)))
+			 path_noexec(&file->f_path))) // 避免执行 /proc /sys 这些 路径下的文件
 		goto exit;
 
 	err = deny_write_access(file);
@@ -1501,6 +1503,11 @@ static struct linux_binprm *alloc_bprm(int fd, struct filename *filename)
 
 		bprm->filename = bprm->fdpath;
 	}
+	//  we set not only the bprm->filename but also bprm->interp
+	//  that will contain name of the program interpreter. For
+	//  now we just write the same name there, but later it will
+	//  be updated with the real name of the program interpreter
+	//  depends on binary format of a program
 	bprm->interp = bprm->filename;
 
 	retval = bprm_mm_init(bprm);
@@ -1630,6 +1637,7 @@ static int prepare_binprm(struct linux_binprm *bprm)
 	loff_t pos = 0;
 
 	memset(bprm->buf, 0, BINPRM_BUF_SIZE);
+	// 从可执行文件里先读出来 256 Bytes。后面要用256bytes来确定可执行文件的类型
 	return kernel_read(bprm->file, bprm->buf, BINPRM_BUF_SIZE, &pos);
 }
 
@@ -1700,12 +1708,12 @@ static int search_binary_handler(struct linux_binprm *bprm)
 			continue;
 		read_unlock(&binfmt_lock);
 
-		retval = fmt->load_binary(bprm);
+		retval = fmt->load_binary(bprm); // 这里面已经设置好新的 program 的所有 pt_regs 结构，含 ip寄存器
 
 		read_lock(&binfmt_lock);
 		put_binfmt(fmt);
 		if (bprm->point_of_no_return || (retval != -ENOEXEC)) {
-			read_unlock(&binfmt_lock);
+			read_unlock(&binfmt_lock); //找到了 load_binary() 后就会从这里退出
 			return retval;
 		}
 	}
@@ -1800,7 +1808,7 @@ static int bprm_execve(struct linux_binprm *bprm,
 	if (IS_ERR(file))
 		goto out_unmark;
 
-	sched_exec();
+	sched_exec(); // 选择一个当前负载下的 CPU，迁移过去
 
 	bprm->file = file;
 	/*
@@ -1808,7 +1816,7 @@ static int bprm_execve(struct linux_binprm *bprm,
 	 * inaccessible after exec. Relies on having exclusive access to
 	 * current->files (due to unshare_files above).
 	 */
-	if (bprm->fdpath &&
+	if (bprm->fdpath &&	// 对可执行文件做一些检查。关闭那些 exec 时需要 close 的 fd
 	    close_on_exec(fd, rcu_dereference_raw(current->files->fdt)))
 		bprm->interp_flags |= BINPRM_FLAGS_PATH_INACCESSIBLE;
 
@@ -1817,7 +1825,7 @@ static int bprm_execve(struct linux_binprm *bprm,
 	if (retval)
 		goto out;
 
-	retval = exec_binprm(bprm);
+	retval = exec_binprm(bprm); // _核心_
 	if (retval < 0)
 		goto out;
 
@@ -1974,6 +1982,9 @@ out_ret:
 	return retval;
 }
 
+// fork 会继承 fd 等很多资源
+// 一般fork() 之后，execve() 之前会关闭掉子进程不需要的fd。有时候 fd 太多，容易遗漏
+// 如果 fd 设置了 close_on_exec 那么就不需要手动关闭了。refer to:  bprm_execve()
 static int do_execve(struct filename *filename,
 	const char __user *const __user *__argv,
 	const char __user *const __user *__envp)

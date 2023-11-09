@@ -14,6 +14,7 @@ struct filename;
 /*
  * This structure is used to hold the arguments that are used when loading binaries.
  */
+// 保存 loading binary 过程中的 context
 struct linux_binprm {
 #ifdef CONFIG_MMU
 	struct vm_area_struct *vma;

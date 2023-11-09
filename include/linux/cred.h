@@ -86,7 +86,7 @@ static inline int groups_search(const struct group_info *group_info, kgid_t grp)
 #endif
 
 /*
- * The security context of a task
+ * The security context of a task	XXX
  *
  * The parts of the context break down into two categories:
  *
@@ -108,6 +108,7 @@ static inline int groups_search(const struct group_info *group_info, kgid_t grp)
  * temporarily to point to another security context, but normally points to the
  * same context as task->real_cred.
  */
+// security context
 struct cred {
 	atomic_t	usage;
 #ifdef CONFIG_DEBUG_CREDENTIALS

@@ -1307,7 +1307,8 @@ out_free_interp:
 #endif
 
 	finalize_exec(bprm);
-	start_thread(regs, elf_entry, bprm->p);
+	// 里面设置了 ip 指针，等到 execve 返回到用户态的时候，就会切换到新的program咯
+	start_thread(regs, elf_entry, bprm->p); // elf_entry: entry point
 	retval = 0;
 out:
 	return retval;

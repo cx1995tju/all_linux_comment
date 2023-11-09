@@ -42,6 +42,11 @@
 #define CREATE_TRACE_POINTS
 #include "vsyscall_trace.h"
 
+// vsyscall_mode 的模式
+/*
+ * XONLY 模式，libc 直接找到 vsyscall page，然后执行对应的代码 arch/x86/entry/vsyscall/vsyscall_emu_64.S
+ * EMULATE 模式：注意map_vsyscall没有位 vsyscall page 设置 VM_EXEC，那么 libc 执行 vsyscall page 中的代码的时候就会 page fault。page fault hadler 会知道这里是 vsyscall 导致的，就会调用 emulate_vsyscall() 来处理。在这个 handler 里将需要的syscall 处理掉
+*/
 static enum { EMULATE, XONLY, NONE } vsyscall_mode __ro_after_init =
 #ifdef CONFIG_LEGACY_VSYSCALL_NONE
 	NONE;
@@ -51,6 +56,7 @@ static enum { EMULATE, XONLY, NONE } vsyscall_mode __ro_after_init =
 	EMULATE;
 #endif
 
+// 内核启动参数可以配置
 static int __init vsyscall_setup(char *str)
 {
 	if (str) {
@@ -384,6 +390,12 @@ void __init map_vsyscall(void)
 	 * execute-only mode, there is no PTE at all backing the vsyscall
 	 * page.
 	 */
+
+	// vsyscall_mode 的模式
+	/*
+	 * XONLY 模式，libc 直接找到 vsyscall page，然后执行对应的代码 arch/x86/entry/vsyscall/vsyscall_emu_64.S
+	 * EMULATE 模式：注意这里没有位 vsyscall page 设置 VM_EXEC，那么 libc 执行 vsyscall page 中的代码的时候就会 page fault。page fault hadler 会知道这里是 vsyscall 导致的，就会调用 emulate_vsyscall() 来处理。在这个 handler 里将需要的syscall 处理掉
+	*/
 	if (vsyscall_mode == EMULATE) {	// 常态
 		__set_fixmap(VSYSCALL_PAGE, physaddr_vsyscall,	// 建立物理地址 physaddr_vsyscall 和 虚拟地址 PAGE_KERNEL_VVAR 之间的练习。虽然 &__vsyscall_page 也是虚拟地址。但是这里是为了建立其 fixmap 范围内的虚拟地址
 			     PAGE_KERNEL_VVAR);

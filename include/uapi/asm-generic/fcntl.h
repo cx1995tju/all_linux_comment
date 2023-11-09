@@ -38,7 +38,7 @@
 #ifndef O_NONBLOCK
 #define O_NONBLOCK	00004000
 #endif
-#ifndef O_DSYNC
+#ifndef O_DSYNC /* The O_DSYNC is like O_SYNC except that there is no requirement to wait for any metadata (like atime, mtime and etc.) */
 #define O_DSYNC		00010000	/* used to be O_SYNC, see below */
 #endif
 #ifndef FASYNC
@@ -78,6 +78,8 @@
  */
 #ifndef O_SYNC
 #define __O_SYNC	04000000
+
+/* The O_SYNC flag guarantees that the any write call will not return before all data has been transferred to the disk. */ 
 #define O_SYNC		(__O_SYNC|O_DSYNC)
 #endif
 

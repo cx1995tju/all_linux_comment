@@ -14,7 +14,7 @@ struct vdso_image {
 	void *data;
 	unsigned long size;   /* Always a multiple of PAGE_SIZE */
 
-	unsigned long alt, alt_len;
+	unsigned long alt, alt_len; // refer to: apply_alternatives()
 
 	long sym_vvar_start;  /* Negative offset to the vvar area */
 
@@ -30,7 +30,21 @@ struct vdso_image {
 };
 
 #ifdef CONFIG_X86_64
-extern const struct vdso_image vdso_image_64;
+extern const struct vdso_image vdso_image_64; // 编译时会生成 vdso-iamge-64.c 文件，里面会定义的
+/*
+ *
+ * const struct vdso_image vdso_image_64 = {
+ *         .data = raw_data,
+ *         .size = 8192,
+ *         .alt = 3530,
+ *         .alt_len = 247,
+ *         .sym_vvar_start = -16384,
+ *         .sym_vvar_page = -16384,
+ *         .sym_pvclock_page = -12288,
+ *         .sym_hvclock_page = -8192,
+ *         .sym_timens_page = -4096,
+ * };
+ * */
 #endif
 
 #ifdef CONFIG_X86_X32
@@ -38,7 +52,7 @@ extern const struct vdso_image vdso_image_x32;
 #endif
 
 #if defined CONFIG_X86_32 || defined CONFIG_COMPAT
-extern const struct vdso_image vdso_image_32;
+extern const struct vdso_image vdso_image_32;	// 如果是 这从清空需要支持 int 80 方式的系统调用
 #endif
 
 extern void __init init_vdso_image(const struct vdso_image *image);

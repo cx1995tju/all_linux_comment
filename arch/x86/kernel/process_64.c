@@ -491,8 +491,8 @@ start_thread_common(struct pt_regs *regs, unsigned long new_ip,
 	}
 
 	loadsegment(fs, 0);
-	loadsegment(es, _ds);
-	loadsegment(ds, _ds);
+	loadsegment(es, _ds); // 设置 es 寄存器
+	loadsegment(ds, _ds); // 设置 ds 寄存器
 	load_gs_index(0);
 
 	regs->ip		= new_ip;

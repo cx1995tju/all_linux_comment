@@ -185,6 +185,7 @@ extern bool initcall_debug;
  */
 
 #ifdef CONFIG_HAVE_ARCH_PREL32_RELOCATIONS
+// 不同 level 的函数被放置到了不同的 section
 #define ___define_initcall(fn, id, __sec)			\
 	__ADDRESSABLE(fn)					\
 	asm(".section	\"" #__sec ".init\", \"a\"	\n"	\

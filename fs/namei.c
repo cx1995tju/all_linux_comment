@@ -124,6 +124,7 @@
 
 #define EMBEDDED_NAME_MAX	(PATH_MAX - offsetof(struct filename, iname))
 
+// copy name from userspace
 struct filename *
 getname_flags(const char __user *filename, int flags, int *empty)
 {
@@ -503,7 +504,7 @@ struct nameidata {
 	struct path	path;
 	struct qstr	last;
 	struct path	root;
-	struct inode	*inode; /* path.dentry.d_inode */
+	struct inode	*inode; /* path.dentry.d_inode */	/* HERE IT IS */
 	unsigned int	flags;
 	unsigned	seq, m_seq, r_seq;
 	int		last_type;
@@ -2103,6 +2104,16 @@ static inline u64 hash_name(const void *salt, const char *name)
  * Returns 0 and nd will have valid dentry and mnt on success.
  * Returns error and drops reference to input namei data on failure.
  */
+
+/*
+ * executes name resolution or in other words this function starts process
+ * of walking along a given path. It handles everything step by step except
+ * the last component of a file path.
+ *
+ * This handling includes checking of a permissions and getting a file component.
+ * As a file component is gotten, it is passed to walk_component that updates current
+ * directory entry from the dcache or asks underlying filesystem
+ * */
 static int link_path_walk(const char *name, struct nameidata *nd)
 {
 	int depth = 0; // depth <= nd->depth
@@ -3206,6 +3217,8 @@ finish_lookup:
 
 /*
  * Handle the last step of open()
+ *
+ * 核心就是 填充 file 结构
  */
 static int do_open(struct nameidata *nd,
 		   struct file *file, const struct open_flags *op)
@@ -3249,7 +3262,7 @@ static int do_open(struct nameidata *nd,
 	}
 	error = may_open(&nd->path, acc_mode, open_flag);
 	if (!error && !(file->f_mode & FMODE_OPENED))
-		error = vfs_open(&nd->path, file);
+		error = vfs_open(&nd->path, file); /* HERE IT IS */
 	if (!error)
 		error = ima_file_check(file, op->acc_mode);
 	if (!error && do_truncate)
@@ -3352,6 +3365,7 @@ static struct file *path_openat(struct nameidata *nd,
 	struct file *file;
 	int error;
 
+	// alloc file struct
 	file = alloc_empty_file(op->open_flag, current_cred());
 	if (IS_ERR(file))
 		return file;
@@ -3393,11 +3407,18 @@ struct file *do_filp_open(int dfd, struct filename *pathname,
 	struct file *filp;
 
 	set_nameidata(&nd, dfd, pathname);
-	filp = path_openat(&nd, op, flags | LOOKUP_RCU);
+
+	/* Calling path_openat() 3 times
+	 *
+	 *  the Linux kernel will open the file in RCU mode.
+	 *  This is the most efficient way to open a file.
+	 *  If this try will be failed, the kernel enters the normal mode. 
+	 * */
+	filp = path_openat(&nd, op, flags | LOOKUP_RCU); // RCU_MODE
 	if (unlikely(filp == ERR_PTR(-ECHILD)))
-		filp = path_openat(&nd, op, flags);
+		filp = path_openat(&nd, op, flags); // NORMAL MODE
 	if (unlikely(filp == ERR_PTR(-ESTALE)))
-		filp = path_openat(&nd, op, flags | LOOKUP_REVAL);
+		filp = path_openat(&nd, op, flags | LOOKUP_REVAL); // only NFS file system is likely to used
 	restore_nameidata();
 	return filp;
 }

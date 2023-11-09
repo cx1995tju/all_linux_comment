@@ -3907,6 +3907,7 @@ unsigned long nr_iowait(void)
  * sched_exec - execve() is a valuable balancing opportunity, because at
  * this point the task has the smallest effective memory and cache footprint.
  */
+// 选择一个当前负载下的 CPU，迁移过去
 void sched_exec(void)
 {
 	struct task_struct *p = current;

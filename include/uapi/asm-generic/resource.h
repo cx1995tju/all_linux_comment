@@ -28,7 +28,7 @@
 #endif
 
 #ifndef RLIMIT_NOFILE
-# define RLIMIT_NOFILE		7	/* max number of open files */
+# define RLIMIT_NOFILE		7	/* max number of open files 限制 FD 数目的 */
 #endif
 
 #ifndef RLIMIT_MEMLOCK
