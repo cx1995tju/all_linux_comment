@@ -104,7 +104,7 @@ determined according to the queue parameters and workqueue attributes
 and appended on the shared worklist of the worker-pool.  For example,
 unless specifically overridden, a work item of a bound workqueue will
 be queued on the worklist of either normal or highpri worker-pool that
-is associated to the CPU the issuer is running on.
+is associated to the CPU the issuer is running on.                      // 对于一个 bonud 的workqueue 默认情况下在 issue work 的 CPU 上执行
 
 For any worker pool implementation, managing the concurrency level
 (how many execution contexts are active) is an important issue.  cmwq

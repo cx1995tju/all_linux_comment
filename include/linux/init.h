@@ -216,8 +216,10 @@ extern bool initcall_debug;
  */
 #define pure_initcall(fn)		__define_initcall(fn, 0)
 
+
+// sync 机制: The main goal of these additional levels is to wait for completion of all modules related initialization routines for a certain level.
 #define core_initcall(fn)		__define_initcall(fn, 1)
-#define core_initcall_sync(fn)		__define_initcall(fn, 1s)
+#define core_initcall_sync(fn)		__define_initcall(fn, 1s) // sync 机制是为了等待同 level 的其他函数都执行完成
 #define postcore_initcall(fn)		__define_initcall(fn, 2)
 #define postcore_initcall_sync(fn)	__define_initcall(fn, 2s)
 #define arch_initcall(fn)		__define_initcall(fn, 3)
@@ -226,7 +228,7 @@ extern bool initcall_debug;
 #define subsys_initcall_sync(fn)	__define_initcall(fn, 4s)
 #define fs_initcall(fn)			__define_initcall(fn, 5)
 #define fs_initcall_sync(fn)		__define_initcall(fn, 5s)
-#define rootfs_initcall(fn)		__define_initcall(fn, rootfs)
+#define rootfs_initcall(fn)		__define_initcall(fn, rootfs) // refer to: populate_rootfs
 #define device_initcall(fn)		__define_initcall(fn, 6)
 #define device_initcall_sync(fn)	__define_initcall(fn, 6s)
 #define late_initcall(fn)		__define_initcall(fn, 7)
@@ -239,6 +241,7 @@ extern bool initcall_debug;
 
 #define console_initcall(fn)	___define_initcall(fn,, .con_initcall)
 
+// refer to: do_early_param
 struct obs_kernel_param {
 	const char *str;
 	int (*setup_func)(char *);

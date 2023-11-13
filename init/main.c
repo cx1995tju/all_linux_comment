@@ -731,7 +731,7 @@ noinline void __ref rest_init(void)
 static int __init do_early_param(char *param, char *val,
 				 const char *unused, void *arg)
 {
-	const struct obs_kernel_param *p;
+	const struct obs_kernel_param *p; // refer to: __setup() 宏
 
 	for (p = __setup_start; p < __setup_end; p++) {
 		if ((p->early && parameq(param, p->str)) ||
@@ -1091,6 +1091,7 @@ struct blacklist_entry {
 	char *buf;
 };
 
+// This blacklist is filled during early Linux kernel initialization from the Linux kernel command line.
 static __initdata_or_module LIST_HEAD(blacklisted_initcalls);
 
 static int __init initcall_blacklist(char *str)
@@ -1127,6 +1128,7 @@ static bool __init_or_module initcall_blacklisted(initcall_t fn)
 	char fn_name[KSYM_SYMBOL_LEN];
 	unsigned long addr;
 
+	// This blacklist is filled during early Linux kernel initialization from the Linux kernel command line.
 	if (list_empty(&blacklisted_initcalls))
 		return false;
 
@@ -1297,7 +1299,7 @@ static void __init do_initcall_level(int level, char *command_line)
 		   NULL, ignore_unknown_bootoption);
 
 	trace_initcall_level(initcall_level_names[level]);
-	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
+	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++) // 一个又一个函数指针来执行
 		do_one_initcall(initcall_from_entry(fn));
 }
 
@@ -1547,7 +1549,7 @@ static noinline void __init kernel_init_freeable(void)
 	/* Initialize page ext after all struct pages are initialized. */
 	page_ext_init();
 
-	do_basic_setup();
+	do_basic_setup(); // 各种子系统的初始化
 
 	kunit_run_all_tests();
 

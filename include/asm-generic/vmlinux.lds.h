@@ -916,6 +916,7 @@
 		KEEP(*(.initcall##level##.init))			\
 		KEEP(*(.initcall##level##s.init))			\
 
+// 这里的各个 section 存放的都是函数指针，refer to: core_initcall 
 #define INIT_CALLS							\
 		__initcall_start = .;					\
 		KEEP(*(.initcallearly.init))				\
