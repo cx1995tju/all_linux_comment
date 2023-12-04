@@ -51,6 +51,7 @@ static inline int check_stack_overflow(void) { return 0; }
 static inline void print_stack_overflow(void) { }
 #endif
 
+// 定义了 per-cpu 的 irq_stack
 DEFINE_PER_CPU(struct irq_stack *, hardirq_stack_ptr);
 DEFINE_PER_CPU(struct irq_stack *, softirq_stack_ptr);
 

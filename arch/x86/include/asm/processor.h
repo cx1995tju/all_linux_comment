@@ -422,10 +422,12 @@ struct tss_struct {
 DECLARE_PER_CPU_PAGE_ALIGNED(struct tss_struct, cpu_tss_rw);
 
 /* Per CPU interrupt stacks */
+// 表示一个中断的 stack
 struct irq_stack {
 	char		stack[IRQ_STACK_SIZE];
 } __aligned(IRQ_STACK_SIZE);
 
+// 定义了 per-cpu 变量，这样每个cpu 处理中断的时候，使用这个变量来找到自己的栈
 DECLARE_PER_CPU(struct irq_stack *, hardirq_stack_ptr);
 
 #ifdef CONFIG_X86_32
@@ -436,6 +438,21 @@ DECLARE_PER_CPU(unsigned long, cpu_current_top_of_stack);
 #endif
 
 #ifdef CONFIG_X86_64
+
+// 这个结构是 per-cpu 区域第一个符号
+// nm vmlinux 可以看到
+/* 0000000000000000 D __per_cpu_start */
+/* 0000000000000000 D fixed_percpu_data */
+/* 00000000000001e0 A kexec_control_code_size */
+/* 0000000000001000 D cpu_debug_store */
+/* 0000000000002000 D irq_stack_backing_store */
+/* 0000000000006000 D cpu_tss_rw */
+/* 0000000000009000 D gdt_page */
+/* 000000000000a000 d exception_stacks */
+
+// 每个 CPU 一个这个结构，用这个结构来索引 per-cpu 区域
+// 这个结构是 per-cpu 区域的开始位置，gs 寄存器就是指向其
+// stack_canary 是用来保护stack 的 canary
 struct fixed_percpu_data {
 	/*
 	 * GCC hardcodes the stack canary as %gs:40.  Since the
@@ -443,17 +460,19 @@ struct fixed_percpu_data {
 	 * 48 bytes of the irq stack for the canary.
 	 */
 	char		gs_base[40];
-	unsigned long	stack_canary;
+	unsigned long	stack_canary; // refer to: boot_init_stack_canary
 };
 
 DECLARE_PER_CPU_FIRST(struct fixed_percpu_data, fixed_percpu_data) __visible;
 DECLARE_INIT_PER_CPU(fixed_percpu_data);
 
+// 这个值会被加载到 MSR_GS_BASE 寄存器中
 static inline unsigned long cpu_kernelmode_gs_base(int cpu)
 {
 	return (unsigned long)per_cpu(fixed_percpu_data.gs_base, cpu);
 }
 
+// irq_count is used to check if a CPU is already on an interrupt stack or not. 
 DECLARE_PER_CPU(unsigned int, irq_count);
 extern asmlinkage void ignore_sysret(void);
 

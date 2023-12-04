@@ -93,7 +93,7 @@
 	extern __PCPU_DUMMY_ATTRS char __pcpu_unique_##name;		\
 	__PCPU_DUMMY_ATTRS char __pcpu_unique_##name;			\
 	extern __PCPU_ATTRS(sec) __typeof__(type) name;			\
-	__PCPU_ATTRS(sec) __weak __typeof__(type) name
+	__PCPU_ATTRS(sec) __weak __typeof__(type) name	// 这里是关键，定义了变量
 #else
 /*
  * Normal declaration and definition macros.
@@ -273,6 +273,7 @@ do {									\
  * Must be an lvalue. Since @var must be a simple identifier,
  * we force a syntax error here if it isn't.
  */
+// 必须要先关抢占，不然get_cpu 拿到地址后，可能被调度到其他 CPU
 #define get_cpu_var(var)						\
 (*({									\
 	preempt_disable();						\

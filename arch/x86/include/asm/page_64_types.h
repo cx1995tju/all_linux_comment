@@ -13,16 +13,17 @@
 #endif
 
 #define THREAD_SIZE_ORDER	(2 + KASAN_STACK_ORDER)
-#define THREAD_SIZE  (PAGE_SIZE << THREAD_SIZE_ORDER)	// 至少 16KB
+#define THREAD_SIZE  (PAGE_SIZE << THREAD_SIZE_ORDER)	// 16KB 或 32KB(enable KSan)
 
 #define EXCEPTION_STACK_ORDER (0 + KASAN_STACK_ORDER)
 #define EXCEPTION_STKSZ (PAGE_SIZE << EXCEPTION_STACK_ORDER)
 
+// 每个 cpu 都有 IRQ stack，保存在一个 per-cpu 变量里
 #define IRQ_STACK_ORDER (2 + KASAN_STACK_ORDER)
 #define IRQ_STACK_SIZE (PAGE_SIZE << IRQ_STACK_ORDER)
 
 /*
- * The index for the tss.ist[] array. The hardware limit is 7 entries.
+ * The index for the tss.ist[] array. The hardware limit is 7 entries. 现在已经用了 5 个了
  */
 #define	IST_INDEX_DF		0
 #define	IST_INDEX_NMI		1

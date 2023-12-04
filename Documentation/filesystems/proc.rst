@@ -437,7 +437,10 @@ The /proc/PID/smaps is an extension based on maps, showing the memory
 consumption for each of the process's mappings. For each mapping (aka Virtual
 Memory Area, or VMA) there is a series of lines such as the following::
 
-    08048000-080bc000 r-xp 00000000 03:02 13130      /bin/bash
+    08048000-080bc000 r-xp 00000000 03:02 13130      /bin/bash                          // 如果这里有 (deleted) 标志，说明有人在fs层面删除了这个文件。但是这个文件仍然被进程mapped，被进程持有
+                                                                                        // 13130 是文件的inode 号。如果是匿名文件，那么就是 00:00
+                                                                                        // 08048000-080bc000 是虚拟内存的开始与结束位置
+                                                                                        // 00000000 是这段内存对应在这个文件里的 offset
 
     Size:               1084 kB
     KernelPageSize:        4 kB
@@ -1026,7 +1029,7 @@ Mapped
               files which have been mmaped, such as libraries
 Shmem
               Total memory used by shared memory (shmem) and tmpfs
-ShmemHugePages
+ShmemHugePages                  // 这里的描述不准确，shmem 或者 tmpfs 使用的 transparent hugepage。参考 源码: meminfo_proc_show() 。如果 shmem 使用的是 非透明大页，则不在此处的计算
               Memory used by shared memory (shmem) and tmpfs allocated
               with huge pages
 ShmemPmdMapped

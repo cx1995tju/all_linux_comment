@@ -1438,9 +1438,10 @@ handle_page_fault(struct pt_regs *regs, unsigned long error_code,
 	}
 }
 
+// 这里是 exc_page_fault，不是 asm_exc_page_fault
 DEFINE_IDTENTRY_RAW_ERRORCODE(exc_page_fault)
 {
-	unsigned long address = read_cr2();
+	unsigned long address = read_cr2(); // cr2 保存了 线性地址。就是经过 段式翻译后的地址。在 linux 下，和物理地址值一样
 	irqentry_state_t state;
 
 	prefetchw(&current->mm->mmap_lock);
@@ -1472,7 +1473,7 @@ DEFINE_IDTENTRY_RAW_ERRORCODE(exc_page_fault)
 	/*
 	 * Entry handling for valid #PF from kernel mode is slightly
 	 * different: RCU is already watching and rcu_irq_enter() must not
-	 * be invoked because a kernel fault on a user space address might
+	 * be invoked because a kernel fault on a user space address might	// 比如：copy_fom/to_user
 	 * sleep.
 	 *
 	 * In case the fault hit a RCU idle region the conditional entry

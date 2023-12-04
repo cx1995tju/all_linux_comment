@@ -149,7 +149,7 @@ struct irq_common_data {
 #endif
 	void			*handler_data;
 	struct msi_desc		*msi_desc;
-	cpumask_var_t		affinity;
+	cpumask_var_t		affinity; // 这是一个指针
 #ifdef CONFIG_GENERIC_IRQ_EFFECTIVE_AFF_MASK
 	cpumask_var_t		effective_affinity;
 #endif

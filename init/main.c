@@ -122,6 +122,8 @@ extern void radix_tree_init(void);
  * operations which are not allowed with IRQ disabled are allowed while the
  * flag is set.
  */
+
+//  used in the different places. For example it used in the smp_call_function_many function from the kernel/smp.c for the checking possible deadlock when interrupts are disabled: 
 bool early_boot_irqs_disabled __read_mostly;
 
 enum system_states system_state __read_mostly;
@@ -932,7 +934,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)	// > 4
 	preempt_disable();
 	if (WARN(!irqs_disabled(),
 		 "Interrupts were enabled *very* early, fixing it\n"))
-		local_irq_disable();	// 中断可抢占都被 disable 了，放心进行下去咯
+		local_irq_disable();	// 中断和抢占都被 disable 了，放心进行下去咯
 	radix_tree_init();
 
 	/*
@@ -958,7 +960,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)	// > 4
 
 	context_tracking_init();
 	/* init some links before init_ISA_irqs() */
-	early_irq_init();
+	early_irq_init(); // 纯软件的，可能初始化了一些 irq_desc 结构, 分配了一个 irq domain, 为 io apic 分配了一些资源
 	init_IRQ();
 	tick_init();
 	rcu_init_nohz();

@@ -40,7 +40,16 @@
 #define PCI_COMMAND		0x04	/* 16 bits */
 #define  PCI_COMMAND_IO		0x1	/* Enable response in I/O space */
 #define  PCI_COMMAND_MEMORY	0x2	/* Enable response in Memory space */
-#define  PCI_COMMAND_MASTER	0x4	/* Enable bus mastering */
+
+/* The PCI_COMMAND_MASTER register contains several important control bits, including: */
+/* - The Memory Space bit: When set, this bit allows the device to respond to memory space transactions as a bus master. */
+/* - The IO Space bit: When set, this bit allows the device to respond to I/O space transactions as a bus master. */
+/* - The Bus Master bit: When set, this bit enables the device to assert the bus signals required to perform memory and I/O transactions as a bus master. */
+
+/* These bits control the device's ability to initiate and manage bus transactions, allowing it to efficiently communicate with other devices on the PCIe bus. */
+
+/* When a PCIe device is initialized, the system software typically configures the PCI_COMMAND_MASTER register to enable or disable the device's bus master capabilities as needed for its intended function within the system. */
+#define  PCI_COMMAND_MASTER	0x4	/* Enable bus mastering */	// virtio 场景下，clear 这个会导致设备 reset
 #define  PCI_COMMAND_SPECIAL	0x8	/* Enable response to special cycles */
 #define  PCI_COMMAND_INVALIDATE	0x10	/* Use memory write and invalidate */
 #define  PCI_COMMAND_VGA_PALETTE 0x20	/* Enable palette snooping */

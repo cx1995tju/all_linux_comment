@@ -610,7 +610,9 @@ void load_percpu_segment(int cpu)
 #ifdef CONFIG_X86_32
 	loadsegment(fs, __KERNEL_PERCPU);
 #else
+	// gs 段寄存器是用来索引 per-cpu 变量的, 其base 值是 MSR_GS_BASE, 即使用 gs 寄存器寻址的时候，有效地址的计算使用 MSR_GS_BASE 作为基础地址
 	__loadsegment_simple(gs, 0);
+	// model specific register is MSR_GS_BASE, which contains the base address of the memory segment pointed to by the gs register
 	wrmsrl(MSR_GS_BASE, cpu_kernelmode_gs_base(cpu));
 #endif
 	load_stack_canary_segment();
@@ -1753,6 +1755,7 @@ DEFINE_PER_CPU(struct task_struct *, current_task) ____cacheline_aligned =
 	&init_task; // 这个 task 就是 0 号 pid 的task, 也就是 swapper 线程
 EXPORT_PER_CPU_SYMBOL(current_task);
 
+// 指向栈顶
 DEFINE_PER_CPU(struct irq_stack *, hardirq_stack_ptr);
 DEFINE_PER_CPU(unsigned int, irq_count) __visible = -1;
 
@@ -1791,7 +1794,7 @@ void syscall_init(void)
 	wrmsrl_safe(MSR_IA32_SYSENTER_EIP, 0ULL);
 #endif
 
-	/* Flags to clear on syscall */
+	/* Flags to clear on syscall */	// 重要。这里指示了一些 syscall 命令执行时，进入 kernel 的时候，需要 clear 的一些标记位。比如这里的 IF 标记位。说明 syscall 进入内核的时候会关闭中断。虽然在 syscall 处理的时候，linux 又会打开
 	wrmsrl(MSR_SYSCALL_MASK,
 	       X86_EFLAGS_TF|X86_EFLAGS_DF|X86_EFLAGS_IF|
 	       X86_EFLAGS_IOPL|X86_EFLAGS_AC|X86_EFLAGS_NT);

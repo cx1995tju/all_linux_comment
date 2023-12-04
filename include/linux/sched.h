@@ -646,7 +646,7 @@ struct task_struct {
 	 * For reasons of header soup (see current_thread_info()), this
 	 * must be the first element of task_struct.
 	 */
-	struct thread_info		thread_info;
+	struct thread_info		thread_info; // 一般在这里
 #endif
 	/* -1 unrunnable, 0 runnable, >0 stopped: */
 	volatile long			state;
@@ -657,7 +657,23 @@ struct task_struct {
 	 */
 	randomized_struct_fields_start
 
-	void				*stack;	// 栈底部
+
+	/* thread union              */
+	/* +-----------------------+ */
+	/* |                       | */
+	/* |                       | */
+	/* |        stack          | */
+	/* |                       | */
+	/* |_______________________| */
+	/* |          |            | */
+	/* |          |            | */
+	/* |          |            | */
+	/* |__________↓____________|             +--------------------+ */
+	/* |                       |             |                    | */
+	/* |      thread_info      |<----------->|     task_struct    | */
+	/* |                       |             |                    | */
+	/* +-----------------------+             +--------------------+ */
+	void				*stack;	// 栈底部, 三者关系如上图所示
 	refcount_t			usage;
 	/* Per task flags (PF_*), defined further below: */
 	unsigned int			flags;
@@ -1732,6 +1748,21 @@ extern void ia64_set_curr_task(int cpu, struct task_struct *p);
 
 void yield(void);
 
+
+/* +-----------------------+ */
+/* |                       | */
+/* |                       | */
+/* |        stack          | */
+/* |                       | */
+/* |_______________________| */
+/* |          |            | */
+/* |          |            | */
+/* |          |            | */
+/* |__________↓____________|             +--------------------+ */
+/* |                       |             |                    | */
+/* |      thread_info      |<----------->|     task_struct    | */
+/* |                       |             |                    | */
+/* +-----------------------+             +--------------------+ */
 union thread_union {	// 注意这里是一个 union, 表示的是一个 kernel thread stack。并且根据配置选项，判断是否在栈底安排一些数据结构
 #ifndef CONFIG_ARCH_TASK_STRUCT_ON_STACK	// 一般不设置, 这个结构太大了，太浪费栈空间咯
 	struct task_struct task;		// 注意，前面的位置是栈底部

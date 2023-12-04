@@ -17,6 +17,16 @@
 #define MSR_LSTAR		0xc0000082 /* long mode SYSCALL target */
 #define MSR_CSTAR		0xc0000083 /* compat mode SYSCALL target */
 #define MSR_SYSCALL_MASK	0xc0000084 /* EFLAGS mask for syscall */
+
+/* CX: Since registers cs, ds, es, and ss are not used in the 64-bit mode, their fields are ignored.
+ * But we can access memory over fs and gs registers. The model specific register provides a back
+ * door to the hidden parts of these segment registers and allows to use 64-bit base address for
+ * segment register addressed by the fs and gs.
+ *
+ * So the MSR_GS_BASE is the hidden part and this part is mapped on the GS.base field. 
+ *
+ * e.g. %gs:var 方式访问，有效地址的计算 MSR_GS_BASE + var
+ * */
 #define MSR_FS_BASE		0xc0000100 /* 64bit FS base */
 #define MSR_GS_BASE		0xc0000101 /* 64bit GS base */
 #define MSR_KERNEL_GS_BASE	0xc0000102 /* SwapGS GS shadow */

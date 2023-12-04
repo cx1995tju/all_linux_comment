@@ -82,7 +82,7 @@ static __always_inline void boot_init_stack_canary(void)
 	canary += tsc + (tsc << 32UL);
 	canary &= CANARY_MASK;
 
-	current->stack_canary = canary;
+	current->stack_canary = canary; // 调用这个函数是在 start_current() 中，所以这里的 current 就是 pid 为 0 的 idle 线程
 #ifdef CONFIG_X86_64
 	this_cpu_write(fixed_percpu_data.stack_canary, canary);
 #else
@@ -114,7 +114,7 @@ static inline void setup_stack_canary_segment(int cpu)
 
 static inline void load_stack_canary_segment(void)
 {
-#ifdef CONFIG_X86_32
+#ifdef CONFIG_X86_32 // refer to gcc stack protector 机制
 	asm("mov %0, %%gs" : : "r" (__KERNEL_STACK_CANARY) : "memory");
 #endif
 }

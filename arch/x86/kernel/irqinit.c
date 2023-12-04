@@ -46,13 +46,16 @@
  * (these are usually mapped into the 0x30-0xff vector range)
  */
 
+// per-cpu 的数组
+// vector_irq_t 是一个数组类型
+// 对应每个 CPU 上的中断门
 DEFINE_PER_CPU(vector_irq_t, vector_irq) = {
 	[0 ... NR_VECTORS - 1] = VECTOR_UNUSED,
 };
 
 void __init init_ISA_irqs(void)
 {
-	struct irq_chip *chip = legacy_pic->chip;
+	struct irq_chip *chip = legacy_pic->chip; // 没有 8259A 的时候，这里就是一个 dummy chip 了
 	int i;
 
 	/*
@@ -63,7 +66,7 @@ void __init init_ISA_irqs(void)
 	 */
 	init_bsp_APIC();
 
-	legacy_pic->init(0);
+	legacy_pic->init(0); // 现在都没有 8259A 了，这里都是一些 dummy / noop 操作咯
 
 	for (i = 0; i < nr_legacy_irqs(); i++)
 		irq_set_chip_and_handler(i, chip, handle_level_irq);
@@ -74,7 +77,7 @@ void __init init_IRQ(void)
 	int i;
 
 	/*
-	 * On cpu 0, Assign ISA_IRQ_VECTOR(irq) to IRQ 0..15.
+	 * On cpu 0, Assign ISA_IRQ_VECTOR(irq) to IRQ 0..15.		// 这里仅仅设置了 cpu 0 哦。即默认 cpu 0 来处理 ISA irq
 	 * If these IRQ's are handled by legacy interrupt-controllers like PIC,
 	 * then this configuration will likely be static after the boot. If
 	 * these IRQs are handled by more modern controllers like IO-APIC,
@@ -86,19 +89,19 @@ void __init init_IRQ(void)
 
 	BUG_ON(irq_init_percpu_irqstack(smp_processor_id()));
 
-	x86_init.irqs.intr_init();
+	x86_init.irqs.intr_init(); // refer to: x86_init.c, 即下面的 native_init_IRQ
 }
 
 void __init native_init_IRQ(void)
 {
 	/* Execute any quirks before the call gates are initialised: */
-	x86_init.irqs.pre_vector_init();
+	x86_init.irqs.pre_vector_init(); // 为 16 个 ISA 中断做一些初始化
 
 	idt_setup_apic_and_irq_gates();
 	lapic_assign_system_vectors();
 
-	if (!acpi_ioapic && !of_ioapic && nr_legacy_irqs()) {
-		/* IRQ2 is cascade interrupt to second interrupt controller */
+	if (!acpi_ioapic && !of_ioapic && nr_legacy_irqs()) { // 一般不会进来的
+		/* IRQ2 is cascade interrupt to second interrupt controller */ // 说明使用的是 PIC, 即两个级联的 8259A
 		if (request_irq(2, no_action, IRQF_NO_THREAD, "cascade", NULL))
 			pr_err("%s: request_irq() failed\n", "cascade");
 	}

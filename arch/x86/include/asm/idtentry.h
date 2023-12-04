@@ -510,15 +510,15 @@ __visible noinstr void func(struct pt_regs *regs,			\
 	.align 8
 SYM_CODE_START(irq_entries_start)
     vector=FIRST_EXTERNAL_VECTOR
-    .rept (FIRST_SYSTEM_VECTOR - FIRST_EXTERNAL_VECTOR)
+    .rept (FIRST_SYSTEM_VECTOR - FIRST_EXTERNAL_VECTOR) // 下面的一段代码会重复 FIRST_SYSTEM_VECTOR - FIRST_EXTERNAL_VECTOR 次
 	UNWIND_HINT_IRET_REGS
 0 :
-	.byte	0x6a, vector
-	jmp	asm_common_interrupt
+	.byte	0x6a, vector		// 0x6a 是 push 指令, 这里将中断向量 vector push 进去了
+	jmp	asm_common_interrupt // 然后跳转到这里, 这函数会为 handler 准备好stack 以及 参数 pt_regs, 然后跳转到 common_interrupts
 	nop
 	/* Ensure that the above is 8 bytes max */
 	. = 0b + 8
-	vector = vector+1
+	vector = vector+1 // 关键是这里的 vector ++ 咯。这样虽然代码重复了 n 次。但是每个中断的handler 会拿到正确的 vector 的，然后
     .endr
 SYM_CODE_END(irq_entries_start)
 
@@ -558,39 +558,71 @@ SYM_CODE_END(spurious_entries_start)
 #define X86_TRAP_OTHER		0xFFFF
 
 /* Simple exception entry points. No hardware error code */
-DECLARE_IDTENTRY(X86_TRAP_DE,		exc_divide_error);
-DECLARE_IDTENTRY(X86_TRAP_OF,		exc_overflow);
-DECLARE_IDTENTRY(X86_TRAP_BR,		exc_bounds);
+// refer to: traps.c
+//
+// 下述handler 定义中常用的 helper:
+// do_error_trap
+// do_trap
+// math_error
+//
+// handle_invalid_op
+// do_int3
+// handle_page_fault
+//
+// common_interrupt
+// spurious_interrupt
+DECLARE_IDTENTRY(X86_TRAP_DE,		exc_divide_error); // ->do_error_trap
+DECLARE_IDTENTRY(X86_TRAP_OF,		exc_overflow); // ->do_error_trap
+DECLARE_IDTENTRY(X86_TRAP_BR,		exc_bounds); // ->do_trap
+
+/* The next exception is the #NM or Device not available. The Device not available exception can occur depending on these things: */
+
+/* The processor executed an x87 FPU floating-point instruction while the EM flag in control register cr0 was set; */
+/* The processor executed a wait or fwait instruction while the MP and TS flags of register cr0 were set; */
+/* The processor executed an x87 FPU, MMX or SSE instruction while the TS flag in control register cr0 was set and the EM flag is clear. */
 DECLARE_IDTENTRY(X86_TRAP_NM,		exc_device_not_available);
-DECLARE_IDTENTRY(X86_TRAP_OLD_MF,	exc_coproc_segment_overrun);
-DECLARE_IDTENTRY(X86_TRAP_SPURIOUS,	exc_spurious_interrupt_bug);
-DECLARE_IDTENTRY(X86_TRAP_MF,		exc_coprocessor_error);
-DECLARE_IDTENTRY(X86_TRAP_XF,		exc_simd_coprocessor_error);
+DECLARE_IDTENTRY(X86_TRAP_OLD_MF,	exc_coproc_segment_overrun);// ->do_error_trap
+DECLARE_IDTENTRY(X86_TRAP_SPURIOUS,	exc_spurious_interrupt_bug); // 空函数
+DECLARE_IDTENTRY(X86_TRAP_MF,		exc_coprocessor_error); // -> math_error
+DECLARE_IDTENTRY(X86_TRAP_XF,		exc_simd_coprocessor_error); // -> math_error
 
 /* 32bit software IRET trap. Do not emit ASM code */
 DECLARE_IDTENTRY_SW(X86_TRAP_IRET,	iret_error);
 
 /* Simple exception entries with error code pushed by hardware */
-DECLARE_IDTENTRY_ERRORCODE(X86_TRAP_TS,	exc_invalid_tss);
-DECLARE_IDTENTRY_ERRORCODE(X86_TRAP_NP,	exc_segment_not_present);
-DECLARE_IDTENTRY_ERRORCODE(X86_TRAP_SS,	exc_stack_segment);
+DECLARE_IDTENTRY_ERRORCODE(X86_TRAP_TS,	exc_invalid_tss); // -> do_error_trap
+DECLARE_IDTENTRY_ERRORCODE(X86_TRAP_NP,	exc_segment_not_present); // -> do_error_trap
+DECLARE_IDTENTRY_ERRORCODE(X86_TRAP_SS,	exc_stack_segment); // -> do_error_trap
+
+
+// 重要
+/* This exception occurs when the processor detected one of a class of protection violations called general-protection violations. It can be: */
+/* Exceeding the segment limit when accessing the cs, ds, es, fs or gs segments; */
+/* Loading the ss, ds, es, fs or gs register with a segment selector for a system segment.; */
+/* Violating any of the privilege rules; */
+/* and other... */
 DECLARE_IDTENTRY_ERRORCODE(X86_TRAP_GP,	exc_general_protection);
-DECLARE_IDTENTRY_ERRORCODE(X86_TRAP_AC,	exc_alignment_check);
+DECLARE_IDTENTRY_ERRORCODE(X86_TRAP_AC,	exc_alignment_check); // -> do_trap
 
 /* Raw exception entries which need extra work */
-DECLARE_IDTENTRY_RAW(X86_TRAP_UD,		exc_invalid_op);
-DECLARE_IDTENTRY_RAW(X86_TRAP_BP,		exc_int3);
-DECLARE_IDTENTRY_RAW_ERRORCODE(X86_TRAP_PF,	exc_page_fault);
+DECLARE_IDTENTRY_RAW(X86_TRAP_UD,		exc_invalid_op); // -> handle_invalid_op
+DECLARE_IDTENTRY_RAW(X86_TRAP_BP,		exc_int3); // -> do_int3
+DECLARE_IDTENTRY_RAW_ERRORCODE(X86_TRAP_PF,	exc_page_fault); // mm/fault.c -> handle_page_fault
 
 #ifdef CONFIG_X86_MCE
 #ifdef CONFIG_X86_64
 DECLARE_IDTENTRY_MCE(X86_TRAP_MC,	exc_machine_check);
 #else
-DECLARE_IDTENTRY_RAW(X86_TRAP_MC,	exc_machine_check);
+DECLARE_IDTENTRY_RAW(X86_TRAP_MC,	exc_machine_check); // exc_machine_check_kernel|user
 #endif
 #endif
 
 /* NMI */
+/* 在 Linux 系统中，非屏蔽中断（Non-Maskable Interrupt，NMI）是一种特殊类型的中断，它的优先级非常高，通常用于处理一些紧急事件，比如硬件错误、系统崩溃或安全问题。NMI 中断的一个显著特征是无法被其他中断屏蔽，因此它可以打断几乎所有其他类型的中断处理。这意味着，当一个 NMI 中断被处理时，系统应当尽可能快地完成处理并且避免再次触发另一个 NMI。 */
+/* 在传统的 x86 架构中，NMI 中断本身是默认不可重入的。也就是说，处理一个 NMI 时，硬件不应再响应另一个 NMI。通常，处理器会在处理当前的 NMI 中断时自动屏蔽后续的 NMI 中断，以避免发生 NMI 的嵌套。 */
+/* 然而，有些平台可能支持NMI的可重入性，但这需要硬件的支持，并且操作系统必须小心处理这一点，以避免发生嵌套NMI处理的情况，它可能导致堆栈溢出或其他不可预测的系统行为。 */
+/* 在 Linux 内核中，NMI的处理通常是通过NMI处理程序来完成的。这些处理程序是经过特别设计，以最小化执行时间，并避免在NMI处理过程中产生另一个NMI条件。Linux 还有机制（比如NMI watchdog）来检测和报告在NMI处理过程中出现的问题，但处理志愿者被设计为必须尽快完成。 */
+/* 总而言之，理论上，在处理NMI中断的过程中是不应该再次触发NMI中断的，大多数系统都设计成无法允许这种情况发生。但如果硬件支持NMI的可重入性，并且操作系统特别为此做出设计，那么这种情况是可能发生的，但需要谨慎对待。 */
 DECLARE_IDTENTRY_NMI(X86_TRAP_NMI,	exc_nmi);
 #ifdef CONFIG_XEN_PV
 DECLARE_IDTENTRY_RAW(X86_TRAP_NMI,	xenpv_exc_nmi);
@@ -600,13 +632,14 @@ DECLARE_IDTENTRY_RAW(X86_TRAP_NMI,	xenpv_exc_nmi);
 #ifdef CONFIG_X86_64
 DECLARE_IDTENTRY_DEBUG(X86_TRAP_DB,	exc_debug);
 #else
-DECLARE_IDTENTRY_RAW(X86_TRAP_DB,	exc_debug);
+DECLARE_IDTENTRY_RAW(X86_TRAP_DB,	exc_debug); // exc_debug_kernel / exc_debug_user
 #endif
 #ifdef CONFIG_XEN_PV
 DECLARE_IDTENTRY_RAW(X86_TRAP_DB,	xenpv_exc_debug);
 #endif
 
 /* #DF */
+/* The next exception is #DF or Double fault. This exception occurs when the processor detected a second exception while calling an exception handler for a prior exception. */
 DECLARE_IDTENTRY_DF(X86_TRAP_DF,	exc_double_fault);
 
 /* #VC */
@@ -619,12 +652,13 @@ DECLARE_IDTENTRY_XENCB(X86_TRAP_OTHER,	exc_xen_hypervisor_callback);
 #endif
 
 /* Device interrupts common/spurious */
-DECLARE_IDTENTRY_IRQ(X86_TRAP_OTHER,	common_interrupt);
+DECLARE_IDTENTRY_IRQ(X86_TRAP_OTHER,	common_interrupt); // irq.c:common_interrupt
 #ifdef CONFIG_X86_LOCAL_APIC
-DECLARE_IDTENTRY_IRQ(X86_TRAP_OTHER,	spurious_interrupt);
+DECLARE_IDTENTRY_IRQ(X86_TRAP_OTHER,	spurious_interrupt); // apic.c:spurious_interrupt // 不是被覆盖咯, 这里的 vector 仅仅是一个 dummy vector code
 #endif
 
 /* System vector entry points */
+// 各种外部中断咯
 #ifdef CONFIG_X86_LOCAL_APIC
 DECLARE_IDTENTRY_SYSVEC(ERROR_APIC_VECTOR,		sysvec_error_interrupt);
 DECLARE_IDTENTRY_SYSVEC(SPURIOUS_APIC_VECTOR,		sysvec_spurious_apic_interrupt);

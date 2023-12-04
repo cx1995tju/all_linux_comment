@@ -436,13 +436,20 @@ NOKPROBE_SYMBOL(__die);
  * This is gone through when something in the kernel has done something bad
  * and is about to be terminated:
  */
+/* The die function defined in the arch/x86/kernel/dumpstack.c source code file, prints useful information about stack, registers, kernel modules and caused kernel oops. */
+
+
 void die(const char *str, struct pt_regs *regs, long err)
 {
 	unsigned long flags = oops_begin();
 	int sig = SIGSEGV;
 
-	if (__die(str, regs, err))
+	if (__die(str, regs, err)) // 正常处理了，就会将 sig 设置为 0
 		sig = 0;
+
+	// 可能正常返回
+	// 可能直接 panic
+	// kennel永远不返回咯
 	oops_end(flags, regs, sig);
 }
 

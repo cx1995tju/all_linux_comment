@@ -44,6 +44,7 @@ extern inline void native_restore_fl(unsigned long flags)
 		     :"memory", "cc");
 }
 
+// cli / sti 仅仅对外部中断有用。至于异常，NMI，SMI 中断，显然不起作用
 static __always_inline void native_irq_disable(void)
 {
 	asm volatile("cli": : :"memory");

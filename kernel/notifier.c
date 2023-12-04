@@ -208,6 +208,8 @@ NOKPROBE_SYMBOL(atomic_notifier_call_chain_robust);
  *	Otherwise the return value is the return value
  *	of the last notifier function called.
  */
+/* The atomic_notifier_call_chain function calls each function in a notifier chain in turn and returns the value of the last notifier function called. */
+// 只要有一个 callback 返回了 NOTIFY_STOP 中的 bits 就会立即终止调用了
 int atomic_notifier_call_chain(struct atomic_notifier_head *nh,
 			       unsigned long val, void *v)
 {
@@ -545,7 +547,7 @@ int notrace notify_die(enum die_val val, const char *str,
 	};
 	RCU_LOCKDEP_WARN(!rcu_is_watching(),
 			   "notify_die called but RCU thinks we're quiescent");
-	return atomic_notifier_call_chain(&die_chain, val, &args);
+	return atomic_notifier_call_chain(&die_chain, val, &args); // 一条通知链
 }
 NOKPROBE_SYMBOL(notify_die);
 

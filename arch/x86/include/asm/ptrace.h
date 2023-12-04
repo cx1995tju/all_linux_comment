@@ -78,7 +78,7 @@ struct pt_regs {
  * On syscall entry, this is syscall#. On CPU exception, this is error code.
  * On hw interrupt, it's IRQ number:
  */
-	unsigned long orig_ax;
+	unsigned long orig_ax
 /* Return frame for iretq */
 	unsigned long ip;
 	unsigned long cs;

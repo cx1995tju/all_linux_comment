@@ -147,7 +147,7 @@ static void apic_update_vector(struct irq_data *irqd, unsigned int newvec,
 	 * prev_vector for this and the offlined target case.
 	 */
 	apicd->prev_vector = 0;
-	if (!apicd->vector || apicd->vector == MANAGED_IRQ_SHUTDOWN_VECTOR)
+	if (!apicd->vector || apicd->vector == MANAGED_IRQ_SHUTDOWN_VECTOR) // 第一次进来，直接 setnew 去设置就可以了
 		goto setnew;
 	/*
 	 * If the target CPU of the previous vector is online, then mark
@@ -691,6 +691,7 @@ void __init lapic_assign_system_vectors(void)
 {
 	unsigned int i, vector = 0;
 
+	// 对于还没有设置中断门的一些中断，做处理
 	for_each_set_bit_from(vector, system_vectors, NR_VECTORS)
 		irq_matrix_assign_system(vector_matrix, vector, false);
 

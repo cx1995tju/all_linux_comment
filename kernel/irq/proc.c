@@ -457,6 +457,7 @@ int __weak arch_show_interrupts(struct seq_file *p, int prec)
 # define ACTUAL_NR_IRQS nr_irqs
 #endif
 
+// v 就是要打印的 irq 号
 int show_interrupts(struct seq_file *p, void *v)
 {
 	static int prec;
@@ -484,7 +485,7 @@ int show_interrupts(struct seq_file *p, void *v)
 	}
 
 	rcu_read_lock();
-	desc = irq_to_desc(i);
+	desc = irq_to_desc(i); // 获取 irq_desc
 	if (!desc || irq_settings_is_hidden(desc))
 		goto outsparse;
 
@@ -496,7 +497,7 @@ int show_interrupts(struct seq_file *p, void *v)
 		goto outsparse;
 
 	seq_printf(p, "%*d: ", prec, i);
-	for_each_online_cpu(j)
+	for_each_online_cpu(j) // 打印每个 cpu 上中断触发的次数
 		seq_printf(p, "%10u ", desc->kstat_irqs ?
 					*per_cpu_ptr(desc->kstat_irqs, j) : 0);
 

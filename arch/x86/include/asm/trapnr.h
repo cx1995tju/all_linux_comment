@@ -12,6 +12,8 @@
 #define X86_TRAP_BR		 5	/* Bound Range Exceeded */
 #define X86_TRAP_UD		 6	/* Invalid Opcode */
 #define X86_TRAP_NM		 7	/* Device Not Available */
+
+/* This exception occurs when processor detected a second exception while calling an exception handler for a prior exception. In usual way when the processor detects another exception while trying to call an exception handler, the two exceptions can be handled serially. If the processor cannot handle them serially, it signals the double-fault or #DF exception. */
 #define X86_TRAP_DF		 8	/* Double Fault */
 #define X86_TRAP_OLD_MF		 9	/* Coprocessor Segment Overrun */
 #define X86_TRAP_TS		10	/* Invalid TSS */

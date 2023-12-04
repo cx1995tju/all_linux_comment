@@ -92,7 +92,7 @@ base has already been switched. If it says that we interrupted
 user-space execution then we must do the SWAPGS.
 
 But if we are in an NMI/MCE/DEBUG/whatever super-atomic entry context,
-which might have triggered right after a normal entry wrote CS to the
+which might have triggered right after a normal entry wrote CS to the   // 也就是说 CS 已经切换到了内核态，但是 GS 还没有切换过来
 stack but before we executed SWAPGS, then the only safe way to check
 for GS is the slower method: the RDMSR.
 

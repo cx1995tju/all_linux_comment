@@ -31,6 +31,7 @@ DECLARE_INIT_PER_CPU(irq_stack_backing_store);
 /*
  * VMAP the backing store with guard pages
  */
+// 分配物理地址，然后 map 一下，得到虚拟地址，然后存起来
 static int map_irq_stack(unsigned int cpu)
 {
 	char *stack = (char *)per_cpu_ptr(&irq_stack_backing_store, cpu);
@@ -48,6 +49,7 @@ static int map_irq_stack(unsigned int cpu)
 	if (!va)
 		return -ENOMEM;
 
+	// stack is grow down, hard_irq_stack_ptr 指向栈顶，所以初始值是最大的
 	per_cpu(hardirq_stack_ptr, cpu) = va + IRQ_STACK_SIZE;
 	return 0;
 }
@@ -65,9 +67,10 @@ static int map_irq_stack(unsigned int cpu)
 }
 #endif
 
+// 初始化某个 cpu 的 irqstack
 int irq_init_percpu_irqstack(unsigned int cpu)
 {
-	if (per_cpu(hardirq_stack_ptr, cpu))
+	if (per_cpu(hardirq_stack_ptr, cpu)) // 初始化过了，那么直接跳出
 		return 0;
 	return map_irq_stack(cpu);
 }

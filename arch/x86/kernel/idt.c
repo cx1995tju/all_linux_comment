@@ -14,7 +14,7 @@
 #define DPL0		0x0
 #define DPL3		0x3
 
-#define DEFAULT_STACK	0
+#define DEFAULT_STACK	0	// 不使用 ist
 
 #define G(_vector, _addr, _ist, _type, _dpl, _segment)	\
 	{						\
@@ -39,6 +39,7 @@
  * Interrupt gate with interrupt stack. The _ist index is the index in
  * the tss.ist[] array, but for the descriptor it needs to start at 1.
  */
+// 通过 IST 指向的 TSS 完成 stack switch, refer to: tss_setup_ist()
 #define ISTG(_vector, _addr, _ist)			\
 	G(_vector, _addr, _ist + 1, GATE_INTERRUPT, DPL0, __KERNEL_CS)
 
@@ -55,7 +56,7 @@ static bool idt_setup_done __initdata;
  * stacks work only after cpu_init().
  */
 static const __initconst struct idt_data early_idts[] = {
-	INTG(X86_TRAP_DB,		asm_exc_debug),	// 设置了 INT 1 debug 中断, refer to: arch/x86/kernel/traps.c:DEFINE_IDTENTRY_DEBUG(exec_debug)
+	INTG(X86_TRAP_DB,		asm_exc_debug),	// 设置了 INT 1 debug 中断, refer to:  trap.c
 	SYSG(X86_TRAP_BP,		asm_exc_int3), // INT 3 breakpoint
 
 #ifdef CONFIG_X86_32
@@ -74,7 +75,7 @@ static const __initconst struct idt_data early_idts[] = {
  */
 static const __initconst struct idt_data def_idts[] = {
 	INTG(X86_TRAP_DE,		asm_exc_divide_error),
-	INTG(X86_TRAP_NMI,		asm_exc_nmi),
+	INTG(X86_TRAP_NMI,		asm_exc_nmi), // refer to: arch/x86/entry/entry_64.S
 	INTG(X86_TRAP_BR,		asm_exc_bounds),
 	INTG(X86_TRAP_UD,		asm_exc_invalid_op),
 	INTG(X86_TRAP_NM,		asm_exc_device_not_available),
@@ -91,7 +92,7 @@ static const __initconst struct idt_data def_idts[] = {
 #ifdef CONFIG_X86_32
 	TSKG(X86_TRAP_DF,		GDT_ENTRY_DOUBLEFAULT_TSS),
 #else
-	INTG(X86_TRAP_DF,		asm_exc_double_fault),
+	INTG(X86_TRAP_DF,		asm_exc_double_fault), // refer to: arch/x86/entry/entry_64.S refer to: /arch/x86/kernel/traps.c:exc_double_fault
 #endif
 	INTG(X86_TRAP_DB,		asm_exc_debug),
 
@@ -110,6 +111,7 @@ static const __initconst struct idt_data def_idts[] = {
 /*
  * The APIC and SMP idt entries
  */
+// 在 256 个中断门尾部预留了一些, 这是 apic 的一些中断
 static const __initconst struct idt_data apic_idts[] = {
 #ifdef CONFIG_SMP
 	INTG(RESCHEDULE_VECTOR,			asm_sysvec_reschedule_ipi),
@@ -168,6 +170,7 @@ bool idt_is_f00f_address(unsigned long address)
 }
 #endif
 
+// 用来初始化中断门,异常门，陷进门等
 static __init void
 idt_setup_from_table(gate_desc *idt, const struct idt_data *t, int size, bool sys)
 {
@@ -218,8 +221,10 @@ void __init idt_setup_traps(void)
  * Early traps running on the DEFAULT_STACK because the other interrupt
  * stacks work only after cpu_init().
  */
+// 初始化早期的 page fault
+// 这里的 early 注释是不是有问题？ 看上去初始化结束后都一直用的这个函数
 static const __initconst struct idt_data early_pf_idts[] = {
-	INTG(X86_TRAP_PF,		asm_exc_page_fault),
+	INTG(X86_TRAP_PF,		asm_exc_page_fault), // refer to: mm/fault.c:exc_page_fault
 };
 
 /*
@@ -246,11 +251,12 @@ static const __initconst struct idt_data ist_idts[] = {
  * after that.
  *
  * Note, that X86_64 cannot install the real #PF handler in
- * idt_setup_early_traps() because the memory intialization needs the #PF
+ * idt_setup_early_traps() because the memory intialization needs the #PF	// 鸡生蛋，蛋生鸡
  * handler from the early_idt_handler_array to initialize the early page
  * tables.
  */
-//  setups #PF handler (we will look on it in the chapter about interrupts)
+
+// 不 early 的 page fault handler 在哪里
 void __init idt_setup_early_pf(void)
 {
 	idt_setup_from_table(idt_table, early_pf_idts,
@@ -261,7 +267,7 @@ void __init idt_setup_early_pf(void)
  * idt_setup_ist_traps - Initialize the idt table with traps using IST
  */
 void __init idt_setup_ist_traps(void)
-{
+{ // 这些 trap 带 ist 的
 	idt_setup_from_table(idt_table, ist_idts, ARRAY_SIZE(ist_idts), true);
 }
 #endif
@@ -281,20 +287,27 @@ static void __init idt_map_in_cea(void)
 
 /**
  * idt_setup_apic_and_irq_gates - Setup APIC/SMP and normal interrupt gates
+ *
+ * 通过 init_IRQ() 调用过来的
+ *
+ * 设置 apic中断的一些中断门，和通用的中断门
  */
 void __init idt_setup_apic_and_irq_gates(void)
 {
-	int i = FIRST_EXTERNAL_VECTOR;
+	int i = FIRST_EXTERNAL_VECTOR; // 0x20
 	void *entry;
 
+	// 一些固定的 irq gate 先设置好
 	idt_setup_from_table(idt_table, apic_idts, ARRAY_SIZE(apic_idts), true);
 
-	for_each_clear_bit_from(i, system_vectors, FIRST_SYSTEM_VECTOR) {
+	// 0x20 到 0xec 这部分，没有被设置的，在这里设置中断门
+	for_each_clear_bit_from(i, system_vectors, FIRST_SYSTEM_VECTOR) { // 0xec
 		entry = irq_entries_start + 8 * (i - FIRST_EXTERNAL_VECTOR);
 		set_intr_gate(i, entry);
 	}
 
 #ifdef CONFIG_X86_LOCAL_APIC
+	// 到这里的时候，i 已经到 0xec 了，将这部分以及到最后的 中断门设置为 spurious_entries_start
 	for_each_clear_bit_from(i, system_vectors, NR_VECTORS) {
 		/*
 		 * Don't set the non assigned system vectors in the
@@ -302,12 +315,12 @@ void __init idt_setup_apic_and_irq_gates(void)
 		 * /proc/interrupts.
 		 */
 		entry = spurious_entries_start + 8 * (i - FIRST_SYSTEM_VECTOR);
-		set_intr_gate(i, entry);
+		set_intr_gate(i, entry); // 只有 BSP 会初始化？？？ 是的，但是其他 cpu 会调用 load_current_idt() 然后 laod 这个 idt_descr
 	}
 #endif
 	/* Map IDT into CPU entry area and reload it. */
 	idt_map_in_cea();
-	load_idt(&idt_descr);
+	load_idt(&idt_descr); // 前面仅仅是在内存里设置中断门，这里才是真正的 load 了 idt
 
 	/* Make the IDT table read only */
 	set_memory_ro((unsigned long)&idt_table, 1);

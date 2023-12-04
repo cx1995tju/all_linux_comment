@@ -21,7 +21,7 @@ struct pt_regs;
  * struct irq_desc - interrupt descriptor
  * @irq_common_data:	per irq and chip data passed down to chip functions
  * @kstat_irqs:		irq stats per cpu
- * @handle_irq:		highlevel irq-events handler
+ * @handle_irq:		highlevel irq-events handler // irq_set_handler_locked 设置的
  * @action:		the irq action chain
  * @status_use_accessors: status information
  * @core_internal_state__do_not_mess_with_it: core internal status information
@@ -52,12 +52,14 @@ struct pt_regs;
  * @debugfs_file:	dentry for the debugfs file
  * @name:		flow handler name for /proc/interrupts output
  */
+// 参考 show_interrupts, 可以和 /proc/interrupts 打印的内容对照起来
 struct irq_desc {
 	struct irq_common_data	irq_common_data;
-	struct irq_data		irq_data;
-	unsigned int __percpu	*kstat_irqs;
-	irq_flow_handler_t	handle_irq;
-	struct irqaction	*action;	/* IRQ action list */
+						// irq_data.chip->name 是 /proc/interrupts 的 倒数第3列
+	struct irq_data		irq_data; // irq_data.hwirw + irq_desc.name 组成了 /proc/interrupt 的倒数第 2 列
+	unsigned int __percpu	*kstat_irqs; // per cpu 变量，统计了每个 cpu 上 该 irq_desc 触发的次数
+	irq_flow_handler_t	handle_irq; // 根据各个 中断芯片来设置的，比如： %handle_fasteoi_irq %handle_edge_irq;
+	struct irqaction	*action;	/* IRQ action list */ // request_irq 该上来的 action list, /proc/interrupts 最后一列
 	unsigned int		status_use_accessors;
 	unsigned int		core_internal_state__do_not_mess_with_it;
 	unsigned int		depth;		/* nested irq disables */

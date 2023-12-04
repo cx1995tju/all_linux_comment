@@ -11,7 +11,7 @@
 #ifdef __ASSEMBLY__
 
 #ifdef CONFIG_SMP
-#define PER_CPU_VAR(var)	%__percpu_seg:var
+#define PER_CPU_VAR(var)	%__percpu_seg:var // 注意，基础地址不是 gs / fs 寄存器，而是 MSR_GS_BASE / MSG_FS_BASE 寄存器。至于这两个寄存器本身是需要 rdmsr / wrmsr 访问的。不能直接用 mov 访问
 #else /* ! SMP */
 #define PER_CPU_VAR(var)	var
 #endif	/* SMP */
@@ -28,7 +28,7 @@
 #include <linux/stringify.h>
 
 #ifdef CONFIG_SMP
-#define __percpu_prefix		"%%"__stringify(__percpu_seg)":"
+#define __percpu_prefix		"%%"__stringify(__percpu_seg)":" // 注意这里的 :, gs 是作为段寄存器使用的。使用这个寄存寻址的时候，其基础地址是 MSR_GS_BASE 的值
 #define __my_cpu_offset		this_cpu_read(this_cpu_off)
 
 /*

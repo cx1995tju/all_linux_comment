@@ -96,6 +96,8 @@ __always_inline int is_valid_bugaddr(unsigned long addr)
 	return *(unsigned short *)addr == INSN_UD2;
 }
 
+/* Did we come from the Virtual 8086 mode; */
+/* Did we come from the kernelspace. */
 static nokprobe_inline int
 do_trap_no_signal(struct task_struct *tsk, int trapnr, const char *str,
 		  struct pt_regs *regs,	long error_code)
@@ -111,7 +113,7 @@ do_trap_no_signal(struct task_struct *tsk, int trapnr, const char *str,
 				return 0;
 		}
 	} else if (!user_mode(regs)) {
-		if (fixup_exception(regs, trapnr, error_code, 0))
+		if (fixup_exception(regs, trapnr, error_code, 0)) // 内核里出现了 trap，我们就去 fix咯。fix 不了就彻底挂了。kernel oops
 			return 0;
 
 		tsk->thread.error_code = error_code;
@@ -128,7 +130,7 @@ do_trap_no_signal(struct task_struct *tsk, int trapnr, const char *str,
 	 * the information about previously queued, but not yet
 	 * delivered, faults.  See also exc_general_protection below.
 	 */
-	tsk->thread.error_code = error_code;
+	tsk->thread.error_code = error_code; // 如果是 user mode trap 了，这里返回 -1，在外层继续处理
 	tsk->thread.trap_nr = trapnr;
 
 	return -1;
@@ -152,15 +154,16 @@ static void
 do_trap(int trapnr, int signr, char *str, struct pt_regs *regs,
 	long error_code, int sicode, void __user *addr)
 {
-	struct task_struct *tsk = current;
+	struct task_struct *tsk = current; // 被 interrupted 的 task
 
 	if (!do_trap_no_signal(tsk, trapnr, str, regs, error_code))
 		return;
 
 	show_signal(tsk, signr, "trap ", str, regs, error_code);
 
-	if (!sicode)
-		force_sig(signr);
+	 // 如果是 user mode 出问题了，会到这里的。然后就会发信号给进程。当然如果是可以处理的 kernel space 问题，也会走到这里的
+	if (!sicode) // 没有对应的 signal sigcode
+		force_sig(signr); // 发个信号给 task
 	else
 		force_sig_fault(signr, sicode, addr);
 }
@@ -171,6 +174,10 @@ static void do_error_trap(struct pt_regs *regs, long error_code, char *str,
 {
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "entry code didn't wake RCU");
 
+/* The atomic_notifier_call_chain function calls each function in a notifier chain in turn and returns the value of the last notifier function called. If the notify_die in the do_error_trap does not return NOTIFY_STOP we execute conditional_sti function from the arch/x86/kernel/traps.c that checks the value of the interrupt flag and enables interrupt depends on it: */
+
+	// 只要有一个 callback 返回了 STOP，就会立即stop，然后跳出if。
+	// 不过一般来说都是要进入到 do_tra 的
 	if (notify_die(DIE_TRAP, str, regs, error_code, trapnr, signr) !=
 			NOTIFY_STOP) {
 		cond_local_irq_enable(regs);
@@ -340,7 +347,18 @@ __visible void __noreturn handle_stack_overflow(const char *message,
  *
  * The 32bit #DF shim provides CR2 already as an argument. On 64bit it needs
  * to be read before doing anything else.
+ *
+ * 在x86_64架构下，运行在IST堆栈之上；而在x86_32架构下，则运行在一个专门的任务堆栈上。
+
+ * 对于x86_64而言，这或多或少是一个常规的内核入口。尽管系统软件开发手册（SDM）警告说双重故障不可恢复，事实上，返回操作是能够按预期工作的。可以推测，SDM实际上指的是，入口时CPU可能会弄错寄存器状态，因此返回操作可能并不明智。
+ * 
+ * 多位CPU工程师承诺，由于在只读堆栈中进行IRET操作引起的双重故障，实际上是可以恢复的。
+ * 
+ * 在x86_32上，则是通过任务门进入，并且从任务状态段（TSS）合成寄存器。从原则上讲，返回操作是可以的，但对寄存器的更改将会丢失。如果出于某些原因，我们需要返回到一个修改过寄存器的上下文，那么中间层代码可以调整以同步寄存器。
+ * 
+ * 32位的#DF中间层已经提供了CR2作为一个参数。在64位系统上，需要在做任何其它操作之前先读取CR2。
  */
+/* The next exception is #DF or Double fault. This exception occurs when the processor detected a second exception while calling an exception handler for a prior exception. */
 DEFINE_IDTENTRY_DF(exc_double_fault)
 {
 	static const char str[] = "double fault";
@@ -530,7 +548,7 @@ DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
 	unsigned long gp_addr;
 	int ret;
 
-	cond_local_irq_enable(regs);
+	cond_local_irq_enable(regs); // 路径比较长的中断有时候会放开中断的
 
 	if (static_cpu_has(X86_FEATURE_UMIP)) {
 		if (user_mode(regs) && fixup_umip_exception(regs))
@@ -668,6 +686,7 @@ DEFINE_IDTENTRY_RAW(exc_int3)
  */
 asmlinkage __visible noinstr struct pt_regs *sync_regs(struct pt_regs *eregs)
 {
+	// 这里将栈 grow 了 sizeof(pt_regs) 大小
 	struct pt_regs *regs = (struct pt_regs *)this_cpu_read(cpu_current_top_of_stack) - 1;
 	if (regs != eregs)
 		*regs = *eregs;
@@ -984,13 +1003,13 @@ out:
 
 #ifdef CONFIG_X86_64
 /* IST stack entry */
-DEFINE_IDTENTRY_DEBUG(exc_debug)
+DEFINE_IDTENTRY_DEBUG(exc_debug) // c function name: exc_debug。参考 identry.h:DECLARE_IDTENTRY_DEBUG(X86_TRAP_DB,	exc_debug);
 {
 	exc_debug_kernel(regs, debug_read_clear_dr6());
 }
 
 /* User entry, runs on regular task stack */
-DEFINE_IDTENTRY_DEBUG_USER(exc_debug)
+DEFINE_IDTENTRY_DEBUG_USER(exc_debug) // function name: noist_exc_debug
 {
 	exc_debug_user(regs, debug_read_clear_dr6());
 }
@@ -1073,6 +1092,14 @@ DEFINE_IDTENTRY(exc_simd_coprocessor_error)
 
 DEFINE_IDTENTRY(exc_spurious_interrupt_bug)
 {
+/* 本文讨论了Pentium Pro的一个已知问题： */
+
+/* 问题描述：如果APIC子系统配置为混合模式，并通过本地APIC实现虚拟线模式，那么本地APIC（中断15）可能会生成一个中断向量0Fh（英特尔保留编码）。当接收到一个假中断（一个在系统接收到INTA序列前被移除的中断）时，可能会生成这个向量，而不是程序中预设的8259假中断向量。 */
+
+/* 影响：通常情况下，操作系统的假中断处理程序会处理在8259中编程的假中断向量。然而，一些操作系统可能无法识别中断向量0Fh，在这个问题发生时可能会导致系统崩溃。 */
+
+/* 理论上，这个问题可能仅限于32位系统，但保留这个处理程序并不会造成伤害，而且我们无法知晓也许还有其他的CPU也存在这样的问题。 */
+
 	/*
 	 * This addresses a Pentium Pro Erratum:
 	 *
@@ -1139,7 +1166,7 @@ DEFINE_IDTENTRY_SW(iret_error)
 }
 #endif
 
-// trap 初始化
+// trap 初始化, 只在 BSP CPU 上调用？
 void __init trap_init(void)
 {
 	/* Init cpu_entry_area before IST entries are set up */
@@ -1148,12 +1175,13 @@ void __init trap_init(void)
 	/* Init GHCB memory pages when running as an SEV-ES guest */
 	sev_es_init_vc_handling();
 
-	idt_setup_traps();
+	idt_setup_traps(); // 这里仅仅是 setup，但是还没有 load 哟。load 发生在 cpu_init() 中
 
 	/*
 	 * Should be a barrier for any external CPU state:
 	 */
-	cpu_init();
+	cpu_init(); // 这里仅仅是 初始化 BSP CPU 的
 
+	// cpu_init 里设置号 TSS 后，才能加载这些 ist 的异常
 	idt_setup_ist_traps();
 }

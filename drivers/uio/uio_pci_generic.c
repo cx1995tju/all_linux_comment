@@ -48,8 +48,7 @@ static int release(struct uio_info *info, struct inode *inode)
 	 * people (mis)use it with such devices.
 	 * Let's at least make sure DMA isn't left enabled after the userspace
 	 * driver closes the fd.
-	 * Note that there's a non-zero chance doing this will wedge the device
-	 * at least until reset.
+	 * Note that there's a non-zero chance doing this will wedge the device at least until reset.
 	 */
 	pci_clear_master(gdev->pdev);
 	return 0;

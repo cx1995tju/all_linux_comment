@@ -4285,6 +4285,7 @@ EXPORT_SYMBOL(pci_set_master);
  * pci_clear_master - disables bus-mastering for device dev
  * @dev: the PCI device to disable
  */
+// 在 virtio 场景下会触发设备 reset
 void pci_clear_master(struct pci_dev *dev)
 {
 	__pci_set_master(dev, false);

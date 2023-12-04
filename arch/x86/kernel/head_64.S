@@ -219,7 +219,8 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	movl	$MSR_GS_BASE,%ecx
 	movl	initial_gs(%rip),%eax
 	movl	initial_gs+4(%rip),%edx
-	wrmsr
+	// This instruction writes data from the edx:eax registers to the model specific register specified by the ecx register. 
+	wrmsr // 将 initial_gs 写入到 MSR_GS_BASE 寄存器中, 后续进入内核的时候，会 gs 寄存器会被切换为这个值，然后使用其来索引 percpu 变量。 不过这里仅仅是启动阶段使用的。后续会再次初始化的
 
 	/*
 	 * Setup a boot time stack - Any secondary CPU will have lost its stack
@@ -348,7 +349,7 @@ SYM_CODE_END(vc_boot_ghcb)
 	__REFDATA
 	.balign	8
 SYM_DATA(initial_code,	.quad x86_64_start_kernel)
-SYM_DATA(initial_gs,	.quad INIT_PER_CPU_VAR(fixed_percpu_data))
+SYM_DATA(initial_gs,	.quad INIT_PER_CPU_VAR(fixed_percpu_data)) // refer to: arch/x86/kernel/vmlinux.lds.S
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 SYM_DATA(initial_vc_handler,	.quad handle_vc_boot_ghcb)
 #endif

@@ -97,11 +97,68 @@ For 32-bit we have the following conventions - kernel is built with
 
 #define SIZEOF_PTREGS	21*8
 
+// save_ret = 0
+//      +------------+
+// +160 | %SS        |
+// +152 | %RSP       |
+// +144 | %RFLAGS    |
+// +136 | %CS        |
+// +128 | %RIP       |
+// +120 | ERROR CODE |
+//      |------------|
+// +112 | %RDI       |
+// +104 | %RSI       |
+//      |------------|
+// +96  | %RDX       |
+// +88  | %RCX       |
+// +80  | %RAX       |
+// +72  | %R8        |
+// +64  | %R9        |
+// +56  | %R10       |
+// +48  | %R11       |
+// +40  | %RBX       |
+// +32  | %RBP       |
+// +24  | %R12       |
+// +16  | %R13       |
+// +8   | %R14       |
+// +0   | %R15       | <- %RSP
+//      +------------+
+//
+//
+//
+// save_ret = 1
+//      +------------+
+// +160 | %SS        |
+// +152 | %RSP       |
+// +144 | %RFLAGS    |
+// +136 | %CS        |
+// +128 | %RIP       |
+// +120 | ERROR CODE |
+//      |------------|
+// +112 | %rdi       | // 这里 原本保存的是 retaddr，现在被覆盖为 rdi
+// +104 | %RSI       |        
+//      |------------|        
+// +96  | %RDX       |        
+// +88  | %RCX       |        
+// +80  | %RAX       |        
+// +72  | %R8        |        
+// +64  | %R9        |        
+// +56  | %R10       |        
+// +48  | %R11       |        
+// +40  | %RBX       |        
+// +32  | %RBP       |        
+// +24  | %R12       |        
+// +16  | %R13       |        
+// +8   | %R14       |        
+// +0   | %R15       |        
+// -8   | %retaddr   | <- %RSP
+//      +------------+
+//      Q: 这里的 retaddr 是怎么来的？？？
 .macro PUSH_AND_CLEAR_REGS rdx=%rdx rax=%rax save_ret=0
 	.if \save_ret
 	pushq	%rsi		/* pt_regs->si */
 	movq	8(%rsp), %rsi	/* temporarily store the return address in %rsi */
-	movq	%rdi, 8(%rsp)	/* pt_regs->di (overwriting original return address) */
+	movq	%rdi, 8(%rsp)	/* pt_regs->di (overwriting original return address) original 的 返回值怎么来的？？？ 是什么返回值？？？*/
 	.else
 	pushq   %rdi		/* pt_regs->di */
 	pushq   %rsi		/* pt_regs->si */
@@ -122,7 +179,7 @@ For 32-bit we have the following conventions - kernel is built with
 	UNWIND_HINT_REGS
 
 	.if \save_ret
-	pushq	%rsi		/* return address on top of stack */
+	pushq	%rsi		/* return address on top of stack */ // 又 push rsi 了。所以 save_ret 的时候，多 push 了一个字段
 	.endif
 
 	/*

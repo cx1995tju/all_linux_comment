@@ -244,6 +244,7 @@ int __init arch_early_ioapic_init(void)
 	if (!nr_legacy_irqs())
 		io_apic_irqs = ~0UL;
 
+	// 每个 ioapic 都需要初始化
 	for_each_ioapic(i)
 		alloc_ioapic_saved_registers(i);
 

@@ -40,6 +40,7 @@ __setup("irqaffinity=", irq_affinity_setup);
 
 static void __init init_irq_default_affinity(void)
 {
+	// 将 irq_default_affinity reset 为 0
 	if (!cpumask_available(irq_default_affinity))
 		zalloc_cpumask_var(&irq_default_affinity, GFP_NOWAIT);
 	if (cpumask_empty(irq_default_affinity))
@@ -524,7 +525,7 @@ int __init early_irq_init(void)
 	init_irq_default_affinity();
 
 	/* Let arch update nr_irqs and return the nr of preallocated irqs */
-	initcnt = arch_probe_nr_irqs();
+	initcnt = arch_probe_nr_irqs(); // 早期 PIC 的 16 个
 	printk(KERN_INFO "NR_IRQS: %d, nr_irqs: %d, preallocated irqs: %d\n",
 	       NR_IRQS, nr_irqs, initcnt);
 
@@ -540,7 +541,7 @@ int __init early_irq_init(void)
 	for (i = 0; i < initcnt; i++) {
 		desc = alloc_desc(i, node, 0, NULL, NULL);
 		set_bit(i, allocated_irqs);
-		irq_insert_desc(i, desc);
+		irq_insert_desc(i, desc); // 早期的 16 个先初始化好。其他的先不初始化
 	}
 	return arch_early_irq_init();
 }
@@ -557,19 +558,20 @@ struct irq_desc irq_desc[NR_IRQS] __cacheline_aligned_in_smp = {
 
 int __init early_irq_init(void)
 {
-	int count, i, node = first_online_node;
+	int count, i, node = first_online_node; // 第一个 online 的 node
 	struct irq_desc *desc;
 
 	init_irq_default_affinity();
 
 	printk(KERN_INFO "NR_IRQS: %d\n", NR_IRQS);
 
+	// 就是 初始化 irq_desc 数组
 	desc = irq_desc;
 	count = ARRAY_SIZE(irq_desc);
 
-	for (i = 0; i < count; i++) {
+	for (i = 0; i < count; i++) { // 初始化 irq_dsec 数组里的每个元素
 		desc[i].kstat_irqs = alloc_percpu(unsigned int);
-		alloc_masks(&desc[i], node);
+		alloc_masks(&desc[i], node); // 分配 几个 cpumask 结构，并且清零
 		raw_spin_lock_init(&desc[i].lock);
 		lockdep_set_class(&desc[i].lock, &irq_desc_lock_class);
 		mutex_init(&desc[i].request_mutex);

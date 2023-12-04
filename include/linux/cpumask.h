@@ -419,6 +419,7 @@ static inline int cpumask_test_and_clear_cpu(int cpu, struct cpumask *cpumask)
  */
 static inline void cpumask_setall(struct cpumask *dstp)
 {
+	// 设置为全 1
 	bitmap_fill(cpumask_bits(dstp), nr_cpumask_bits);
 }
 
@@ -751,7 +752,7 @@ static inline unsigned int cpumask_size(void)
  * Please also note that __cpumask_var_read_mostly can be used to declare
  * a cpumask_var_t variable itself (not its content) as read mostly.
  */
-#ifdef CONFIG_CPUMASK_OFFSTACK
+#ifdef CONFIG_CPUMASK_OFFSTACK // 一般会开启的
 typedef struct cpumask *cpumask_var_t;
 
 #define this_cpu_cpumask_var_ptr(x)	this_cpu_read(x)

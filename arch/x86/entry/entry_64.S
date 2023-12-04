@@ -1,3 +1,24 @@
+// entry_64.S 里有很多 `testb $3, CS...` 的指令, 逻辑如下：
+// - 首先这个指令是用来判断中断/异常发生时，是处于内核态还是用户态, 原理是:
+// 	- CS 寄存器的低 2b 是 CPL, 为 3 表示 userspace，为 0 表示 kernel
+// - 如果判断出中断发生在内核态，那么需要做进一步处理, 原因如下:
+// 	- 首先介绍一个背景知识，即
+// 		- 不管哪条路径 userspace 进入 kernel 时会有两个操作:
+// 			- `enter_kenrel(会切换 CS 寄存器, cpl = 0)`
+// 			- `SWAPGS`
+// 		- 同样退出的时候，有 
+// 			- `SWAPGS` 
+// 			- `exit_kernel(会切换 CS 寄存器, cpl = 3)`
+// 	- 故当我们看到 CS.cpl == 0 的时候，可能是发生在 userspace -> kernel 的中间，此时 SWAPGS 还没有完成, 那么我们需要:
+// 		- 使用 MSR_GS_BASE 来判断，是否是这个情况。判断方法 kernel 里的 MSR_GS_BASE 地址很大，是负数。
+// 		- 如果是这种情况，那么
+// 			- 使用 SWAPGS 切换 MSR_GS_BASE 值到 kernel GS 值
+// 			- 记录下这个情况，后续异常处理完，退出的时候，需要使用 SWAPGS 将 GS 值恢复到 userspace 的值
+
+// Q: 为什么不一开始直接使用 MSR_GS_BASE 来判断是在内核态还是用户态？
+// A: 访问 MSR_GS_BASE 比较慢，访问 CS 寄存器快。
+
+
 /* SPDX-License-Identifier: GPL-2.0 */
 /*
  *  linux/arch/x86_64/entry.S
@@ -332,10 +353,10 @@ SYM_CODE_END(ret_from_fork)
 	call	error_entry
 	UNWIND_HINT_REGS
 
-	movq	%rsp, %rdi			/* pt_regs pointer into 1st argument*/
+	movq	%rsp, %rdi			/* pt_regs pointer into 1st argument*/ // 第一个参数, 即 pt_regs
 
 	.if \has_error_code == 1
-		movq	ORIG_RAX(%rsp), %rsi	/* get error code into 2nd argument*/
+		movq	ORIG_RAX(%rsp), %rsi	/* get error code into 2nd argument*/ // 如果有 error code 需要准备 error code
 		movq	$-1, ORIG_RAX(%rsp)	/* no syscall to restart */
 	.endif
 
@@ -347,20 +368,46 @@ SYM_CODE_END(ret_from_fork)
 /**
  * idtentry - Macro to generate entry stubs for simple IDT entries
  * @vector:		Vector number
- * @asmsym:		ASM symbol for the entry point
- * @cfunc:		C function to be called
- * @has_error_code:	Hardware pushed error code on stack
+ * @asmsym:		ASM symbol for the entry point, 就是会填入 IDT 中的 handler
+ * @cfunc:		C function to be called, asmsym 会调用的，是每种中断处理的私有部分代码
+ * @has_error_code:	Hardware pushed error code on stack，硬件如何没有向 stack 中push error code 的时候， asmsym 需要补一个，这样 cfunc 处理的时候，才方便。
  *
  * The macro emits code to set up the kernel context for straight forward
  * and simple IDT entries. No IST stack, no paranoid entry checks.
  */
+// 进入这里的时候 栈是下图这样, refer to： SDM vol 3A
+// 
+//	      +------------+
+//	  +40 | %SS        |
+//	  +32 | %RSP       |
+//	  +24 | %RFLAGS    |
+//	  +16 | %CS        |
+//	   +8 | %RIP       |
+//	    0 | ERROR CODE | <-- %RSP	// 注意低地址是栈顶部哦
+//	      +------------+
+// OR
+//	      +------------+
+//	  +32 | %SS        |
+//	  +24 | %RSP       |
+//	  +16 | %RFLAGS    |
+//	   +8 | %CS        |
+//	    0 | -1         | <-- %RSP	// 注意低地址是栈顶部哦
+//	      +------------+
 .macro idtentry vector asmsym cfunc has_error_code:req
 SYM_CODE_START(\asmsym)
 	UNWIND_HINT_IRET_REGS offset=\has_error_code*8
 	ASM_CLAC
 
 	.if \has_error_code == 0
-		pushq	$-1			/* ORIG_RAX: no syscall to restart */
+		pushq	$-1			/* ORIG_RAX: no syscall to restart, 这样后续 cfunc看到的调用栈才是一致的，不会因为不同的异常而不同(因为有些异常发生的时候没有压入一个 error code). -1 同时表达了两个含义，fake error-code, invalid syscall number. 这样就不会触发 syscall */
+//	      +------------+
+//	  +40 | %SS        |
+//	  +32 | %RSP       |
+//	  +24 | %RFLAGS    |
+//	  +16 | %CS        |
+//	   +8 | %RIP       |
+//	    0 | -1         | <-- %RSP	// 注意低地址是栈顶部哦
+//	      +------------+
 	.endif
 
 	.if \vector == X86_TRAP_BP
@@ -406,7 +453,7 @@ SYM_CODE_END(\asmsym)
 .endm
 
 /**
- * idtentry_mce_db - Macro to generate entry stubs for #MC and #DB
+ * idtentry_mce_db - Macro to generate entry stubs for #MC and #DB // 为 MC 和 DB 两个 exception 使用的
  * @vector:		Vector number
  * @asmsym:		ASM symbol for the entry point
  * @cfunc:		C function to be called
@@ -426,16 +473,27 @@ SYM_CODE_START(\asmsym)
 	UNWIND_HINT_IRET_REGS
 	ASM_CLAC
 
-	pushq	$-1			/* ORIG_RAX: no syscall to restart */
+	pushq	$-1			/* ORIG_RAX: no syscall to restart, psuh 一个 fake errorcode */
 
+//	此时栈是这样
+//	      +------------+
+//	  +32 | %SS        |
+//	  +24 | %RSP       |
+//	  +16 | %RFLAGS    |
+//	   +8 | %CS        |
+//	    0 | -1         | <-- %RSP	// 注意低地址是栈顶部哦
+//	      +------------+
 	/*
 	 * If the entry is from userspace, switch stacks and treat it as
 	 * a normal entry.
 	 */
-	testb	$3, CS-ORIG_RAX(%rsp)
+	testb	$3, CS-ORIG_RAX(%rsp) /* check CS 的 低 三位，即 CPL 判断是不是来自于 userspace，如果是的话，就跳转 */
 	jnz	.Lfrom_usermode_switch_stack_\@
 
-	/* paranoid_entry returns GS information for paranoid_exit in EBX. */
+	/* paranoid_entry returns GS information for paranoid_exit in EBX. 注意，ebx 是被调用者保存的。*/
+	// 说明中断触发的时候在内核态, 不过可能由于 CS 已经切换过来，但是 GS 还没有切换。
+	// 所以需要 paranoid_entry 通过 MSR_GS_BASE 这条路径去获取 GS 寄存器保存到 ebx 里，同时将 GS 切换到内核态。
+	// 后续退出的时候 paranoid_exit 需要恢复之前的 ebx 里的 GS 寄存器
 	call	paranoid_entry
 
 	UNWIND_HINT_REGS
@@ -890,6 +948,7 @@ SYM_CODE_END(xen_failsafe_callback)
  *
  *     Y        GSBASE value at entry, must be restored in paranoid_exit
  */
+
 SYM_CODE_START_LOCAL(paranoid_entry)
 	UNWIND_HINT_FUNC
 	cld
@@ -943,8 +1002,10 @@ SYM_CODE_START_LOCAL(paranoid_entry)
 	 * a kernel value. No SWAPGS needed on entry and exit.
 	 */
 	movl	$MSR_GS_BASE, %ecx
-	rdmsr
-	testl	%edx, %edx
+	// if we are in an NMI/MCE/DEBUG/whatever super-atomic entry context, which might have triggered right after a normal entry wrote CS to the stack but before we executed SWAPGS, then the only safe way to check for GS is the slower method: the RDMSR.
+	// 即 CS 寄存器被写了，但是 GS 还没有被切换过来。
+	rdmsr 
+	testl	%edx, %edx // 判断是从 kernel 触发的，还是 userspace 触发的。如果是 kernel 触发的 edx 保存的 GS base 应该特别大是一个 负数
 	jns	.Lparanoid_entry_swapgs
 	ret
 
@@ -1017,9 +1078,39 @@ SYM_CODE_END(paranoid_exit)
 SYM_CODE_START_LOCAL(error_entry)
 	UNWIND_HINT_FUNC
 	cld
-	PUSH_AND_CLEAR_REGS save_ret=1
+	PUSH_AND_CLEAR_REGS save_ret=1 // refer to: calling.h, save 什么 ret
+	//
+	// 调用栈如下图所示, 这里是保存了从个userspace 跳转过来的 regs
+// save_ret = 1
+//      +------------+
+// +160 | %SS        |
+// +152 | %RSP       |
+// +144 | %RFLAGS    |
+// +136 | %CS        |
+// +128 | %RIP       |
+// +120 | ERROR CODE |
+//      |------------|
+// +112 | %rdi       |
+// +104 | %RSI       |        
+//      |------------|        
+// +96  | %RDX       |        
+// +88  | %RCX       |        
+// +80  | %RAX       |        
+// +72  | %R8        |        
+// +64  | %R9        |        
+// +56  | %R10       |        
+// +48  | %R11       |        
+// +40  | %RBX       |        
+// +32  | %RBP       |        
+// +24  | %R12       |        
+// +16  | %R13       |        
+// +8   | %R14       |        
+// +0   | %R15       |        
+// -8   | %retaddr   | <- %RSP
+//      +------------+
 	ENCODE_FRAME_POINTER 8
 	testb	$3, CS+8(%rsp)
+	// 判断是从 kernel 过来的，还是 userspace 过来的(通过 CS 中记录的 CPL 来判断，如果是3 就是来自于 userspace)。为什么这里有一个 +8 ？？？, 因为栈顶多了一个 retaddr
 	jz	.Lerror_kernelspace
 
 	/*
@@ -1033,10 +1124,11 @@ SYM_CODE_START_LOCAL(error_entry)
 
 .Lerror_entry_from_usermode_after_swapgs:
 	/* Put us onto the real thread stack. */
-	popq	%r12				/* save return addr in %12 */
+	popq	%r12				/* save return addr in %12 */ // 注意前面的栈顶信息
 	movq	%rsp, %rdi			/* arg0 = pt_regs pointer */
-	call	sync_regs
-	movq	%rax, %rsp			/* switch stack */
+	call	sync_regs			// 这里将 栈 grow 了
+
+	movq	%rax, %rsp			/* switch stack */	// 切换调用栈咯
 	ENCODE_FRAME_POINTER
 	pushq	%r12
 	ret
@@ -1098,7 +1190,7 @@ SYM_CODE_END(error_entry)
 SYM_CODE_START_LOCAL(error_return)
 	UNWIND_HINT_REGS
 	DEBUG_ENTRY_ASSERT_IRQS_OFF
-	testb	$3, CS(%rsp)
+	testb	$3, CS(%rsp) // 相等说明是从 kernel 触发的异常(we are from kernel)，那么需要return 到 kernel。
 	jz	restore_regs_and_return_to_kernel
 	jmp	swapgs_restore_regs_and_return_to_usermode
 SYM_CODE_END(error_return)
@@ -1488,4 +1580,4 @@ SYM_CODE_START(rewind_stack_do_exit)
 
 	call	do_exit
 SYM_CODE_END(rewind_stack_do_exit)
-.popsection
+

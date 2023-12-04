@@ -30,7 +30,7 @@
 #define MCE_VECTOR			0x12
 
 /*
- * IDT vectors usable for external interrupt sources start at 0x20.
+ * IDT vectors usable for external interrupt sources start at 0x20.		_HERE_
  * (0x80 is the syscall vector, 0x30-0x3f are for ISA)
  */
 #define FIRST_EXTERNAL_VECTOR		0x20
@@ -45,7 +45,7 @@
 #define IA32_SYSCALL_VECTOR		0x80
 
 /*
- * Vectors 0x30-0x3f are used for ISA interrupts.
+ * Vectors 0x30-0x3f are used for ISA interrupts. // 这里是说 intel 的中断门 么
  *   round up to the next 16-vector boundary
  */
 #define ISA_IRQ_VECTOR(irq)		(((FIRST_EXTERNAL_VECTOR + 16) & ~15) + irq)
@@ -134,7 +134,7 @@
 #define NR_IRQS						\
 	(CPU_VECTOR_LIMIT > IO_APIC_VECTOR_LIMIT ?	\
 		(NR_VECTORS + CPU_VECTOR_LIMIT)  :	\
-		(NR_VECTORS + IO_APIC_VECTOR_LIMIT))
+		(NR_VECTORS + IO_APIC_VECTOR_LIMIT))		\\ 常态, 256 + per-cpu 64???
 #elif defined(CONFIG_X86_IO_APIC)
 #define	NR_IRQS				(NR_VECTORS + IO_APIC_VECTOR_LIMIT)
 #elif defined(CONFIG_PCI_MSI)

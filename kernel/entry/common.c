@@ -337,7 +337,7 @@ noinstr irqentry_state_t irqentry_enter(struct pt_regs *regs)
 	 * already contains a warning when RCU is not watching, so no point
 	 * in having another one here.
 	 */
-	lockdep_hardirqs_off(CALLER_ADDR0);
+	lockdep_hardirqs_off(CALLER_ADDR0);	// 各种 tracing 机制
 	instrumentation_begin();
 	rcu_irq_enter_check_tick();
 	trace_hardirqs_off_finish();

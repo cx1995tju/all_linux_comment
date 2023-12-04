@@ -567,6 +567,7 @@ extern int test_taint(unsigned flag);
 extern unsigned long get_taint(void);
 extern int root_mountflags;
 
+// used in the different places. For example it used in the smp_call_function_many function from the kernel/smp.c for the checking possible deadlock when interrupts are disabled:
 extern bool early_boot_irqs_disabled;
 
 /*

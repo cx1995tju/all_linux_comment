@@ -38,6 +38,8 @@ struct irqaction chained_action = {
  *	@irq:	irq number
  *	@chip:	pointer to irq chip description structure
  */
+
+// 设置 irq_desc 结构
 int irq_set_chip(unsigned int irq, struct irq_chip *chip)
 {
 	unsigned long flags;
@@ -776,13 +778,14 @@ EXPORT_SYMBOL_GPL(handle_fasteoi_nmi);
  *	the handler was running. If all pending interrupts are handled, the
  *	loop is left.
  */
+// 进入这里的时候 IF 位还是被清零的，当前 cpu 的中断还是 disable 的
 void handle_edge_irq(struct irq_desc *desc)
 {
-	raw_spin_lock(&desc->lock);
+	raw_spin_lock(&desc->lock); // 进来先上锁。这里就保证了串行, 保证了同一个中断不重入
 
 	desc->istate &= ~(IRQS_REPLAY | IRQS_WAITING);
 
-	if (!irq_may_run(desc)) {
+	if (!irq_may_run(desc)) { // run 的时候又触发了，标记下 pending，然后直接退出吧。但是也 ack 咯
 		desc->istate |= IRQS_PENDING;
 		mask_ack_irq(desc);
 		goto out_unlock;
@@ -801,11 +804,11 @@ void handle_edge_irq(struct irq_desc *desc)
 	kstat_incr_irqs_this_cpu(desc);
 
 	/* Start handling the irq */
-	desc->irq_data.chip->irq_ack(&desc->irq_data);
+	desc->irq_data.chip->irq_ack(&desc->irq_data); // ack 下这个 中断
 
 	do {
 		if (unlikely(!desc->action)) {
-			mask_irq(desc);
+			mask_irq(desc); // 说明这个中断有问题的，都还没有注册 action 呢，先 mask 掉
 			goto out_unlock;
 		}
 

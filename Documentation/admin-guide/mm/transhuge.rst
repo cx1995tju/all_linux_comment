@@ -100,7 +100,7 @@ regions (to avoid the risk of consuming more memory resources) or enabled
 system wide. This can be achieved with one of::
 
 	echo always >/sys/kernel/mm/transparent_hugepage/enabled
-	echo madvise >/sys/kernel/mm/transparent_hugepage/enabled
+	echo madvise >/sys/kernel/mm/transparent_hugepage/enabled // 这样就只有 vma 被设置了 HUGEPAGE 的时候才会走透明大页去使用 hugepage
 	echo never >/sys/kernel/mm/transparent_hugepage/enabled
 
 It's also possible to limit defrag efforts in the VM to generate

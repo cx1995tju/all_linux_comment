@@ -185,7 +185,7 @@ void __init setup_per_cpu_areas(void)
 		pcpu_chosen_fc = PCPU_FC_PAGE;
 #endif
 	rc = -EINVAL;
-	if (pcpu_chosen_fc != PCPU_FC_PAGE) { // refer to: percpu_alloc_setup()
+	if (pcpu_chosen_fc != PCPU_FC_PAGE) { // refer to: percpu_alloc_setup() pcpu_chosen_fc 用来控制 first chunk 的分配方式的
 		const size_t dyn_size = PERCPU_MODULE_RESERVE +
 			PERCPU_DYNAMIC_RESERVE - PERCPU_FIRST_CHUNK_RESERVE;
 		size_t atom_size;

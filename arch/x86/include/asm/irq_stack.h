@@ -62,7 +62,7 @@ static __always_inline bool irq_needs_irq_stack(struct pt_regs *regs)
 {
 	if (IS_ENABLED(CONFIG_X86_32))
 		return false;
-	if (!regs)
+	if (!regs) // 什么 case regs 会是 null？
 		return !irqstack_active();
 	return !user_mode(regs) && !irqstack_active();
 }
@@ -99,7 +99,7 @@ run_irq_on_irqstack_cond(void (*func)(struct irq_desc *desc), struct irq_desc *d
 
 	if (irq_needs_irq_stack(regs))
 		__run_irq_on_irqstack(func, desc);
-	else
+	else // 如果是嵌套中断或其他原因，说明已经切换过，不需要切换咯
 		func(desc);
 }
 

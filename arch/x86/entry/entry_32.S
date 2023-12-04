@@ -166,10 +166,10 @@
 	ALTERNATIVE "jmp .Lend_\@", "", X86_FEATURE_PTI
 	movl	%cr3, \scratch_reg
 	/* Test if we are already on kernel CR3 */
-	testl	$PTI_SWITCH_MASK, \scratch_reg
-	jz	.Lend_\@
+	testl	$PTI_SWITCH_MASK, \scratch_reg	// kernel page 的 bit 12 是 0 ？？？
+	jz	.Lend_\@	// 已经是 kernel page 了
 	andl	$(~PTI_SWITCH_MASK), \scratch_reg
-	movl	\scratch_reg, %cr3
+	movl	\scratch_reg, %cr3	// 切到 kernel page
 	/* Return original CR3 in \scratch_reg */
 	orl	$PTI_SWITCH_MASK, \scratch_reg
 .Lend_\@:

@@ -223,11 +223,12 @@ u64 arch_irq_stat(void)
 	return sum;
 }
 
+// 不是通过硬件的 ist 机制切换栈的话，就会进入这个函数，然后在这里软件将stack 切换为  per-cpu 的 hardirq_stack_ptr
 static __always_inline void handle_irq(struct irq_desc *desc,
 				       struct pt_regs *regs)
 {
 	if (IS_ENABLED(CONFIG_X86_64))
-		run_irq_on_irqstack_cond(desc->handle_irq, desc, regs);
+		run_irq_on_irqstack_cond(desc->handle_irq, desc, regs); // desc->handle_irq 就是关键, 在 init_IRQ 里初始化了好多 irq_desc。另外 driver request_irq 的时候也会初始化
 	else
 		__handle_irq(desc, regs);
 }
@@ -236,6 +237,7 @@ static __always_inline void handle_irq(struct irq_desc *desc,
  * common_interrupt() handles all normal device IRQ's (the special SMP
  * cross-CPU interrupts have their own entry points).
  */
+// static __always_inline void __common_interrupt(struct pt_regs *regs, u8 vector);
 DEFINE_IDTENTRY_IRQ(common_interrupt)
 {
 	struct pt_regs *old_regs = set_irq_regs(regs);

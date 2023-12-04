@@ -431,6 +431,7 @@ static bool __init early_make_pgtable(unsigned long address)
 // trapnr 就是 vector number
 void __init do_early_exception(struct pt_regs *regs, int trapnr)
 {
+	// 早期的时候，page fault 还是要处理的
 	if (trapnr == X86_TRAP_PF && // page fault 进入这里处理
 	    early_make_pgtable(native_read_cr2())) // cr2 保存的是page fault 时的线性地址
 		return;
