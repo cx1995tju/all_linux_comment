@@ -25,7 +25,7 @@
 /*
  * Tick devices
  */
-DEFINE_PER_CPU(struct tick_device, tick_cpu_device);
+DEFINE_PER_CPU(struct tick_device, tick_cpu_device); // 每个 cpu 一个 tick device
 /*
  * Tick next event: keeps track of the tick time
  */
@@ -338,6 +338,8 @@ bool tick_check_replacement(struct clock_event_device *curdev,
  * Check, if the new registered device should be used. Called with
  * clockevents_lock held and interrupts disabled.
  */
+
+// 检查是否需要使用 newdev
 void tick_check_new_device(struct clock_event_device *newdev)
 {
 	struct clock_event_device *curdev;
@@ -349,11 +351,11 @@ void tick_check_new_device(struct clock_event_device *newdev)
 	curdev = td->evtdev;
 
 	/* cpu local device ? */
-	if (!tick_check_percpu(curdev, newdev, cpu))
+	if (!tick_check_percpu(curdev, newdev, cpu)) // 返回 0，即 false 就跳转
 		goto out_bc;
 
 	/* Preference decision */
-	if (!tick_check_preferred(curdev, newdev))
+	if (!tick_check_preferred(curdev, newdev)) // 返回 0，即 falst 就跳转
 		goto out_bc;
 
 	if (!try_module_get(newdev->owner))
@@ -376,7 +378,7 @@ void tick_check_new_device(struct clock_event_device *newdev)
 
 out_bc:
 	/*
-	 * Can the new device be used as a broadcast device ?
+	 * Can the new device be used as a broadcast device ?	这个 clock event 设备 check 失败了, 不能取代当前的 tick device。看看是不是能用来做 broadcast device
 	 */
 	tick_install_broadcast_device(newdev);
 }

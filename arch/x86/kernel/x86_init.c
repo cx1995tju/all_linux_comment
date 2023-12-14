@@ -45,6 +45,8 @@ static __initconst const struct of_device_id of_cmos_match[] = {
  * corresponding DT node's status property to disabled. Code is optimized
  * out for CONFIG_OF=n builds.
  */
+
+// wallblock 即真实时间
 static __init void x86_wallclock_init(void)
 {
 	struct device_node *node = of_find_matching_node(NULL, of_cmos_match);
@@ -93,7 +95,7 @@ struct x86_init_ops x86_init __initdata = {
 	.timers = {
 		.setup_percpu_clockev	= setup_boot_APIC_clock,
 		.timer_init		= hpet_time_init,
-		.wallclock_init		= x86_wallclock_init,
+		.wallclock_init		= x86_wallclock_init,	// intel mid 平台会使用的。refer to: x86_intel_mid_early_setup()。标准的 PC x86_64 架构，这个函数没什么作用
 	},
 
 	.iommu = {

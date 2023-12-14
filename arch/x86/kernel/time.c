@@ -79,6 +79,7 @@ void __init hpet_time_init(void)
 			return;
 	}
 
+	// 有了 hpet 就不需要 pit了。0 号中断给 hpet 用
 	setup_default_timer_irq();
 }
 
@@ -91,7 +92,7 @@ static __init void x86_late_time_init(void)
 	x86_init.irqs.intr_mode_select();
 
 	/* Setup the legacy timers */
-	x86_init.timers.timer_init();
+	x86_init.timers.timer_init(); // %hpet_time_init
 
 	/*
 	 * After PIT/HPET timers init, set up the final interrupt mode for

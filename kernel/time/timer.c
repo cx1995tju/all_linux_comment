@@ -208,9 +208,10 @@ struct timer_base {
 	bool			next_expiry_recalc;
 	bool			is_idle;
 	DECLARE_BITMAP(pending_map, WHEEL_SIZE);
-	struct hlist_head	vectors[WHEEL_SIZE];
+	struct hlist_head	vectors[WHEEL_SIZE];	// 时间轮机制
 } ____cacheline_aligned;
 
+// 每个 cpu 一个数组
 static DEFINE_PER_CPU(struct timer_base, timer_bases[NR_BASES]);
 
 #ifdef CONFIG_NO_HZ_COMMON
@@ -1731,6 +1732,7 @@ static inline void __run_timers(struct timer_base *base)
 	timer_base_lock_expiry(base);
 	raw_spin_lock_irq(&base->lock);
 
+	// 时间轮机制，找到一个合适的时间轮
 	while (time_after_eq(jiffies, base->clk) &&
 	       time_after_eq(jiffies, base->next_expiry)) {
 		levels = collect_expired_timers(base, heads);
@@ -1988,6 +1990,8 @@ static void __init init_timer_cpu(int cpu)
 	struct timer_base *base;
 	int i;
 
+	// 就是初始化 每个 cpu 的一个数组 timer_bases[]
+	// 后续 TIMER_SOFTIRQ 软中断里会用到的
 	for (i = 0; i < NR_BASES; i++) {
 		base = per_cpu_ptr(&timer_bases[i], cpu);
 		base->cpu = cpu;
@@ -2003,12 +2007,12 @@ static void __init init_timer_cpus(void)
 	int cpu;
 
 	for_each_possible_cpu(cpu)
-		init_timer_cpu(cpu);
+		init_timer_cpu(cpu); // 为每个 cpu 分配一些结构
 }
 
 void __init init_timers(void)
 {
-	init_timer_cpus();
+	init_timer_cpus(); // 这里的时候，各个 cpu 初始化了么？并没有，这里仅仅是为每个 cpu 分配一些结构
 	posix_cputimers_init_work();
 	open_softirq(TIMER_SOFTIRQ, run_timer_softirq);
 }

@@ -79,9 +79,11 @@ static __always_inline void queued_spin_lock(struct qspinlock *lock)
 {
 	u32 val = 0;
 
+	// 第一个 thread 直接从这里拿到锁后退出
 	if (likely(atomic_try_cmpxchg_acquire(&lock->val, &val, _Q_LOCKED_VAL)))
 		return;
 
+	// 第二个及后续 thread 需要进入这里
 	queued_spin_lock_slowpath(lock, val);
 }
 #endif

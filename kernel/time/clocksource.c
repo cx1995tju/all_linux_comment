@@ -863,7 +863,7 @@ void __clocksource_update_freq_scale(struct clocksource *cs, u32 scale, u32 freq
 	 * Default clocksources are *special* and self-define their mult/shift.
 	 * But, you're not special, so you should specify a freq value.
 	 */
-	if (freq) {
+	if (freq) { // freq 是 0 的时候，就不需要计算 mult / shift 了。直接用 cs 里的值
 		/*
 		 * Calc the maximum number of seconds which we can run before
 		 * wrapping around. For clocksources which have a mask > 32-bit
@@ -922,6 +922,10 @@ EXPORT_SYMBOL_GPL(__clocksource_update_freq_scale);
  * This *SHOULD NOT* be called directly! Please use the
  * clocksource_register_hz() or clocksource_register_khz helper functions.
  */
+
+// 注册的同时会选择最好的 clocksource
+//
+// freq * scale 就是这个时钟源的频率 HZ
 int __clocksource_register_scale(struct clocksource *cs, u32 scale, u32 freq)
 {
 	unsigned long flags;
@@ -939,14 +943,14 @@ int __clocksource_register_scale(struct clocksource *cs, u32 scale, u32 freq)
 	__clocksource_update_freq_scale(cs, scale, freq);
 
 	/* Add clocksource to the clocksource list */
-	mutex_lock(&clocksource_mutex);
+	mutex_lock(&clocksource_mutex);	// 保护 curr_clocksource 变量的
 
 	clocksource_watchdog_lock(&flags);
 	clocksource_enqueue(cs);
 	clocksource_enqueue_watchdog(cs);
 	clocksource_watchdog_unlock(&flags);
 
-	clocksource_select();
+	clocksource_select();	// 每次注册新的 clocksource 的时候，都要尝试选择最好的 clocksource
 	clocksource_select_watchdog(false);
 	__clocksource_suspend_select(cs);
 	mutex_unlock(&clocksource_mutex);

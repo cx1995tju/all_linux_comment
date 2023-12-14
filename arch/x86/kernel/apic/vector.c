@@ -23,13 +23,13 @@
 
 #include <asm/trace/irq_vectors.h>
 
-struct apic_chip_data {
+struct apic_chip_data {	// 表示某个 apic 芯片上的一个 中断咯
 	struct irq_cfg		hw_irq_cfg;
-	unsigned int		vector;
+	unsigned int		vector; // 这个中断对应的中断向量，即中断门的 idx
 	unsigned int		prev_vector;
-	unsigned int		cpu;
+	unsigned int		cpu; // 这个中断绑定的 cpu, 即这个中断触发后，就会被投递到 该 cpu 的 vector 号中断门
 	unsigned int		prev_cpu;
-	unsigned int		irq;
+	unsigned int		irq;	// 这个中断对应的 irq 号
 	struct hlist_node	clist;
 	unsigned int		move_in_progress	: 1,
 				is_managed		: 1,
@@ -249,7 +249,7 @@ assign_vector_locked(struct irq_data *irqd, const struct cpumask *dest)
 	trace_vector_alloc(irqd->irq, vector, resvd, vector);
 	if (vector < 0)
 		return vector;
-	apic_update_vector(irqd, vector, cpu);
+	apic_update_vector(irqd, vector, cpu); // 更新分配的中断门信息。建立 irqd 和 vector 的关系。irqd 中记录有 irq_desc, 当然也包括 irq 号了
 	apic_update_irq_cfg(irqd, vector, cpu);
 
 	return 0;

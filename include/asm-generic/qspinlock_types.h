@@ -22,8 +22,8 @@ typedef struct qspinlock {
 		 */
 #ifdef __LITTLE_ENDIAN
 		struct {
-			u8	locked;
-			u8	pending;
+			u8	locked; // bits 0-7 locked byte
+			u8	pending; // bit 8 pending bit; bits 9-15 not used
 		};
 		struct {
 			u16	locked_pending;
@@ -49,7 +49,7 @@ typedef struct qspinlock {
 #define	__ARCH_SPIN_LOCK_UNLOCKED	{ { .val = ATOMIC_INIT(0) } }
 
 /*
- * Bitfields in the atomic value:
+ * Bitfields in the atomic value:	// qspinlock 各个 bit 的用途
  *
  * When NR_CPUS < 16K
  *  0- 7: locked byte
@@ -64,11 +64,13 @@ typedef struct qspinlock {
  *  9-10: tail index
  * 11-31: tail cpu (+1)
  */
+
+// 计算对应的 bits 值
 #define	_Q_SET_MASK(type)	(((1U << _Q_ ## type ## _BITS) - 1)\
 				      << _Q_ ## type ## _OFFSET)
 #define _Q_LOCKED_OFFSET	0
 #define _Q_LOCKED_BITS		8
-#define _Q_LOCKED_MASK		_Q_SET_MASK(LOCKED)
+#define _Q_LOCKED_MASK		_Q_SET_MASK(LOCKED)	 // 0xff
 
 #define _Q_PENDING_OFFSET	(_Q_LOCKED_OFFSET + _Q_LOCKED_BITS)
 #if CONFIG_NR_CPUS < (1U << 14)
@@ -89,7 +91,8 @@ typedef struct qspinlock {
 #define _Q_TAIL_OFFSET		_Q_TAIL_IDX_OFFSET
 #define _Q_TAIL_MASK		(_Q_TAIL_IDX_MASK | _Q_TAIL_CPU_MASK)
 
-#define _Q_LOCKED_VAL		(1U << _Q_LOCKED_OFFSET)
-#define _Q_PENDING_VAL		(1U << _Q_PENDING_OFFSET)
+#define _Q_LOCKED_VAL		(1U << _Q_LOCKED_OFFSET)   // 0x1
+// This bit represents thread which wanted to acquire lock, but it is already acquired by the other thread and __queue is empty__ at the same time.
+#define _Q_PENDING_VAL		(1U << _Q_PENDING_OFFSET)  // 0x100
 
 #endif /* __ASM_GENERIC_QSPINLOCK_TYPES_H */

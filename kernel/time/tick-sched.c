@@ -179,7 +179,7 @@ static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
 #endif
 
 #ifdef CONFIG_NO_HZ_FULL
-cpumask_var_t tick_nohz_full_mask;
+cpumask_var_t tick_nohz_full_mask; // 开启 nohz 的 processor。 - tickless 情况下，至少需要一个 cpu 不能是 nohz 状态，即需要一个 housekeeping 的 cpu。这个 cpu 的 mask 不在这里
 bool tick_nohz_full_running;
 EXPORT_SYMBOL_GPL(tick_nohz_full_running);
 static atomic_t tick_dep_mask;
@@ -463,7 +463,7 @@ void __init tick_nohz_init(void)
 		cpu = smp_processor_id();
 
 		if (cpumask_test_cpu(cpu, tick_nohz_full_mask)) {
-			pr_warn("NO_HZ: Clearing %d from nohz_full range "
+			pr_warn("NO_HZ: Clearing %d from nohz_full range "	// 如果当前 cpu 在mask 里，就清除掉。当前 cpu 做 time keeping
 				"for timekeeping\n", cpu);
 			cpumask_clear_cpu(cpu, tick_nohz_full_mask);
 		}

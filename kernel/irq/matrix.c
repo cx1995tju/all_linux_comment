@@ -17,8 +17,8 @@ struct cpumap {
 	unsigned int		managed_allocated;
 	bool			initialized;
 	bool			online;
-	unsigned long		alloc_map[IRQ_MATRIX_SIZE];
-	unsigned long		managed_map[IRQ_MATRIX_SIZE];
+	unsigned long		alloc_map[IRQ_MATRIX_SIZE]; // 已经被分配的,每个 bit 表示一个中断门。最多 256 个中断门
+	unsigned long		managed_map[IRQ_MATRIX_SIZE]; // 为 managed 保留的
 };
 
 struct irq_matrix {
@@ -31,9 +31,9 @@ struct irq_matrix {
 	unsigned int		systembits_inalloc;
 	unsigned int		total_allocated;
 	unsigned int		online_maps;
-	struct cpumap __percpu	*maps;
+	struct cpumap __percpu	*maps; // per cpu map
 	unsigned long		scratch_map[IRQ_MATRIX_SIZE];
-	unsigned long		system_map[IRQ_MATRIX_SIZE];
+	unsigned long		system_map[IRQ_MATRIX_SIZE]; // global map
 };
 
 #define CREATE_TRACE_POINTS
@@ -178,6 +178,8 @@ static unsigned int matrix_find_best_cpu_managed(struct irq_matrix *m,
  * early boot process, then the chance to survive is about zero.
  * If this happens when the system is life, it's not much better.
  */
+
+// 对于这些 全局所有 cpu 都需要处理的外部中断，需要在初始化阶段就分配好。避免后续分配空间不够的。
 void irq_matrix_assign_system(struct irq_matrix *m, unsigned int bit,
 			      bool replace)
 {
@@ -373,6 +375,16 @@ void irq_matrix_remove_reserved(struct irq_matrix *m)
  * @msk:	Which CPUs to search in
  * @reserved:	Allocate previously reserved interrupts
  * @mapped_cpu: Pointer to store the CPU for which the irq was allocated
+ *
+ * 分配一个中断门资源, 即哪个 cpu 上的哪个中断门。但注意，这里不需要设置中断门。外部中断中断门的入口都是 common_interrupt
+ *
+ * 调用这个函数获取到 cpu / vector(bit) 信息，然后再建立好 cpu + vector -> irq_desc 的关系就可以了。在 common_interrupt 使用 per_cpu vector 可以找到 irq_desc 就可以了
+ *
+ * - msk，表示从这些 cpu 里分配
+ *
+ * - mapped_cpu, 表示最终在该 cpu 完成分配
+ *
+ * - m, 保存的是当前的分配信息
  */
 int irq_matrix_alloc(struct irq_matrix *m, const struct cpumask *msk,
 		     bool reserved, unsigned int *mapped_cpu)
@@ -403,7 +415,7 @@ int irq_matrix_alloc(struct irq_matrix *m, const struct cpumask *msk,
 		m->global_reserved--;
 	*mapped_cpu = cpu;
 	trace_irq_matrix_alloc(bit, cpu, m, cm);
-	return bit;
+	return bit;	// 在 *mapped_cpu 上 分配了 第 bit 号中断门
 
 }
 

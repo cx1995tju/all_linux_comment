@@ -1238,7 +1238,7 @@ void __init setup_arch(char **cmdline_p)
 
 	mcheck_init();
 
-	register_refined_jiffies(CLOCK_TICK_RATE);
+	register_refined_jiffies(CLOCK_TICK_RATE); // 即每秒的 tick 数目
 
 #ifdef CONFIG_EFI
 	if (efi_enabled(EFI_BOOT))

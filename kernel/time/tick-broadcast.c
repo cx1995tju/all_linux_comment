@@ -91,11 +91,13 @@ static bool tick_check_broadcast_device(struct clock_event_device *curdev,
 /*
  * Conditionally install/replace broadcast device
  */
+
+// 尝试将 dev 作为 broadcast device 了
 void tick_install_broadcast_device(struct clock_event_device *dev)
 {
 	struct clock_event_device *cur = tick_broadcast_device.evtdev;
 
-	if (!tick_check_broadcast_device(cur, dev))
+	if (!tick_check_broadcast_device(cur, dev)) // 判断这个 dev 能不能做 boradcast 设备。是不是更好的 boradcast device
 		return;
 
 	if (!try_module_get(dev->owner))
@@ -106,7 +108,7 @@ void tick_install_broadcast_device(struct clock_event_device *dev)
 		cur->event_handler = clockevents_handle_noop;
 	tick_broadcast_device.evtdev = dev;
 	if (!cpumask_empty(tick_broadcast_mask))
-		tick_broadcast_start_periodic(dev);
+		tick_broadcast_start_periodic(dev); // 开启周期性的 broadcast
 	/*
 	 * Inform all cpus about this. We might be in a situation
 	 * where we did not switch to oneshot mode because the per cpu
@@ -1001,6 +1003,13 @@ int __tick_broadcast_oneshot_control(enum tick_broadcast_state state)
 	return 0;
 }
 #endif
+
+/* tick_broadcast_mask - the bitmap which represents list of processors that are in a sleeping mode; */
+/* tick_broadcast_on - the bitmap that stores numbers of processors which are in a periodic broadcast state; */
+/* tmpmask - this bitmap for temporary usage. */
+/* tick_broadcast_oneshot_mask - stores numbers of processors that must be notified; */
+/* tick_broadcast_pending_mask - stores numbers of processors that pending broadcast; */
+/* tick_broadcast_force_mask - stores numbers of processors with enforced broadcast. */
 
 void __init tick_broadcast_init(void)
 {

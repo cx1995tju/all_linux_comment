@@ -341,7 +341,7 @@ void queued_spin_lock_slowpath(struct qspinlock *lock, u32 val)
 	/*
 	 * If we observe any contention; queue.
 	 */
-	if (val & ~_Q_LOCKED_MASK)
+	if (val & ~_Q_LOCKED_MASK) // val & ~0x00ff i.e. val & 0xff00
 		goto queue;
 
 	/*

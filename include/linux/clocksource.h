@@ -31,11 +31,12 @@ struct module;
 #include <vdso/clocksource.h>
 
 /**
- * struct clocksource - hardware abstraction for a free running counter
+ * struct clocksource - hardware abstraction for a free running counter		// 时间的本质就是一个递增的 counter
  *	Provides mostly state-free accessors to the underlying hardware.
  *	This is the structure used for system time.
  *
  * @read:		Returns a cycle value, passes clocksource as argument
+ * //mask that allows to ensure that subtraction between counters values from non 64 bit counters do not need special overflow logic. 
  * @mask:		Bitmask for two's complement
  *			subtraction of non 64 bit counters
  * @mult:		Cycle to nanosecond multiplier
@@ -51,13 +52,13 @@ struct module;
  *			To avoid rating inflation the following
  *			list should give you a guide as to how
  *			to assign your clocksource a rating
- *			1-99: Unfit for real use
+ *			1-99: Unfit for real use	// jiffies 是 1
  *				Only available for bootup and testing purposes.
  *			100-199: Base level usability.
  *				Functional for real use, but not desired.
- *			200-299: Good.
+ *			200-299: Good.		// hpet 是 250
  *				A correct and usable clocksource.
- *			300-399: Desired.
+ *			300-399: Desired.	// tsc 的分数是 300
  *				A reasonably fast and accurate clocksource.
  *			400-499: Perfect
  *				The ideal clocksource. A must-use where
@@ -86,22 +87,29 @@ struct module;
  * information you need you should consider to cache line align that
  * structure.
  */
+
+/* - clocksource 封装了各个平台的各种底层硬件，将时钟(time) 抽象为一个 单调递增的 counter */
+/* - 在 linux 中，ns 精度的时钟才是实际可用的. ns = (counters * mult) >> shift */
+
+/* clocksource 的两个作用 */
+/* - 封装底层硬件，将其抽象为一个单调递增的 counter */
+/* - 提供了一个 ns 的视图(mult / shift 参数)，供 human-read */
 struct clocksource {
-	u64			(*read)(struct clocksource *cs);
+	u64			(*read)(struct clocksource *cs);	// 最重要
 	u64			mask;
-	u32			mult;
-	u32			shift;
-	u64			max_idle_ns;
-	u32			maxadj;
+	u32			mult;	// multi 和 shift 用于转换 value -> nanoseconds
+	u32			shift;  // ns = (counters * mult) >> shift
+	u64			max_idle_ns;	// 开了 CONFIG_NO_HZ 才有意义。才允许 idle 的。一个 clocksource 允许的最长的 idle 时间
+	u32			maxadj;	// 前面计算 ns 的方式精确度(毕竟是二进制咯)可能不够，需要用调整 multi。maxadj 就是避免 clocksource API 调整的时候导致溢出的。
 #ifdef CONFIG_ARCH_CLOCKSOURCE_DATA
-	struct arch_clocksource_data archdata;
+	struct arch_clocksource_data archdata;	// 不同架构不同。x86 没有这个定义
 #endif
-	u64			max_cycles;
+	u64			max_cycles; // 在可能溢出之前的最大的 cycles。即当前的 cycles 如果超过了这个值，可能就溢出了
 	const char		*name;
 	struct list_head	list;
-	int			rating;
+	int			rating; // 时钟源的评分，分越高越好。
 	enum vdso_clock_mode	vdso_clock_mode;
-	unsigned long		flags;
+	unsigned long		flags;	// 描述时钟源不同的性质, 比如：resume，suspend 等
 
 	int			(*enable)(struct clocksource *cs);
 	void			(*disable)(struct clocksource *cs);
@@ -227,6 +235,7 @@ __clocksource_update_freq_scale(struct clocksource *cs, u32 scale, u32 freq);
  * Don't call this unless you are a default clocksource
  * (AKA: jiffies) and absolutely have to.
  */
+// 注册的同时会选择最好的 clocksource
 static inline int __clocksource_register(struct clocksource *cs)
 {
 	return __clocksource_register_scale(cs, 1, 0);

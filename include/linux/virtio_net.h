@@ -36,7 +36,7 @@ static inline int virtio_net_hdr_to_skb(struct sk_buff *skb,
 
 	if (hdr->gso_type != VIRTIO_NET_HDR_GSO_NONE) {
 		switch (hdr->gso_type & ~VIRTIO_NET_HDR_GSO_ECN) {
-		case VIRTIO_NET_HDR_GSO_TCPV4:
+		case VIRTIO_NET_HDR_GSO_TCPV4
 			gso_type = SKB_GSO_TCPV4;
 			ip_proto = IPPROTO_TCP;
 			thlen = sizeof(struct tcphdr);

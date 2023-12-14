@@ -113,10 +113,12 @@ int vrtc_set_mmss(const struct timespec64 *now)
 	return retval;
 }
 
+// parses Simple Firmware Interface M-Real-Time-Clock table for getting such devices to the sfi_mrtc_array array and initialization of the set_time and get_time functions
 void __init intel_mid_rtc_init(void)
 {
 	unsigned long vrtc_paddr;
 
+	// sfi: Simple Firmware Interface
 	sfi_table_parse(SFI_SIG_MRTC, NULL, NULL, sfi_parse_mrtc);
 
 	vrtc_paddr = sfi_mrtc_array[0].phys_addr;

@@ -448,7 +448,7 @@ void clockevents_register_device(struct clock_event_device *dev)
 	/* Initialize state to DETACHED */
 	clockevent_set_state(dev, CLOCK_EVT_STATE_DETACHED);
 
-	if (!dev->cpumask) {
+	if (!dev->cpumask) { // 这个 device 的 cpu mask 不能是 0
 		WARN_ON(num_possible_cpus() > 1);
 		dev->cpumask = cpumask_of(smp_processor_id());
 	}

@@ -5430,14 +5430,14 @@ void lock_acquire(struct lockdep_map *lock, unsigned int subclass,
 		return;
 	}
 
-	raw_local_irq_save(flags);
+	raw_local_irq_save(flags);	// 这里关了
 	check_flags(flags);
 
 	lockdep_recursion_inc();
 	__lock_acquire(lock, subclass, trylock, read, check,
 		       irqs_disabled_flags(flags), nest_lock, ip, 0, 0);
 	lockdep_recursion_finish();
-	raw_local_irq_restore(flags);
+	raw_local_irq_restore(flags);	// 这里开了
 }
 EXPORT_SYMBOL_GPL(lock_acquire);
 

@@ -1971,7 +1971,7 @@ process:
 			reqsk_put(req);
 			goto discard_it;
 		}
-		if (tcp_checksum_complete(skb)) {
+		if (tcp_checksum_complete(skb)) { // 这里的正常路径是返回 false
 			reqsk_put(req);
 			goto csum_error;
 		}

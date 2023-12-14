@@ -527,6 +527,9 @@ static void lapic_timer_broadcast(const struct cpumask *mask)
 /*
  * The local apic timer can be used for any function which is CPU local.
  */
+
+// 不需要设置特殊的 handler
+// 直接用 LOCAL_TIMER_VECTOR 就可以
 static struct clock_event_device lapic_clockevent = {
 	.name				= "lapic",
 	.features			= CLOCK_EVT_FEAT_PERIODIC |

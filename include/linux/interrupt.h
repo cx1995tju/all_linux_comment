@@ -528,7 +528,7 @@ extern bool force_irqthreads;
 enum
 {
 	HI_SOFTIRQ=0,
-	TIMER_SOFTIRQ,
+	TIMER_SOFTIRQ,	// 实现 timer 的时间轮机制
 	NET_TX_SOFTIRQ,
 	NET_RX_SOFTIRQ,
 	BLOCK_SOFTIRQ,

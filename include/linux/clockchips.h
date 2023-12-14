@@ -43,6 +43,8 @@ enum clock_event_state {
 /*
  * Clock event features
  */
+/* periodic - clock events devices that support periodic events; */
+/* oneshot - clock events devices that capable of issuing events that happen only once. */
 # define CLOCK_EVT_FEAT_PERIODIC	0x000001
 # define CLOCK_EVT_FEAT_ONESHOT		0x000002
 # define CLOCK_EVT_FEAT_KTIME		0x000004
@@ -50,10 +52,10 @@ enum clock_event_state {
 /*
  * x86(64) specific (mis)features:
  *
- * - Clockevent source stops in C3 State and needs broadcast support.
+ * - Clockevent source stops in C3 State and needs broadcast support.	// tick broadcast。进入 c3 状态的时候，需要别的 cpu 唤醒了
  * - Local APIC timer is used as a dummy device.
  */
-# define CLOCK_EVT_FEAT_C3STOP		0x000008
+# define CLOCK_EVT_FEAT_C3STOP		0x000008	// 表示 clock 会在 c3 状态停止
 # define CLOCK_EVT_FEAT_DUMMY		0x000010
 
 /*
@@ -91,14 +93,14 @@ enum clock_event_state {
  * @max_delta_ticks:	maximum delta value in ticks stored for reconfiguration
  * @name:		ptr to clock event name
  * @rating:		variable to rate clock event devices
- * @irq:		IRQ number (only for non CPU local devices)
+ * @irq:		IRQ number (only for non CPU local devices)	// 所以 x86 的 lapic 是不需要的
  * @bound_on:		Bound on CPU
  * @cpumask:		cpumask to indicate for which CPUs this device works
  * @list:		list head for the management code
  * @owner:		module reference
  */
 struct clock_event_device {
-	void			(*event_handler)(struct clock_event_device *);
+	void			(*event_handler)(struct clock_event_device *); // 当对应的时钟源触发中断的时候，会执行这个 handler
 	int			(*set_next_event)(unsigned long evt, struct clock_event_device *);
 	int			(*set_next_ktime)(ktime_t expires, struct clock_event_device *);
 	ktime_t			next_event;

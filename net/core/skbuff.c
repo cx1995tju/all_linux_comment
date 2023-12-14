@@ -2828,6 +2828,7 @@ EXPORT_SYMBOL(__skb_checksum_complete_head);
  * zero. The new checksum is stored back into skb->csum unless the skb is
  * shared.
  */
+// 返回 校验后的 checksum 值，值为 0 表示数据没有问题
 __sum16 __skb_checksum_complete(struct sk_buff *skb)
 {
 	__wsum csum;
@@ -4769,10 +4770,10 @@ bool skb_partial_csum_set(struct sk_buff *skb, u16 start, u16 off)
 				     start, off, skb_headroom(skb), skb_headlen(skb));
 		return false;
 	}
-	skb->ip_summed = CHECKSUM_PARTIAL;
+	skb->ip_summed = CHECKSUM_PARTIAL; // 表示有部分 checksum 校验了？？？
 	skb->csum_start = csum_start;
 	skb->csum_offset = off;
-	skb_set_transport_header(skb, start);
+	skb_set_transport_header(skb, start); // start 这个位置及之前的 checksum 都被计算了
 	return true;
 }
 EXPORT_SYMBOL_GPL(skb_partial_csum_set);

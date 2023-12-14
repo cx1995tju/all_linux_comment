@@ -53,13 +53,13 @@
  *
  * The checksum related features are:
  *
- *	NETIF_F_HW_CSUM	- The driver (or its device) is able to compute one
+ *	NETIF_F_HW_CSUM	- The driver (or its device) is able to compute one		// 对于 stack 来说 driver / device 有能力计算一层 ip 的 checksum。checksum 计算后会直接保存到 packet 里。
  *			  IP (one's complement) checksum for any combination
  *			  of protocols or protocol layering. The checksum is
  *			  computed and set in a packet per the CHECKSUM_PARTIAL
  *			  interface (see below).
  *
- *	NETIF_F_IP_CSUM - Driver (device) is only able to checksum plain
+ *	NETIF_F_IP_CSUM - Driver (device) is only able to checksum plain		// 废弃
  *			  TCP or UDP packets over IPv4. These are specifically
  *			  unencapsulated packets of the form IPv4|TCP or
  *			  IPv4|UDP where the Protocol field in the IPv4 header
@@ -68,7 +68,7 @@
  *			  with NETIF_F_HW_CSUM also set. This feature is being
  *			  DEPRECATED (see below).
  *
- *	NETIF_F_IPV6_CSUM - Driver (device) is only able to checksum plain
+ *	NETIF_F_IPV6_CSUM - Driver (device) is only able to checksum plain		// 废弃
  *			  TCP or UDP packets over IPv6. These are specifically
  *			  unencapsulated packets of the form IPv6|TCP or
  *			  IPv6|UDP where the Next Header field in the IPv6
@@ -78,40 +78,41 @@
  *			  NETIF_F_HW_CSUM also set. This feature is being
  *			  DEPRECATED (see below).
  *
- *	NETIF_F_RXCSUM - Driver (device) performs receive checksum offload.
+ *	NETIF_F_RXCSUM - Driver (device) performs receive checksum offload.		// driver 或者 device 对于 rx checksum offload
  *			 This flag is only used to disable the RX checksum
  *			 feature for a device. The stack will accept receive
  *			 checksum indication in packets received on a device
  *			 regardless of whether NETIF_F_RXCSUM is set.
  *
- * B. Checksumming of received packets by device. Indication of checksum
+ * B. Checksumming of received packets by device. Indication of checksum		// 几个 flag 在 rx 方向的含义。会在 skb->ip_summed 里记录下述的标志之一
  *    verification is set in skb->ip_summed. Possible values are:
  *
  * CHECKSUM_NONE:
  *
- *   Device did not checksum this packet e.g. due to lack of capabilities.
+ *   Device did not checksum this packet e.g. due to lack of capabilities.	// 设备完全没有做校验
  *   The packet contains full (though not verified) checksum in packet but
  *   not in skb->csum. Thus, skb->csum is undefined in this case.
  *
- * CHECKSUM_UNNECESSARY:
+ * CHECKSUM_UNNECESSARY:						// 表示硬件没有计算完整的 checksum，但是校验了特定协议(tcp/udp/gre/sctp/fcoe)的 checksum, 一共校验了 (skb->csum_level + 1) 层
  *
  *   The hardware you're dealing with doesn't calculate the full checksum
  *   (as in CHECKSUM_COMPLETE), but it does parse headers and verify checksums
  *   for specific protocols. For such packets it will set CHECKSUM_UNNECESSARY
  *   if their checksums are okay. skb->csum is still undefined in this case
- *   though. A driver or device must never modify the checksum field in the
+ *   though. A driver or device must never modify the checksum field in the	// driver 和 device 千万不能修改 packet 里的 checksum 的
  *   packet even if checksum is verified.
  *
- *   CHECKSUM_UNNECESSARY is applicable to following protocols:
- *     TCP: IPv6 and IPv4.
- *     UDP: IPv4 and IPv6. A device may apply CHECKSUM_UNNECESSARY to a
+ *   CHECKSUM_UNNECESSARY is applicable to following protocols:			// UNCESSARY 表示下述协议被校验了
+ *     TCP: IPv6 and IPv4.							// TCP
+ *     UDP: IPv4 and IPv6. A device may apply CHECKSUM_UNNECESSARY to a		// UDP
  *       zero UDP checksum for either IPv4 or IPv6, the networking stack
  *       may perform further validation in this case.
- *     GRE: only if the checksum is present in the header.
- *     SCTP: indicates the CRC in SCTP header has been validated.
- *     FCOE: indicates the CRC in FC frame has been validated.
+ *     GRE: only if the checksum is present in the header.			// GRE
+ *     SCTP: indicates the CRC in SCTP header has been validated.		// SCTP
+ *     FCOE: indicates the CRC in FC frame has been validated.			// FCOE
  *
- *   skb->csum_level indicates the number of consecutive checksums found in
+ *
+ *   skb->csum_level indicates the number of consecutive checksums found in	// skb->csum_level = (nr_of_consecutive_checksums_found_in_the_packets_have_been_verified - 1)。 也就是说 driver 已经校验了 (skb->csum_level + 1) 层的 checksum
  *   the packet minus one that have been verified as CHECKSUM_UNNECESSARY.
  *   For instance if a device receives an IPv6->UDP->GRE->IPv4->TCP packet
  *   and a device is able to verify the checksums for UDP (possibly zero),
@@ -121,18 +122,18 @@
  *   checksum is bad, skb->csum_level would be set to zero (TCP checksum is
  *   not considered in this case).
  *
- * CHECKSUM_COMPLETE:
+ * CHECKSUM_COMPLETE:								// device 为整个数据包计算了 checksum，放置在 skb->csum 中。硬件不需要解析 L3/L4 header。直接为整个报文计算checksum 就可以了
  *
  *   This is the most generic way. The device supplied checksum of the _whole_
  *   packet as seen by netif_rx() and fills in skb->csum. This means the
  *   hardware doesn't need to parse L3/L4 headers to implement this.
  *
  *   Notes:
- *   - Even if device supports only some protocols, but is able to produce
+ *   - Even if device supports only some protocols, but is able to produce	// 只要 device 可以计算checksum，填充 skb->csum，就需要设置 COMPLETE 这个 flag
  *     skb->csum, it MUST use CHECKSUM_COMPLETE, not CHECKSUM_UNNECESSARY.
  *   - CHECKSUM_COMPLETE is not applicable to SCTP and FCoE protocols.
  *
- * CHECKSUM_PARTIAL:
+ * CHECKSUM_PARTIAL:							// 校验了部分checksum。即[start, csum_start + csum_offset] 之前的 checksum 都验证了
  *
  *   A checksum is set up to be offloaded to a device as described in the
  *   output description for CHECKSUM_PARTIAL. This may occur on a packet
@@ -629,13 +630,17 @@ typedef unsigned char *sk_buff_data_t;
  *	@data_len: Data length
  *	@mac_len: Length of link layer header
  *	@hdr_len: writable header length of cloned skb
- *	@csum: Checksum (must include start/offset pair)
- *	@csum_start: Offset from skb->head where checksumming should start
- *	@csum_offset: Offset from csum_start where checksum should be stored
+ *	@csum: Checksum (must include start/offset pair) // csum_start, csum_offset 放在一起表达了下述含义:
+ *	- [start, csum_start + csum_offset] 这个范围内的 checksum 都已经校验过了，后续流程不需要校验了了。
+ *	- [csum_start + csum_offset, end] 这个范围内的 checksum 还没有计算过。后续流程只需要从 csum_start 开始计算 checksum，然后将其放置到 csum_start + csum_offset 位置就可以保证整个报文是 fully checksummed
+ *		- 这里也间接表示了 [start, csum_start + csum_offset] 范围内，如果有 checksum ，那么肯定是计算好的。这样最终的报文才是 fully checksummed
+ *		- 比如 在 tcp/udp 的 tx 场景。上层协议需要将伪头部计算好，放到 tcp/udp checksum 位置。然后根据这个信息填写 csum_start / csum_offset。这样下层才能计算正确
+ *	@csum_start: Offset from skb->head where checksumming should start // 计算 checksum 的时候从这个位置开始。另一方面也说明了 (csum_start + csum_offset) 之前的 checksum 都已经计算或者校验过了
+ *	@csum_offset: Offset from csum_start where checksum should be stored // checksum 计算完了后，放到报文的这个位置 (csum_start + csum_offset 位置)
  *	@priority: Packet queueing priority
  *	@ignore_df: allow local fragmentation
  *	@cloned: Head may be cloned (check refcnt to be sure)
- *	@ip_summed: Driver fed us an IP checksum
+ *	@ip_summed: Driver fed us an IP checksum	// 和 csum_start / csum_offset 没有关系。 另外不要被名字误导。从使用看，其不是表示 ip checksum 被校验了。而是 tcp/udp 层。 参看前文 CHECKSUM_UNNECESSARY 等定义的说明
  *	@nohdr: Payload reference only, must not modify header
  *	@pkt_type: Packet class
  *	@fclone: skbuff clone status
@@ -675,10 +680,10 @@ typedef unsigned char *sk_buff_data_t;
  *	@no_fcs:  Request NIC to treat last 4 bytes as Ethernet FCS
  *	@encapsulation: indicates the inner headers in the skbuff are valid
  *	@encap_hdr_csum: software checksum is needed
- *	@csum_valid: checksum is already valid
+ *	@csum_valid: checksum is already valid					// 已经校验过了，没问题
  *	@csum_not_inet: use CRC32c to resolve CHECKSUM_PARTIAL
- *	@csum_complete_sw: checksum was completed by software
- *	@csum_level: indicates the number of consecutive checksums found in
+ *	@csum_complete_sw: checksum was completed by software			// 软件已经校验过了，没有问题
+ *	@csum_level: indicates the number of consecutive checksums found in	// 表示有几层 checksum 已经校验过，没有问题。skb->csum_level = (nr_of_consecutive_checksums_found_in_the_packets_have_been_verified - 1)。 也就是说 driver 已经校验了 (skb->csum_level + 1) 层的 checksum
  *		the packet minus one that have been verified as
  *		CHECKSUM_UNNECESSARY (max 3)
  *	@dst_pending_confirm: need to confirm neighbour
@@ -866,7 +871,7 @@ struct sk_buff {
 	union {
 		__wsum		csum;
 		struct {
-			__u16	csum_start;
+			__u16	csum_start; 
 			__u16	csum_offset;
 		};
 	};
@@ -3892,11 +3897,12 @@ void skb_complete_wifi_ack(struct sk_buff *skb, bool acked);
 __sum16 __skb_checksum_complete_head(struct sk_buff *skb, int len);
 __sum16 __skb_checksum_complete(struct sk_buff *skb);
 
+// 表示 ip 层是否需要校验？
 static inline int skb_csum_unnecessary(const struct sk_buff *skb)
 {
-	return ((skb->ip_summed == CHECKSUM_UNNECESSARY) ||
-		skb->csum_valid ||
-		(skb->ip_summed == CHECKSUM_PARTIAL &&
+	return ((skb->ip_summed == CHECKSUM_UNNECESSARY) ||	// 说明 tcp/udp 层得到校验了。 详见 CHECKSUM_UNNECESSARY 的解释
+		skb->csum_valid ||	// 说明完全得到校验了
+		(skb->ip_summed == CHECKSUM_PARTIAL &&	// 说明 tcp 层以及之前的都得到校验了。 详见 CHECKSUM_PARTIAL 的解释
 		 skb_checksum_start_offset(skb) >= 0));
 }
 

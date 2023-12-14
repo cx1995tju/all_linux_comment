@@ -48,6 +48,8 @@ static u64 jiffies_read(struct clocksource *cs)
  * requested HZ value. It is also not recommended
  * for "tick-less" systems.
  */
+
+// 精度依赖于 PIT timer interrupt 的处理
 static struct clocksource clocksource_jiffies = {
 	.name		= "jiffies",
 	.rating		= 1, /* lowest valid rating*/
@@ -93,6 +95,10 @@ struct clocksource * __init __weak clocksource_default_clock(void)
 	return &clocksource_jiffies;
 }
 
+// 一个时钟源
+// 和 clocksource_jiffies 区别:
+//	和 clocksource_jiffies 使用同一个 read 函数。仅仅是通过 4舍5入的原则调整了下 mult 参数。
+//	这样将 jiffifes 转换为 ns 的时候更精确一点
 static struct clocksource refined_jiffies;
 
 int register_refined_jiffies(long cycles_per_second)
@@ -100,14 +106,12 @@ int register_refined_jiffies(long cycles_per_second)
 	u64 nsec_per_tick, shift_hz;
 	long cycles_per_tick;
 
-
-
 	refined_jiffies = clocksource_jiffies;
 	refined_jiffies.name = "refined-jiffies";
 	refined_jiffies.rating++;
 
 	/* Calc cycles per tick */
-	cycles_per_tick = (cycles_per_second + HZ/2)/HZ;
+	cycles_per_tick = (cycles_per_second + HZ/2)/HZ;	// HZ/2 是为了做 4舍5入。得到尽量精确的 cycles_per_tick
 	/* shift_hz stores hz<<8 for extra accuracy */
 	shift_hz = (u64)cycles_per_second << 8;
 	shift_hz += cycles_per_tick/2;

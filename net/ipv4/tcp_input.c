@@ -5798,7 +5798,7 @@ void tcp_rcv_established(struct sock *sk, struct sk_buff *skb)
 			int eaten = 0;
 			bool fragstolen = false;
 
-			if (tcp_checksum_complete(skb))
+			if (tcp_checksum_complete(skb)) // 返回 false 是没有出错
 				goto csum_error;
 
 			if ((int)skb->truesize > sk->sk_forward_alloc)

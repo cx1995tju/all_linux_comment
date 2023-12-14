@@ -819,6 +819,7 @@ int __init hpet_enable(void)
 	if (!is_hpet_capable())
 		return 0;
 
+	// 给 hpet 分配 mmio 空间
 	hpet_set_mapping();
 	if (!hpet_virt_address)
 		return 0;
@@ -900,6 +901,7 @@ int __init hpet_enable(void)
 	if (!hpet_counting())
 		goto out_nohpet;
 
+	// 注册 hpet 作为 clocksource
 	clocksource_register_hz(&clocksource_hpet, (u32)hpet_freq);
 
 	if (id & HPET_ID_LEGSUP) {

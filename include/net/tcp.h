@@ -1352,8 +1352,11 @@ static inline __sum16 tcp_v4_check(int len, __be32 saddr,
 	return csum_tcpudp_magic(saddr, daddr, len, IPPROTO_TCP, base);
 }
 
+// 返回 0(false) 表示数据没有问题
 static inline bool tcp_checksum_complete(struct sk_buff *skb)
 {
+	// skb_csum_unnecessary(skb) 为 true
+	// 或者 __skb_checksum_complete(skb) 返回 0 就没有问题
 	return !skb_csum_unnecessary(skb) &&
 		__skb_checksum_complete(skb);
 }
