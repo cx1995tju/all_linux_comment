@@ -128,6 +128,7 @@ struct inet_hashinfo {
 	 *          TCP_ESTABLISHED <= sk->sk_state < TCP_CLOSE
 	 *
 	 */
+	// 三次握手中的 reqsock 也会插入 ehash 表, 而且其状态是 NEW_SYN_RECV，最后这个 reqsock 会转换为 child sock
 	struct inet_ehash_bucket	*ehash;		// 保存的 socket 不仅仅是 established 状态的。见前面注释。这个范围的都会被保存的
 	spinlock_t			*ehash_locks;
 	unsigned int			ehash_mask;

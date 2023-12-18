@@ -269,7 +269,7 @@ struct sock *inet_csk_complete_hashdance(struct sock *sk, struct sock *child,
 
 static inline void inet_csk_reqsk_queue_added(struct sock *sk)
 {
-	reqsk_queue_added(&inet_csk(sk)->icsk_accept_queue);
+	reqsk_queue_added(&inet_csk(sk)->icsk_accept_queue); // 计数++
 }
 
 static inline int inet_csk_reqsk_queue_len(const struct sock *sk)

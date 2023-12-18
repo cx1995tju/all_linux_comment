@@ -6300,11 +6300,12 @@ static void tcp_rcv_synrecv_state_fastopen(struct sock *sk)
  *	address independent.
  */
 
+// rx tcp 报文处理的主体逻辑
 int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct inet_connection_sock *icsk = inet_csk(sk);
-	const struct tcphdr *th = tcp_hdr(skb);
+	const struct tcphdr *th = tcp_hdr(skb);	// 报文里的 tcp 头部
 	struct request_sock *req;
 	int queued = 0;
 	bool acceptable;
@@ -6314,27 +6315,27 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		goto discard;
 
 	case TCP_LISTEN:
-		if (th->ack)
+		if (th->ack)	// LISTEN 状态必须接收到没有 ack 的 syn 报文
 			return 1;
 
 		if (th->rst)
 			goto discard;
 
 		if (th->syn) {
-			if (th->fin)
+			if (th->fin)	// syn + fin 是异常报文
 				goto discard;
 			/* It is possible that we process SYN packets from backlog,
 			 * so we need to make sure to disable BH and RCU right there.
 			 */
 			rcu_read_lock();
 			local_bh_disable();
-			acceptable = icsk->icsk_af_ops->conn_request(sk, skb) >= 0;
+			acceptable = icsk->icsk_af_ops->conn_request(sk, skb) >= 0; // %tcp_v4_conn_request()
 			local_bh_enable();
 			rcu_read_unlock();
 
 			if (!acceptable)
 				return 1;
-			consume_skb(skb);
+			consume_skb(skb); // skb 被释放了
 			return 0;
 		}
 		goto discard;
@@ -6642,7 +6643,7 @@ struct request_sock *inet_reqsk_alloc(const struct request_sock_ops *ops,
 		ireq->pktopts = NULL;
 #endif
 		atomic64_set(&ireq->ir_cookie, 0);
-		ireq->ireq_state = TCP_NEW_SYN_RECV;
+		ireq->ireq_state = TCP_NEW_SYN_RECV;	// NOTE: NEW_SYN_RECV
 		write_pnet(&ireq->ireq_net, sock_net(sk_listener));
 		ireq->ireq_family = sk_listener->sk_family;
 	}
@@ -6740,8 +6741,10 @@ u16 tcp_get_syncookie_mss(struct request_sock_ops *rsk_ops,
 }
 EXPORT_SYMBOL_GPL(tcp_get_syncookie_mss);
 
-int tcp_conn_request(struct request_sock_ops *rsk_ops,
-		     const struct tcp_request_sock_ops *af_ops,
+// 使用 reqsock 记录下这个 syn 代表的 request。这个 reqsock 会被加入到 hash 表中
+// 然后发送 syn+ack 报文
+int tcp_conn_request(struct request_sock_ops *rsk_ops, /* tcp_request_sock_ops */
+		     const struct tcp_request_sock_ops *af_ops, /* tcp_request_sock_ipv4_ops */
 		     struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_fastopen_cookie foc = { .len = -1 };
@@ -6759,10 +6762,10 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 	 * limitations, they conserve resources and peer is
 	 * evidently real one.
 	 */
-	if ((net->ipv4.sysctl_tcp_syncookies == 2 ||
+	if ((net->ipv4.sysctl_tcp_syncookies == 2 ||	// 一般不会无条件开启 syncookies
 	     inet_csk_reqsk_queue_is_full(sk)) && !isn) {
-		want_cookie = tcp_syn_flood_action(sk, rsk_ops->slab_name);
-		if (!want_cookie)
+		want_cookie = tcp_syn_flood_action(sk, rsk_ops->slab_name);	// 认定为 syn flood 攻击。使用 syn cookie 来处理。
+		if (!want_cookie) // 如果没有开启 syn cookie 的话，那么这里就直接丢包了
 			goto drop;
 	}
 
@@ -6852,7 +6855,7 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 		fastopen_sk = tcp_try_fastopen(sk, skb, req, &foc, dst);
 	}
 	if (fastopen_sk) {
-		af_ops->send_synack(fastopen_sk, dst, &fl, req,
+		af_ops->send_synack(fastopen_sk, dst, &fl, req, // tcp_v4_send_synack
 				    &foc, TCP_SYNACK_FASTOPEN, skb);
 		/* Add the child socket directly into the accept queue */
 		if (!inet_csk_reqsk_queue_add(sk, req, fastopen_sk)) {
@@ -6867,9 +6870,9 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 	} else {
 		tcp_rsk(req)->tfo_listener = false;
 		if (!want_cookie)
-			inet_csk_reqsk_queue_hash_add(sk, req,
+			inet_csk_reqsk_queue_hash_add(sk, req,	// 这里将 reqsock 加入 hash 表。最后ack 报文到来的时候可以从这里找到	
 				tcp_timeout_init((struct sock *)req));
-		af_ops->send_synack(sk, dst, &fl, req, &foc,
+		af_ops->send_synack(sk, dst, &fl, req, &foc,			// NOTE：发送 syn ack 包
 				    !want_cookie ? TCP_SYNACK_NORMAL :
 						   TCP_SYNACK_COOKIE,
 				    skb);
@@ -6878,7 +6881,7 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 			return 0;
 		}
 	}
-	reqsk_put(req);
+	reqsk_put(req); // put 不是 free
 	return 0;
 
 drop_and_release:

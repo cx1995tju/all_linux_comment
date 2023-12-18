@@ -1676,7 +1676,7 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 		return 0;
 	}
 
-	if (tcp_checksum_complete(skb))
+	if (tcp_checksum_complete(skb))	// 对数据包做完整的校验了
 		goto csum_err;
 
 	if (sk->sk_state == TCP_LISTEN) {
@@ -1684,7 +1684,7 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 
 		if (!nsk)
 			goto discard;
-		if (nsk != sk) {
+		if (nsk != sk) { // 一般 nsk == sk
 			if (tcp_child_process(sk, nsk, skb)) {
 				rsk = nsk;
 				goto reset;
@@ -1890,6 +1890,8 @@ static void tcp_v4_restore_cb(struct sk_buff *skb)
 		sizeof(struct inet_skb_parm));
 }
 
+
+// 从报文提取 tcp control block 信息并保存起来
 static void tcp_v4_fill_cb(struct sk_buff *skb, const struct iphdr *iph,
 			   const struct tcphdr *th)
 {
@@ -1934,28 +1936,27 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	/* Count it even if it's bad */
 	__TCP_INC_STATS(net, TCP_MIB_INSEGS);
 
-	if (!pskb_may_pull(skb, sizeof(struct tcphdr)))
+	if (!pskb_may_pull(skb, sizeof(struct tcphdr))) // 这里必须返回 True, 即确保 skb 的线性区可以存放下 tcphdr。即如果有部分数据是放在 SG 区。就会将其copy到线性区的
 		goto discard_it;
 
 	th = (const struct tcphdr *)skb->data;
 
 	if (unlikely(th->doff < sizeof(struct tcphdr) / 4))
 		goto bad_packet;
-	if (!pskb_may_pull(skb, th->doff * 4))
+	if (!pskb_may_pull(skb, th->doff * 4))	// 同前文，确保 tcp hdr 在 线性区
 		goto discard_it;
 
 	/* An explanation is required here, I think.
 	 * Packet length and doff are validated by header prediction,
 	 * provided case of th->doff==0 is eliminated.
 	 * So, we defer the checks. */
-
-	if (skb_checksum_init(skb, IPPROTO_TCP, inet_compute_pseudo))
+	if (skb_checksum_init(skb, IPPROTO_TCP, inet_compute_pseudo)) // 避免计算整个数据包的前提下，尝试校验数据包
 		goto csum_error;
 
 	th = (const struct tcphdr *)skb->data;
-	iph = ip_hdr(skb);
+	iph = ip_hdr(skb); // 能到这里，肯定过了 ip 层，ip 层肯定设置好了 network header 的位置了
 lookup:
-	sk = __inet_lookup_skb(&tcp_hashinfo, skb, __tcp_hdrlen(th), th->source,
+	sk = __inet_lookup_skb(&tcp_hashinfo, skb, __tcp_hdrlen(th), th->source,	// 用5元组去寻找 socket
 			       th->dest, sdif, &refcounted);
 	if (!sk)
 		goto no_tcp_socket;
@@ -2037,7 +2038,7 @@ process:
 		goto discard_and_relse;
 	th = (const struct tcphdr *)skb->data;
 	iph = ip_hdr(skb);
-	tcp_v4_fill_cb(skb, iph, th);
+	tcp_v4_fill_cb(skb, iph, th);	// 从报文提取 tcp control block 信息并保存起来
 
 	skb->dev = NULL;
 

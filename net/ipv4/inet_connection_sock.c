@@ -679,7 +679,7 @@ static void syn_ack_recalc(struct request_sock *req,
 
 int inet_rtx_syn_ack(const struct sock *parent, struct request_sock *req)
 {
-	int err = req->rsk_ops->rtx_syn_ack(parent, req);
+	int err = req->rsk_ops->rtx_syn_ack(parent, req); // %tcp_rtx_synack()
 
 	if (!err)
 		req->num_retrans++;
@@ -730,6 +730,7 @@ static void reqsk_timer_handler(struct timer_list *t)
 	struct request_sock_queue *queue = &icsk->icsk_accept_queue;
 	int max_syn_ack_retries, qlen, expire = 0, resend = 0;
 
+	// 对应的 listen sock 已经不存在咯
 	if (inet_sk_state_load(sk_listener) != TCP_LISTEN)
 		goto drop;
 
@@ -764,10 +765,10 @@ static void reqsk_timer_handler(struct timer_list *t)
 	}
 	syn_ack_recalc(req, max_syn_ack_retries, READ_ONCE(queue->rskq_defer_accept),
 		       &expire, &resend);
-	req->rsk_ops->syn_ack_timeout(req);
-	if (!expire &&
+	req->rsk_ops->syn_ack_timeout(req); // %tcp_syn_ack_timeout()
+	if (!expire &&	// 没有超时，没有 resend 过
 	    (!resend ||
-	     !inet_rtx_syn_ack(sk_listener, req) ||
+	     !inet_rtx_syn_ack(sk_listener, req) ||	// 这里做 retrans syn_ack
 	     inet_rsk(req)->acked)) {
 		unsigned long timeo;
 
@@ -781,13 +782,14 @@ drop:
 	inet_csk_reqsk_queue_drop_and_put(sk_listener, req);
 }
 
+// 三次握手完成后，这个 request_sock 会转换为 child sock
 static void reqsk_queue_hash_req(struct request_sock *req,
 				 unsigned long timeout)
 {
 	timer_setup(&req->rsk_timer, reqsk_timer_handler, TIMER_PINNED);
 	mod_timer(&req->rsk_timer, jiffies + timeout);
 
-	inet_ehash_insert(req_to_sk(req), NULL, NULL);
+	inet_ehash_insert(req_to_sk(req), NULL, NULL); // 三次握手中的 reqsock 也会插入 ehash 表
 	/* before letting lookups find us, make sure all req fields
 	 * are committed to memory and refcnt initialized.
 	 */
@@ -798,7 +800,7 @@ static void reqsk_queue_hash_req(struct request_sock *req,
 void inet_csk_reqsk_queue_hash_add(struct sock *sk, struct request_sock *req,
 				   unsigned long timeout)
 {
-	reqsk_queue_hash_req(req, timeout);
+	reqsk_queue_hash_req(req, timeout); // 当然还有一个定时器用于处理重传
 	inet_csk_reqsk_queue_added(sk);
 }
 EXPORT_SYMBOL_GPL(inet_csk_reqsk_queue_hash_add);

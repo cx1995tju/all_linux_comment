@@ -513,12 +513,12 @@ int skb_zerocopy_iter_stream(struct sock *sk, struct sk_buff *skb,
 struct skb_shared_info {
 	__u8		__unused;
 	__u8		meta_len;
-	__u8		nr_frags;
+	__u8		nr_frags; // frag 数目，每个 frag 大小不固定
 	__u8		tx_flags;
 	unsigned short	gso_size;
 	/* Warning: this field is not always filled in (UFO)! */
 	unsigned short	gso_segs;
-	struct sk_buff	*frag_list;
+	struct sk_buff	*frag_list; // 基于 skb 组织的 frag 形式
 	struct skb_shared_hwtstamps hwtstamps;
 	unsigned int	gso_type;
 	u32		tskey;
@@ -533,7 +533,7 @@ struct skb_shared_info {
 	void *		destructor_arg;
 
 	/* must be last field, see pskb_expand_head() */
-	skb_frag_t	frags[MAX_SKB_FRAGS];
+	skb_frag_t	frags[MAX_SKB_FRAGS];	// 每个元素是一个 frag
 };
 
 /* We divide dataref into two halves.  The higher 16 bits hold references
@@ -692,7 +692,7 @@ typedef unsigned char *sk_buff_data_t;
  *	@sender_cpu: (aka @napi_id) source CPU in XPS
  *	@secmark: security marking
  *	@mark: Generic packet mark
- *	@reserved_tailroom: (aka @mark) number of bytes of free space available
+ *	@reserved_tailroom: (aka @mark) number of bytes of free space available	// 预留了一部分 tailroom
  *		at the tail of an sk_buff
  *	@vlan_present: VLAN tag is present
  *	@vlan_proto: vlan encapsulation protocol
@@ -750,7 +750,7 @@ struct sk_buff {
 	 * want to keep them across layers you have to do a skb_clone()
 	 * first. This is owned by whoever has the skb queued ATM.
 	 */
-	char			cb[48] __aligned(8);
+	char			cb[48] __aligned(8);		// 各层会用这个来构成一个 control block 结构
 
 	union {
 		struct {
@@ -2303,7 +2303,7 @@ static inline void *__skb_pull(struct sk_buff *skb, unsigned int len)
 	return skb->data += len;
 }
 
-static inline void *skb_pull_inline(struct sk_buff *skb, unsigned int len)
+static inline void *skb_pull_inline(struct sk_buff *skb, unsigned int len) 
 {
 	return unlikely(len > skb->len) ? NULL : __skb_pull(skb, len);
 }
@@ -2326,11 +2326,11 @@ static inline void *pskb_pull(struct sk_buff *skb, unsigned int len)
 
 static inline bool pskb_may_pull(struct sk_buff *skb, unsigned int len)
 {
-	if (likely(len <= skb_headlen(skb)))
+	if (likely(len <= skb_headlen(skb)))	// headlen 里面可以方向整个 len 的数据，直接返回
 		return true;
 	if (unlikely(len > skb->len))
 		return false;
-	return __pskb_pull_tail(skb, len - skb_headlen(skb)) != NULL;
+	return __pskb_pull_tail(skb, len - skb_headlen(skb)) != NULL; // headlen 放不下整个len 的数据，那么需要从 tailroom 里拿一点出来, 扩充下线性区空间
 }
 
 void skb_condense(struct sk_buff *skb);
@@ -3962,6 +3962,7 @@ static inline void __skb_reset_checksum_unnecessary(struct sk_buff *skb)
  * Returns true if checksum complete is needed, false otherwise
  * (either checksum is unnecessary or zero checksum is allowed).
  */
+// 判断是否需要校验 checksum
 static inline bool __skb_checksum_validate_needed(struct sk_buff *skb,
 						  bool zero_okay,
 						  __sum16 check)
@@ -4001,6 +4002,10 @@ static inline void skb_checksum_complete_unset(struct sk_buff *skb)
  *   non-zero: value of invalid checksum
  *
  */
+
+// complete 为 false 的时候:
+// - 尝试在不计算完整数据包的前提下判断数据包 chcekcsum 的正确与否
+// - 或者对于小的报文就直接在这里计算了
 static inline __sum16 __skb_checksum_validate_complete(struct sk_buff *skb,
 						       bool complete,
 						       __wsum psum)
@@ -4014,7 +4019,7 @@ static inline __sum16 __skb_checksum_validate_complete(struct sk_buff *skb,
 
 	skb->csum = psum;
 
-	if (complete || skb->len <= CHECKSUM_BREAK) {
+	if (complete || skb->len <= CHECKSUM_BREAK) { // 小包就直接在这里计算了
 		__sum16 csum;
 
 		csum = __skb_checksum_complete(skb);
@@ -4040,6 +4045,7 @@ static inline __wsum null_compute_pseudo(struct sk_buff *skb, int proto)
  *   0: checksum is validated or try to in skb_checksum_complete
  *   non-zero: value of invalid checksum
  */
+
 #define __skb_checksum_validate(skb, proto, complete,			\
 				zero_okay, check, compute_pseudo)	\
 ({									\

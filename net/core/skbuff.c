@@ -2022,7 +2022,7 @@ EXPORT_SYMBOL(pskb_trim_rcsum_slow);
  *	@delta: number of bytes to advance tail
  *
  *	The function makes a sense only on a fragmented &sk_buff,
- *	it expands header moving its tail forward and copying necessary
+ *	it expands header moving its tail forward and copying necessary	// 将 线性区的 tail++，然后从 frag copy 一些数据到线性区
  *	data from fragmented part.
  *
  *	&sk_buff MUST have reference count of 1.
@@ -2041,6 +2041,9 @@ EXPORT_SYMBOL(pskb_trim_rcsum_slow);
  *
  * It is pretty complicated. Luckily, it is called only in exceptional cases.
  */
+
+// skb->tail ++
+// 扩充 线性区大小，同时从 SG 区copy 一部分数据到线性区来。当然从 SG copy 过来的那部分数据要在 SG 区中移除
 void *__pskb_pull_tail(struct sk_buff *skb, int delta)
 {
 	/* If skb has not enough free space at tail, get new one
@@ -5819,7 +5822,7 @@ struct sk_buff *alloc_skb_with_frags(unsigned long header_len,
 				     int *errcode,
 				     gfp_t gfp_mask)
 {
-	int npages = (data_len + (PAGE_SIZE - 1)) >> PAGE_SHIFT;
+	int npages = (data_len + (PAGE_SIZE - 1)) >> PAGE_SHIFT;	// 至少一个 page
 	unsigned long chunk;
 	struct sk_buff *skb;
 	struct page *page;
@@ -5860,7 +5863,7 @@ struct sk_buff *alloc_skb_with_frags(unsigned long header_len,
 		if (!page)
 			goto failure;
 fill_page:
-		chunk = min_t(unsigned long, data_len,
+		chunk = min_t(unsigned long, data_len,	// 一个 chunk 的大小
 			      PAGE_SIZE << order);
 		skb_fill_page_desc(skb, i, page, 0, chunk);
 		data_len -= chunk;

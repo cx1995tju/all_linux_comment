@@ -1629,6 +1629,7 @@ static inline void sock_owned_by_me(const struct sock *sk)
 #endif
 }
 
+// 用户态的进程调用了 socket 相关接口，持有了这个 sock
 static inline bool sock_owned_by_user(const struct sock *sk)
 {
 	sock_owned_by_me(sk);

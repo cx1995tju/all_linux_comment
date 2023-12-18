@@ -50,6 +50,7 @@ struct saved_syn {
 
 /* struct request_sock - mini sock to represent a connection request
  */
+// 连接建立过程中，临时用的 sock 咯
 struct request_sock {
 	struct sock_common		__req_common;
 #define rsk_refcnt			__req_common.skc_refcnt
@@ -176,7 +177,7 @@ struct request_sock_queue {
 
 	u32			synflood_warned;
 	atomic_t		qlen;
-	atomic_t		young;
+	atomic_t		young; //没有重传过syn+ack的请求块数目
 
 	struct request_sock	*rskq_accept_head;
 	struct request_sock	*rskq_accept_tail;
