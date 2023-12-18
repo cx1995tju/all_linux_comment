@@ -55,7 +55,7 @@ void tcp_mstamp_refresh(struct tcp_sock *tp)
 	u64 val = tcp_clock_ns();
 
 	tp->tcp_clock_cache = val;
-	tp->tcp_mstamp = div_u64(val, NSEC_PER_USEC);
+	tp->tcp_mstamp = div_u64(val, NSEC_PER_USEC); // 记录数据包发送的时间
 }
 
 static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
@@ -1236,6 +1236,9 @@ INDIRECT_CALLABLE_DECLARE(void tcp_v4_send_check(struct sock *sk, struct sk_buff
  * We are working here with either a clone of the original
  * SKB, or a fresh unique copy made by the retransmit engine.
  */
+
+// 进入这个函数的时候，skb 还没有被填充头部。头部的所有信息都还在 sk 的 tcp_skb_cb 里
+// 当然数据已经在 skb 的 buffer 里了
 static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 			      int clone_it, gfp_t gfp_mask, u32 rcv_nxt)
 {
@@ -1326,7 +1329,7 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	skb_set_dst_pending_confirm(skb, sk->sk_dst_pending_confirm);
 
 	/* Build TCP header and checksum it. */
-	th = (struct tcphdr *)skb->data;
+	th = (struct tcphdr *)skb->data;	// 这里才会阵阵设置报文的。
 	th->source		= inet->inet_sport;
 	th->dest		= inet->inet_dport;
 	th->seq			= htonl(tcb->seq);
@@ -1761,7 +1764,7 @@ void tcp_mtup_init(struct sock *sk)
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct net *net = sock_net(sk);
 
-	icsk->icsk_mtup.enabled = net->ipv4.sysctl_tcp_mtu_probing > 1;
+	icsk->icsk_mtup.enabled = net->ipv4.sysctl_tcp_mtu_probing > 1; // 一般不会enable mtu probing 的
 	icsk->icsk_mtup.search_high = tp->rx_opt.mss_clamp + sizeof(struct tcphdr) +
 			       icsk->icsk_af_ops->net_header_len;
 	icsk->icsk_mtup.search_low = tcp_mss_to_mtu(sk, net->ipv4.sysctl_tcp_base_mss);
@@ -3634,6 +3637,7 @@ static void tcp_ca_dst_init(struct sock *sk, const struct dst_entry *dst)
 }
 
 /* Do all connect socket setups that can be done AF independent. */
+// 初始化tcp 连接中用到的各种信息
 static void tcp_connect_init(struct sock *sk)
 {
 	const struct dst_entry *dst = __sk_dst_get(sk);
@@ -3645,7 +3649,7 @@ static void tcp_connect_init(struct sock *sk)
 	 * See tcp_input.c:tcp_rcv_state_process case TCP_SYN_SENT.
 	 */
 	tp->tcp_header_len = sizeof(struct tcphdr);
-	if (sock_net(sk)->ipv4.sysctl_tcp_timestamps)
+	if (sock_net(sk)->ipv4.sysctl_tcp_timestamps) // 一般会用，
 		tp->tcp_header_len += TCPOLEN_TSTAMP_ALIGNED;
 
 #ifdef CONFIG_TCP_MD5SIG
@@ -3654,17 +3658,17 @@ static void tcp_connect_init(struct sock *sk)
 #endif
 
 	/* If user gave his TCP_MAXSEG, record it to clamp */
-	if (tp->rx_opt.user_mss)
+	if (tp->rx_opt.user_mss)	// user 可以通过 socket 接口设置: %do_tcp_setsockopt
 		tp->rx_opt.mss_clamp = tp->rx_opt.user_mss;
 	tp->max_window = 0;
 	tcp_mtup_init(sk);
-	tcp_sync_mss(sk, dst_mtu(dst));
+	tcp_sync_mss(sk, dst_mtu(dst)); // 根据 mtu 等各种信息来计算 mss
 
 	tcp_ca_dst_init(sk, dst);
 
-	if (!tp->window_clamp)
+	if (!tp->window_clamp) // 一般没有被设置, 自己最大的 recv window
 		tp->window_clamp = dst_metric(dst, RTAX_WINDOW);
-	tp->advmss = tcp_mss_clamp(tp, dst_metric_advmss(dst));
+	tp->advmss = tcp_mss_clamp(tp, dst_metric_advmss(dst)); // 计算自己的 mss
 
 	tcp_initialize_rcv_mss(sk);
 
@@ -3705,7 +3709,7 @@ static void tcp_connect_init(struct sock *sk)
 	tp->rcv_wup = tp->rcv_nxt;
 	WRITE_ONCE(tp->copied_seq, tp->rcv_nxt);
 
-	inet_csk(sk)->icsk_rto = tcp_timeout_init(sk);
+	inet_csk(sk)->icsk_rto = tcp_timeout_init(sk);	//初始的 rto 值
 	inet_csk(sk)->icsk_retransmits = 0;
 	tcp_clear_retrans(tp);
 }
@@ -3826,21 +3830,21 @@ int tcp_connect(struct sock *sk)
 
 	tcp_call_bpf(sk, BPF_SOCK_OPS_TCP_CONNECT_CB, 0, NULL);
 
-	if (inet_csk(sk)->icsk_af_ops->rebuild_header(sk))
+	if (inet_csk(sk)->icsk_af_ops->rebuild_header(sk)) // ipv4_specific->rebuild_header() %inet_sk_rebuild_header()
 		return -EHOSTUNREACH; /* Routing failure or similar. */
 
-	tcp_connect_init(sk);
+	tcp_connect_init(sk); // 主要是初始化 sk
 
 	if (unlikely(tp->repair)) {
 		tcp_finish_connect(sk, NULL);
 		return 0;
 	}
 
-	buff = sk_stream_alloc_skb(sk, 0, sk->sk_allocation, true);
+	buff = sk_stream_alloc_skb(sk, 0, sk->sk_allocation, true); // 分配 skb 了
 	if (unlikely(!buff))
 		return -ENOBUFS;
 
-	tcp_init_nondata_skb(buff, tp->write_seq++, TCPHDR_SYN);
+	tcp_init_nondata_skb(buff, tp->write_seq++, TCPHDR_SYN); // 初始化 skb tcp control block, 数据包本身还没有设置, 这里 ISN ++ 了
 	tcp_mstamp_refresh(tp);
 	tp->retrans_stamp = tcp_time_stamp(tp);
 	tcp_connect_queue_skb(sk, buff);
@@ -3849,7 +3853,7 @@ int tcp_connect(struct sock *sk)
 
 	/* Send off SYN; include data in Fast Open. */
 	err = tp->fastopen_req ? tcp_send_syn_data(sk, buff) :
-	      tcp_transmit_skb(sk, buff, 1, sk->sk_allocation);
+	      tcp_transmit_skb(sk, buff, 1, sk->sk_allocation); // 这里发送了
 	if (err == -ECONNREFUSED)
 		return err;
 

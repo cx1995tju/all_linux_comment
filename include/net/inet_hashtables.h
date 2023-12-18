@@ -76,7 +76,7 @@ struct inet_ehash_bucket {
 struct inet_bind_bucket {
 	possible_net_t		ib_net;
 	int			l3mdev;
-	unsigned short		port;
+	unsigned short		port;	// refer to: inet_bind_bucket_create()
 	signed char		fastreuse;
 	signed char		fastreuseport;
 	kuid_t			fastuid;
@@ -128,7 +128,7 @@ struct inet_hashinfo {
 	 *          TCP_ESTABLISHED <= sk->sk_state < TCP_CLOSE
 	 *
 	 */
-	struct inet_ehash_bucket	*ehash;
+	struct inet_ehash_bucket	*ehash;		// 保存的 socket 不仅仅是 established 状态的。见前面注释。这个范围的都会被保存的
 	spinlock_t			*ehash_locks;
 	unsigned int			ehash_mask;
 	unsigned int			ehash_locks_mask;
@@ -137,7 +137,7 @@ struct inet_hashinfo {
 	 * TCP hash as well as the others for fast bind/connect.
 	 */
 	struct kmem_cache		*bind_bucket_cachep;
-	struct inet_bind_hashbucket	*bhash;
+	struct inet_bind_hashbucket	*bhash;	// 一个数组。每个元素是啥呢？？ 是一个 hash 的 bucket。 用于 bind port 的 hash 表
 	unsigned int			bhash_size;
 
 	/* The 2nd listener table hashed by local port and address */

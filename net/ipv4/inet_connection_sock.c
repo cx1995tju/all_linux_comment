@@ -124,7 +124,7 @@ void inet_get_local_port_range(struct net *net, int *low, int *high)
 	do {
 		seq = read_seqbegin(&net->ipv4.ip_local_ports.lock);
 
-		*low = net->ipv4.ip_local_ports.range[0];
+		*low = net->ipv4.ip_local_ports.range[0];	// 有参数设置的
 		*high = net->ipv4.ip_local_ports.range[1];
 	} while (read_seqretry(&net->ipv4.ip_local_ports.lock, seq));
 }

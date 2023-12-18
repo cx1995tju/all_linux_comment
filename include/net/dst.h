@@ -168,7 +168,7 @@ dst_metric_advmss(const struct dst_entry *dst)
 	u32 advmss = dst_metric_raw(dst, RTAX_ADVMSS);
 
 	if (!advmss)
-		advmss = dst->ops->default_advmss(dst);
+		advmss = dst->ops->default_advmss(dst); // ipv4_default_advmss
 
 	return advmss;
 }

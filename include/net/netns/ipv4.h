@@ -31,6 +31,8 @@ struct ping_group_range {
 
 struct inet_hashinfo;
 
+// time wait 状态的 hash 表
+// 会被设置为 tcp_hashinfo, refer to: tcp_sk_init()
 struct inet_timewait_death_row {
 	atomic_t		tw_count;
 

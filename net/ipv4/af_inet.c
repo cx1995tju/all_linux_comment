@@ -361,7 +361,7 @@ lookup_protocol:
 
 	sk_refcnt_debug_inc(sk);
 
-	if (inet->inet_num) {
+	if (inet->inet_num) { // 绑定了本地 port, 一般协议不允许在创建的时候绑定 port 的。所以这里基本是不会进来的
 		/* It assumes that any protocol which allows
 		 * the user to assign a number at socket
 		 * creation time automatically
@@ -369,7 +369,7 @@ lookup_protocol:
 		 */
 		inet->inet_sport = htons(inet->inet_num);
 		/* Add to protocol hash chains. */
-		err = sk->sk_prot->hash(sk);
+		err = sk->sk_prot->hash(sk);	// 将当前 sk 加入 hash 表, %inet_hash()
 		if (err) {
 			sk_common_release(sk);
 			goto out;
@@ -622,7 +622,7 @@ int __inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 	 * write() will invoke tcp_sendmsg_fastopen() which calls
 	 * __inet_stream_connect().
 	 */
-	if (uaddr) {
+	if (uaddr) { // fastopen 路径
 		if (addr_len < sizeof(uaddr->sa_family))
 			return -EINVAL;
 
@@ -658,7 +658,7 @@ int __inet_stream_connect(struct socket *sock, struct sockaddr *uaddr,
 				goto out;
 		}
 
-		err = sk->sk_prot->connect(sk, uaddr, addr_len);
+		err = sk->sk_prot->connect(sk, uaddr, addr_len); // %tcp_prot 
 		if (err < 0)
 			goto out;
 

@@ -450,7 +450,7 @@ struct sock {
 	unsigned long		sk_pacing_rate; /* bytes per second */
 	unsigned long		sk_max_pacing_rate;
 	struct page_frag	sk_frag;
-	netdev_features_t	sk_route_caps;
+	netdev_features_t	sk_route_caps; // %sk_setup_caps()
 	netdev_features_t	sk_route_nocaps;
 	netdev_features_t	sk_route_forced_caps;
 	int			sk_gso_type;

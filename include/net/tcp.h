@@ -207,7 +207,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo);
 #define TCPOLEN_EXP_SMC_BASE   6
 
 /* But this is what stacks really send out. */
-#define TCPOLEN_TSTAMP_ALIGNED		12
+#define TCPOLEN_TSTAMP_ALIGNED		12 // timestamp 选项要 10B，为了对齐，给了 12B
 #define TCPOLEN_WSCALE_ALIGNED		4
 #define TCPOLEN_SACKPERM_ALIGNED	4
 #define TCPOLEN_SACK_BASE		2
@@ -2317,7 +2317,7 @@ static inline u32 tcp_timeout_init(struct sock *sk)
 	timeout = tcp_call_bpf(sk, BPF_SOCK_OPS_TIMEOUT_INIT, 0, NULL);
 
 	if (timeout <= 0)
-		timeout = TCP_TIMEOUT_INIT;
+		timeout = TCP_TIMEOUT_INIT; // 1s
 	return timeout;
 }
 

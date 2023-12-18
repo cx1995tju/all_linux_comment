@@ -142,6 +142,7 @@ static inline struct tcp_request_sock *tcp_rsk(const struct request_sock *req)
 	return (struct tcp_request_sock *)req;
 }
 
+// tcp 连接的所有信息都在这里
 struct tcp_sock {
 	/* inet_connection_sock has to be the first member of tcp_sock */
 	struct inet_connection_sock	inet_conn;
@@ -211,7 +212,7 @@ struct tcp_sock {
 
 	/* Information of the most recently (s)acked skb */
 	struct tcp_rack {
-		u64 mstamp; /* (Re)sent time of the skb */
+		u64 mstamp; /* (Re)sent time of the skb */  // 记录数据包发送的时间
 		u32 rtt_us;  /* Associated RTT */
 		u32 end_seq; /* Ending TCP sequence of the skb */
 		u32 last_delivered; /* tp->delivered at last reo_wnd adj */
@@ -277,7 +278,7 @@ struct tcp_sock {
 /*
  *      Options received (usually on last packet, some only on SYN packets).
  */
-	struct tcp_options_received rx_opt;
+	struct tcp_options_received rx_opt; // 接收到的选项值
 
 /*
  *	Slow start and congestion control (see also Nagle, and Karn & Partridge)

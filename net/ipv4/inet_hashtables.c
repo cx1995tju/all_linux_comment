@@ -506,6 +506,7 @@ static u32 inet_sk_port_offset(const struct sock *sk)
 {
 	const struct inet_sock *inet = inet_sk(sk);
 
+	// 分一个 port offset
 	return secure_ipv4_port_ephemeral(inet->inet_rcv_saddr,
 					  inet->inet_daddr,
 					  inet->inet_dport);
@@ -556,6 +557,7 @@ static bool inet_ehash_lookup_by_sk(struct sock *sk,
  * If an existing socket already exists, socket sk is not inserted,
  * and sets found_dup_sk parameter to true.
  */
+// 插入 ehash 中，同时如果在 ehash 中有冲突的 sock，那么就将其移除，用 osk 返回。当然前提是 osk 处于 SYN_RECV 以及 TIMEWAIT 状态
 bool inet_ehash_insert(struct sock *sk, struct sock *osk, bool *found_dup_sk)
 {
 	struct inet_hashinfo *hashinfo = sk->sk_prot->h.hashinfo;
@@ -709,15 +711,16 @@ unlock:
 }
 EXPORT_SYMBOL_GPL(inet_unhash);
 
+// death_row: tcp_hashinfo
 int __inet_hash_connect(struct inet_timewait_death_row *death_row,
 		struct sock *sk, u32 port_offset,
 		int (*check_established)(struct inet_timewait_death_row *,
 			struct sock *, __u16, struct inet_timewait_sock **))
 {
-	struct inet_hashinfo *hinfo = death_row->hashinfo;
+	struct inet_hashinfo *hinfo = death_row->hashinfo; // tcp_hashinfo
 	struct inet_timewait_sock *tw = NULL;
 	struct inet_bind_hashbucket *head;
-	int port = inet_sk(sk)->inet_num;
+	int port = inet_sk(sk)->inet_num; // local port 一般是 0，未分配
 	struct net *net = sock_net(sk);
 	struct inet_bind_bucket *tb;
 	u32 remaining, offset;
@@ -725,7 +728,7 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
 	static u32 hint;
 	int l3mdev;
 
-	if (port) {
+	if (port) { // 一般没有，不进来
 		head = &hinfo->bhash[inet_bhashfn(net, port,
 						  hinfo->bhash_size)];
 		tb = inet_csk(sk)->icsk_bind_hash;
@@ -750,40 +753,41 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
 	if (likely(remaining > 1))
 		remaining &= ~1U;
 
-	offset = (hint + port_offset) % remaining;
+	offset = (hint + port_offset) % remaining; // hint 是 static 的随机值
 	/* In first pass we try ports of @low parity.
 	 * inet_csk_get_port() does the opposite choice.
 	 */
 	offset &= ~1U;
 other_parity_scan:
 	port = low + offset;
-	for (i = 0; i < remaining; i += 2, port += 2) {
+	for (i = 0; i < remaining; i += 2, port += 2) { // 遍历搜索没有用的 port ？
 		if (unlikely(port >= high))
 			port -= remaining;
 		if (inet_is_local_reserved_port(net, port))
 			continue;
-		head = &hinfo->bhash[inet_bhashfn(net, port,
+		head = &hinfo->bhash[inet_bhashfn(net, port,			// 找一个 hash 表的 bucket。根据 port 来找一个 hash bucket。
 						  hinfo->bhash_size)];
 		spin_lock_bh(&head->lock);
 
 		/* Does not bother with rcv_saddr checks, because
 		 * the established check is already unique enough.
 		 */
-		inet_bind_bucket_for_each(tb, &head->chain) {
+		inet_bind_bucket_for_each(tb, &head->chain) {	// 在 chain 上遍历，chain 上的每个元素是 bind_bucket。能够进来，说明这个 port 已经被使用过了。被其他的进程绑定过了。不过一般都不会冲突的。因为前面的 port 是随机分配的。
 			if (net_eq(ib_net(tb), net) && tb->l3mdev == l3mdev &&
-			    tb->port == port) {
-				if (tb->fastreuse >= 0 ||
+			    tb->port == port) {	// 找到了相等的 port
+				if (tb->fastreuse >= 0 ||		// 什么时候小于 0 呢？？？
 				    tb->fastreuseport >= 0)
 					goto next_port;
 				WARN_ON(hlist_empty(&tb->owners));
-				if (!check_established(death_row, sk,
+				if (!check_established(death_row, sk, // %__inet_check_established()
 						       port, &tw))
 					goto ok;
 				goto next_port;
 			}
 		}
 
-		tb = inet_bind_bucket_create(hinfo->bind_bucket_cachep,
+		// 为刚才分配的 port 创建一个 tb。如果port 可以复用的话，会在前面直接 goto ok 了
+		tb = inet_bind_bucket_create(hinfo->bind_bucket_cachep, 
 					     net, head, port, l3mdev);
 		if (!tb) {
 			spin_unlock_bh(&head->lock);
@@ -807,9 +811,9 @@ ok:
 	hint += i + 2;
 
 	/* Head lock still held and bh's disabled */
-	inet_bind_hash(sk, tb, port);
-	if (sk_unhashed(sk)) {
-		inet_sk(sk)->inet_sport = htons(port);
+	inet_bind_hash(sk, tb, port); // 建立 sk 和 tb / port 的关系
+	if (sk_unhashed(sk)) { // 这个 sock 还没有加入 hash 表，那么加入到 ehash ？？？refer to: inet_hashinfo
+		inet_sk(sk)->inet_sport = htons(port); // 这里记录的是网络序
 		inet_ehash_nolisten(sk, (struct sock *)tw, NULL);
 	}
 	if (tw)
@@ -829,9 +833,9 @@ int inet_hash_connect(struct inet_timewait_death_row *death_row,
 {
 	u32 port_offset = 0;
 
-	if (!inet_sk(sk)->inet_num)
-		port_offset = inet_sk_port_offset(sk);
-	return __inet_hash_connect(death_row, sk, port_offset,
+	if (!inet_sk(sk)->inet_num) // local port, 没有 local port。一般是 0，会进来
+		port_offset = inet_sk_port_offset(sk); // 分一个 offset，后面用 offset 来计算 port 信息
+	return __inet_hash_connect(death_row, sk, port_offset, // death_row: tcp_hashinfo
 				   __inet_check_established);
 }
 EXPORT_SYMBOL_GPL(inet_hash_connect);

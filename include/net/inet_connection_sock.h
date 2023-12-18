@@ -77,13 +77,14 @@ struct inet_connection_sock_af_ops {
  * @icsk_ack:		   Delayed ACK control data
  * @icsk_mtup;		   MTU probing control data
  */
+// 面向连接的 sock，tcp 就有
 struct inet_connection_sock {
 	/* inet_sock has to be the first member! */
 	struct inet_sock	  icsk_inet;
 	struct request_sock_queue icsk_accept_queue;
 	struct inet_bind_bucket	  *icsk_bind_hash;
 	unsigned long		  icsk_timeout;
- 	struct timer_list	  icsk_retransmit_timer;
+ 	struct timer_list	  icsk_retransmit_timer; // refer to: tcp_init_xmit_timers()
  	struct timer_list	  icsk_delack_timer;
 	__u32			  icsk_rto;
 	__u32                     icsk_rto_min;
@@ -105,7 +106,7 @@ struct inet_connection_sock {
 	__u8			  icsk_backoff;
 	__u8			  icsk_syn_retries;
 	__u8			  icsk_probes_out;
-	__u16			  icsk_ext_hdr_len;
+	__u16			  icsk_ext_hdr_len;	// ip 层的选项长度。在 ipv4 中一般都不使用的
 	struct {
 		__u8		  pending;	 /* ACK is pending			   */
 		__u8		  quick;	 /* Scheduled number of quick acks	   */

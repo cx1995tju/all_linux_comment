@@ -195,9 +195,12 @@ static int tcp_v4_pre_connect(struct sock *sk, struct sockaddr *uaddr,
 }
 
 /* This will initiate an outgoing connection. */
+/* - 分 port */
+/* - 设置 tcp 等 sock 状态 */
+/* - 发报文并且设置重传定时器 */
 int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 {
-	struct sockaddr_in *usin = (struct sockaddr_in *)uaddr;
+	struct sockaddr_in *usin = (struct sockaddr_in *)uaddr; // 目的地址
 	struct inet_sock *inet = inet_sk(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
 	__be16 orig_sport, orig_dport;
@@ -206,7 +209,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	struct rtable *rt;
 	int err;
 	struct ip_options_rcu *inet_opt;
-	struct inet_timewait_death_row *tcp_death_row = &sock_net(sk)->ipv4.tcp_death_row;
+	struct inet_timewait_death_row *tcp_death_row = &sock_net(sk)->ipv4.tcp_death_row; // refer to: tcp_sk_init()
 
 	if (addr_len < sizeof(struct sockaddr_in))
 		return -EINVAL;
@@ -214,18 +217,19 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	if (usin->sin_family != AF_INET)
 		return -EAFNOSUPPORT;
 
-	nexthop = daddr = usin->sin_addr.s_addr;
-	inet_opt = rcu_dereference_protected(inet->inet_opt,
+	nexthop = daddr = usin->sin_addr.s_addr;	// 目的地址
+	inet_opt = rcu_dereference_protected(inet->inet_opt,	// ip 层的一些选项
 					     lockdep_sock_is_held(sk));
-	if (inet_opt && inet_opt->opt.srr) {
+	if (inet_opt && inet_opt->opt.srr) {	// ip层选项基本没用
 		if (!daddr)
 			return -EINVAL;
 		nexthop = inet_opt->opt.faddr;
 	}
 
-	orig_sport = inet->inet_sport;
-	orig_dport = usin->sin_port;
+	orig_sport = inet->inet_sport;	// %inet_create() 一般不会绑定本地的 port ，这里是 0
+	orig_dport = usin->sin_port;	// 目的 port
 	fl4 = &inet->cork.fl.u.ip4;
+	// 先查路由看是否可达
 	rt = ip_route_connect(fl4, nexthop, inet->inet_saddr,
 			      RT_CONN_FLAGS(sk), sk->sk_bound_dev_if,
 			      IPPROTO_TCP,
@@ -247,9 +251,9 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
 	if (!inet->inet_saddr)
 		inet->inet_saddr = fl4->saddr;
-	sk_rcv_saddr_set(sk, inet->inet_saddr);
+	sk_rcv_saddr_set(sk, inet->inet_saddr);	// 设置 local addr (src addr)。bind 时候设置的。这里一般都是 0
 
-	if (tp->rx_opt.ts_recent_stamp && inet->inet_daddr != daddr) {
+	if (tp->rx_opt.ts_recent_stamp && inet->inet_daddr != daddr) {	// 设置一些 rx_opt 的默认值
 		/* Reset inherited state */
 		tp->rx_opt.ts_recent	   = 0;
 		tp->rx_opt.ts_recent_stamp = 0;
@@ -257,26 +261,26 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 			WRITE_ONCE(tp->write_seq, 0);
 	}
 
-	inet->inet_dport = usin->sin_port;
-	sk_daddr_set(sk, daddr);
+	inet->inet_dport = usin->sin_port;	// dst port
+	sk_daddr_set(sk, daddr);	// 设置 dst addr
 
 	inet_csk(sk)->icsk_ext_hdr_len = 0;
 	if (inet_opt)
-		inet_csk(sk)->icsk_ext_hdr_len = inet_opt->opt.optlen;
+		inet_csk(sk)->icsk_ext_hdr_len = inet_opt->opt.optlen; // ip 层选项长度，一般都没有
 
-	tp->rx_opt.mss_clamp = TCP_MSS_DEFAULT;
+	tp->rx_opt.mss_clamp = TCP_MSS_DEFAULT;	// 一些选项设置一些默认值
 
 	/* Socket identity is still unknown (sport may be zero).
 	 * However we set state to SYN-SENT and not releasing socket
 	 * lock select source port, enter ourselves into the hash tables and
 	 * complete initialization after this.
 	 */
-	tcp_set_state(sk, TCP_SYN_SENT);
-	err = inet_hash_connect(tcp_death_row, sk);
+	tcp_set_state(sk, TCP_SYN_SENT); // 进入 SYN_SENT 状态
+	err = inet_hash_connect(tcp_death_row, sk); // 分配 port 并 hash it
 	if (err)
 		goto failure;
 
-	sk_set_txhash(sk);
+	sk_set_txhash(sk); // 计算一个 tx 方向的 flow hash。后面用
 
 	rt = ip_route_newports(fl4, rt, orig_sport, orig_dport,
 			       inet->inet_sport, inet->inet_dport, sk);
@@ -287,17 +291,17 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	}
 	/* OK, now commit destination to socket.  */
 	sk->sk_gso_type = SKB_GSO_TCPV4;
-	sk_setup_caps(sk, &rt->dst);
+	sk_setup_caps(sk, &rt->dst);	// 将找到的路由信息，放到 sk 里
 	rt = NULL;
 
-	if (likely(!tp->repair)) {
+	if (likely(!tp->repair)) { // tcp repair 是用于热迁移的。一般不会使用的, 所以会进来
 		if (!tp->write_seq)
-			WRITE_ONCE(tp->write_seq,
+			WRITE_ONCE(tp->write_seq, // 生成初始序列号咯
 				   secure_tcp_seq(inet->inet_saddr,
 						  inet->inet_daddr,
 						  inet->inet_sport,
 						  usin->sin_port));
-		tp->tsoffset = secure_tcp_ts_off(sock_net(sk),
+		tp->tsoffset = secure_tcp_ts_off(sock_net(sk),	// 生成 timestamp offset
 						 inet->inet_saddr,
 						 inet->inet_daddr);
 	}
@@ -309,7 +313,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	if (err)
 		goto failure;
 
-	err = tcp_connect(sk);
+	err = tcp_connect(sk); // _重要_: 构造 SYN 包并发送
 
 	if (err)
 		goto failure;
@@ -2779,7 +2783,7 @@ struct proto tcp_prot = {
 	.sendpage		= tcp_sendpage,
 	.backlog_rcv		= tcp_v4_do_rcv,
 	.release_cb		= tcp_release_cb,
-	.hash			= inet_hash,
+	.hash			= inet_hash,	// 这个协议管理 sock 的 hash 表
 	.unhash			= inet_unhash,
 	.get_port		= inet_csk_get_port,
 	.enter_memory_pressure	= tcp_enter_memory_pressure,
