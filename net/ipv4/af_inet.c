@@ -886,7 +886,7 @@ int inet_shutdown(struct socket *sock, int how)
 	default:
 		sk->sk_shutdown |= how;
 		if (sk->sk_prot->shutdown)
-			sk->sk_prot->shutdown(sk, how);
+			sk->sk_prot->shutdown(sk, how);		/* HERE */
 		break;
 
 	/* Remaining two branches are temporary solution for missing

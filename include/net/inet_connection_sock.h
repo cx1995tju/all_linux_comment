@@ -90,7 +90,7 @@ struct inet_connection_sock {
 	__u32                     icsk_rto_min;
 	__u32                     icsk_delack_max;
 	__u32			  icsk_pmtu_cookie;
-	const struct tcp_congestion_ops *icsk_ca_ops;
+	const struct tcp_congestion_ops *icsk_ca_ops;	// 拥塞控制算法
 	const struct inet_connection_sock_af_ops *icsk_af_ops;
 	const struct tcp_ulp_ops  *icsk_ulp_ops;
 	void __rcu		  *icsk_ulp_data;
@@ -138,7 +138,7 @@ struct inet_connection_sock {
 
 #define ICSK_TIME_RETRANS	1	/* Retransmit timer */
 #define ICSK_TIME_DACK		2	/* Delayed ack timer */
-#define ICSK_TIME_PROBE0	3	/* Zero window probe timer */
+#define ICSK_TIME_PROBE0	3	/* Zero window probe timer */ // 需要发数据，但是由于窗口是0或者其他原因无法发送的时候。设置这个timer，后续来retry。
 #define ICSK_TIME_EARLY_RETRANS 4	/* Early retransmit timer */
 #define ICSK_TIME_LOSS_PROBE	5	/* Tail loss probe timer */
 #define ICSK_TIME_REO_TIMEOUT	6	/* Reordering timer */

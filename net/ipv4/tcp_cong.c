@@ -154,6 +154,7 @@ char *tcp_ca_get_name_by_key(u32 key, char *buffer)
 EXPORT_SYMBOL_GPL(tcp_ca_get_name_by_key);
 
 /* Assign choice of congestion control. */
+// 选择拥塞控制算法
 void tcp_assign_congestion_control(struct sock *sk)
 {
 	struct net *net = sock_net(sk);

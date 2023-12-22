@@ -1694,7 +1694,7 @@ int tcp_v4_do_rcv(struct sock *sk, struct sk_buff *skb)
 	} else
 		sock_rps_save_rxhash(sk, skb);
 
-	if (tcp_rcv_state_process(sk, skb)) {
+	if (tcp_rcv_state_process(sk, skb)) {	// HERE
 		rsk = sk;
 		goto reset;
 	}
@@ -1964,13 +1964,13 @@ lookup:
 process:
 	if (sk->sk_state == TCP_TIME_WAIT)
 		goto do_time_wait;
-
+	// listen 状态下，接收到 SYN 报文的时候会分配一个 request_sock 结构，这个结构的状态就是 TCP_NEW_SYN_RECV, 表示是一个没有完成三次握手的连接请求。refer to: inet_reqsk_alloc() tcp_v4_rcv()
 	if (sk->sk_state == TCP_NEW_SYN_RECV) {
 		struct request_sock *req = inet_reqsk(sk);
 		bool req_stolen = false;
 		struct sock *nsk;
 
-		sk = req->rsk_listener;
+		sk = req->rsk_listener;	// 注意，这里给 sk 重新赋值了
 		if (unlikely(tcp_v4_inbound_md5_hash(sk, skb, dif, sdif))) {
 			sk_drops_add(sk, skb);
 			reqsk_put(req);
@@ -1980,7 +1980,7 @@ process:
 			reqsk_put(req);
 			goto csum_error;
 		}
-		if (unlikely(sk->sk_state != TCP_LISTEN)) {
+		if (unlikely(sk->sk_state != TCP_LISTEN)) {	// parent socket 已经不是 listen 状态了
 			inet_csk_reqsk_queue_drop_and_put(sk, req);
 			goto lookup;
 		}
@@ -1994,7 +1994,7 @@ process:
 			th = (const struct tcphdr *)skb->data;
 			iph = ip_hdr(skb);
 			tcp_v4_fill_cb(skb, iph, th);
-			nsk = tcp_check_req(sk, skb, req, false, &req_stolen);
+			nsk = tcp_check_req(sk, skb, req, false, &req_stolen); // 对 request 做 check。正常情况下，这里会分配并返回 child sock, child sock 状态会被设置为 TCP_SYN_RECV
 		}
 		if (!nsk) {
 			reqsk_put(req);
@@ -2013,7 +2013,7 @@ process:
 		if (nsk == sk) {
 			reqsk_put(req);
 			tcp_v4_restore_cb(skb);
-		} else if (tcp_child_process(sk, nsk, skb)) {
+		} else if (tcp_child_process(sk, nsk, skb)) {	// 这里
 			tcp_v4_send_reset(nsk, skb);
 			goto discard_and_relse;
 		} else {
@@ -2034,7 +2034,7 @@ process:
 
 	nf_reset_ct(skb);
 
-	if (tcp_filter(sk, skb))
+	if (tcp_filter(sk, skb))	// bpf
 		goto discard_and_relse;
 	th = (const struct tcphdr *)skb->data;
 	iph = ip_hdr(skb);
@@ -2055,9 +2055,9 @@ process:
 	if (!sock_owned_by_user(sk)) {
 		skb_to_free = sk->sk_rx_skb_cache;
 		sk->sk_rx_skb_cache = NULL;
-		ret = tcp_v4_do_rcv(sk, skb);
+		ret = tcp_v4_do_rcv(sk, skb);			// HERE 重点
 	} else {
-		if (tcp_add_backlog(sk, skb))
+		if (tcp_add_backlog(sk, skb))	// 加入 backlog，这样在 unlock_sock 的时候会尝试处理的。
 			goto discard_and_relse;
 		skb_to_free = NULL;
 	}
@@ -2163,7 +2163,7 @@ const struct inet_connection_sock_af_ops ipv4_specific = {
 	.rebuild_header	   = inet_sk_rebuild_header,
 	.sk_rx_dst_set	   = inet_sk_rx_dst_set,
 	.conn_request	   = tcp_v4_conn_request,
-	.syn_recv_sock	   = tcp_v4_syn_recv_sock,
+	.syn_recv_sock	   = tcp_v5_syn_recv_sock,
 	.net_header_len	   = sizeof(struct iphdr),
 	.setsockopt	   = ip_setsockopt,
 	.getsockopt	   = ip_getsockopt,

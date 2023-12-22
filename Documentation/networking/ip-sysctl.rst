@@ -665,7 +665,7 @@ tcp_comp_sack_nr - INTEGER
 
 	Default : 44
 
-tcp_slow_start_after_idle - BOOLEAN
+tcp_slow_start_after_idle - BOOLEAN     CWV congestion
 	If set, provide RFC2861 behavior and time out the congestion
 	window after an idle period.  An idle period is defined at
 	the current RTO.  If unset, the congestion window will not

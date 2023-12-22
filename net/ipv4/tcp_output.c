@@ -97,7 +97,7 @@ static inline __u32 tcp_acceptable_seq(const struct sock *sk)
 
 	if (!before(tcp_wnd_end(tp), tp->snd_nxt) ||
 	    (tp->rx_opt.wscale_ok &&
-	     ((tp->snd_nxt - tcp_wnd_end(tp)) < (1 << tp->rx_opt.rcv_wscale))))
+	     ((tp->snd_nxt - tcp_wnd_end(tp)) < (1 << tp->rx_opt.rcv_wscale)))) // 窗口没有收缩过
 		return tp->snd_nxt;
 	else
 		return tcp_wnd_end(tp);
@@ -138,6 +138,7 @@ static __u16 tcp_advertise_mss(struct sock *sk)
 /* RFC2861. Reset CWND after idle period longer RTO to "restart window".
  * This is the first part of cwnd validation mechanism.
  */
+// cwnd 已经不可靠了，要 restart，重新开始慢启动了
 void tcp_cwnd_restart(struct sock *sk, s32 delta)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -2593,6 +2594,10 @@ void tcp_chrono_stop(struct sock *sk, const enum tcp_chrono type)
 
  * Returns true, if no segments are in flight and we have queued segments,
  * but cannot send anything now because of SWS or another problem.
+ *
+ * 返回 True，表示没有 没有 inflight 数据，同时我们向队列中填入了数据，但是这些数据无法发送
+ *
+ * 这种情况就需要设置一个定时器，后续用来做重传。因为没有 in-flight data，意味着可能没有 ack 心跳了
  */
 static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
 			   int push_one, gfp_t gfp)
@@ -3381,6 +3386,7 @@ void sk_forced_mem_schedule(struct sock *sk, int size)
 /* Send a FIN. The caller locks the socket for us.
  * We should try to send a FIN packet really hard, but eventually give up.
  */
+// fin 发送前，需要排空 write queue 中的数据的
 void tcp_send_fin(struct sock *sk)
 {
 	struct sk_buff *skb, *tskb, *tail = tcp_write_queue_tail(sk);

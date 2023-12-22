@@ -566,7 +566,8 @@ EXPORT_SYMBOL(tcp_create_openreq_child);
  *
  * We don't need to initialize tmp_opt.sack_ok as we don't use the results
  */
-
+// sk 是 listen sock
+// req 是处于三次握手期间的 reqsock
 struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 			   struct request_sock *req,
 			   bool fastopen, bool *req_stolen)
@@ -769,7 +770,8 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 	 * ESTABLISHED STATE. If it will be dropped after
 	 * socket is created, wait for troubles.
 	 */
-	child = inet_csk(sk)->icsk_af_ops->syn_recv_sock(sk, skb, req, NULL,
+	// 这里 根据 reqsock 创建 child sock, child sock 会被设置为 TCP_SYN_RECV 状态的
+	child = inet_csk(sk)->icsk_af_ops->syn_recv_sock(sk, skb, req, NULL,  // %tcp_v4_syn_recv_sock()
 							 req, &own_req);
 	if (!child)
 		goto listen_overflow;
@@ -835,10 +837,10 @@ int tcp_child_process(struct sock *parent, struct sock *child,
 
 	tcp_segs_in(tcp_sk(child), skb);
 	if (!sock_owned_by_user(child)) {
-		ret = tcp_rcv_state_process(child, skb);
+		ret = tcp_rcv_state_process(child, skb);	/* HERE */
 		/* Wakeup parent, send SIGIO */
 		if (state == TCP_SYN_RECV && child->sk_state != state)
-			parent->sk_data_ready(parent);
+			parent->sk_data_ready(parent);	// 唤醒 accept() 上阻塞的线程
 	} else {
 		/* Alas, it is possible again, because we do lookup
 		 * in main socket hash table and lock on listening

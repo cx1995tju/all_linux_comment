@@ -163,6 +163,7 @@ enum
 };
 
 /* linux mib definitions */
+// /proc/net/netstat
 enum
 {
 	LINUX_MIB_NUM = 0,

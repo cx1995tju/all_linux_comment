@@ -80,8 +80,8 @@ struct tcp_sack_block {
 
 struct tcp_options_received {
 /*	PAWS/RTTM data	*/
-	int	ts_recent_stamp;/* Time we stored ts_recent (for aging) */
-	u32	ts_recent;	/* Time stamp to echo next		*/
+	int	ts_recent_stamp;/* Time we stored ts_recent (for aging) */ // 什么时候记录 ts_recent 的
+	u32	ts_recent;	/* Time stamp to echo next		*/ // 等下要 echo 对方的 timestamp
 	u32	rcv_tsval;	/* Time stamp value             	*/
 	u32	rcv_tsecr;	/* Time stamp echo reply        	*/
 	u16 	saw_tstamp : 1,	/* Saw TIMESTAMP on last packet		*/
@@ -143,6 +143,7 @@ static inline struct tcp_request_sock *tcp_rsk(const struct request_sock *req)
 }
 
 // tcp 连接的所有信息都在这里
+// tcp_init_sock()
 struct tcp_sock {
 	/* inet_connection_sock has to be the first member of tcp_sock */
 	struct inet_connection_sock	inet_conn;
@@ -172,7 +173,7 @@ struct tcp_sock {
 				 */
  	u32	rcv_nxt;	/* What we want to receive next 	*/
 	u32	copied_seq;	/* Head of yet unread data		*/
-	u32	rcv_wup;	/* rcv_nxt on last window update sent	*/
+	u32	rcv_wup;	/* rcv_nxt on last window update sent 即last_ack, 即上一次发送的ack包的序号 */
  	u32	snd_nxt;	/* Next sequence we send		*/
 	u32	segs_out;	/* RFC4898 tcpEStatsPerfSegsOut
 				 * The total number of segments sent.
@@ -190,7 +191,7 @@ struct tcp_sock {
 	u32	dsack_dups;	/* RFC4898 tcpEStatsStackDSACKDups
 				 * total number of DSACK blocks received
 				 */
- 	u32	snd_una;	/* First byte we want an ack for	*/
+ 	u32	snd_una;	/* First byte we want an ack for	*/ // 发送了，但是没有得到 ack 的数据中的 first byte
  	u32	snd_sml;	/* Last byte of the most recently transmitted small packet */
 	u32	rcv_tstamp;	/* timestamp of last received ACK (for keepalives) */
 	u32	lsndtime;	/* timestamp of last sent data packet (for restart window) */
@@ -202,8 +203,8 @@ struct tcp_sock {
 	struct list_head tsq_node; /* anchor in tsq_tasklet.head list */
 	struct list_head tsorted_sent_queue; /* time-sorted sent but un-SACKed skbs */
 
-	u32	snd_wl1;	/* Sequence for window update		*/
-	u32	snd_wnd;	/* The window we expect to receive	*/
+	u32	snd_wl1;	/* Sequence for window update 记录更新发送窗口的那个ack包的自身的序号，如果后续接收到的ack端大于snd_wl1，就需要更新窗口见tcp_may_update_window */
+	u32	snd_wnd;	/* The window we expect to receive 对端给的窗口大小信息 */
 	u32	max_window;	/* Maximal window ever seen from peer	*/
 	u32	mss_cache;	/* Cached effective mss, not including SACKS */
 
@@ -239,7 +240,7 @@ struct tcp_sock {
 		thin_lto    : 1,/* Use linear timeouts for thin streams */
 		recvmsg_inq : 1,/* Indicate # of bytes in queue upon recvmsg */
 		repair      : 1,
-		frto        : 1;/* F-RTO (RFC5682) activated in CA_Loss */
+		frto        : 1;/* F-RTO (RFC5682) activated in CA_Loss  表示当时是否在运行 f-rto 算法*/
 	u8	repair_queue;
 	u8	save_syn:2,	/* Save headers of SYN packet */
 		syn_data:1,	/* SYN includes data */
@@ -256,14 +257,14 @@ struct tcp_sock {
 
 /* RTT measurement */
 	u64	tcp_mstamp;	/* most recent packet received/sent */
-	u32	srtt_us;	/* smoothed round trip time << 3 in usecs */
-	u32	mdev_us;	/* medium deviation			*/
-	u32	mdev_max_us;	/* maximal mdev for the last rtt period	*/
+	u32	srtt_us;	/* smoothed round trip time << 3 in usecs  */
+	u32	mdev_us;	/* medium deviation	rtt 的平均偏差 */
+	u32	mdev_max_us;	/* maximal mdev for the last rtt period rtt 测量过程中的最大 mdev */
 	u32	rttvar_us;	/* smoothed mdev_max			*/
 	u32	rtt_seq;	/* sequence number to update rttvar	*/
 	struct  minmax rtt_min;
 
-	u32	packets_out;	/* Packets which are "in flight"	*/
+	u32	packets_out;	/* Packets which are "in flight" SND.nxt - SND.una */ // refer to: tcp_packets_in_flight()
 	u32	retrans_out;	/* Retransmitted packets out		*/
 	u32	max_packets_out;  /* max packets_out in last window */
 	u32	max_packets_seq;  /* right edge of max_packets_out flight */
@@ -271,7 +272,7 @@ struct tcp_sock {
 	u16	urg_data;	/* Saved octet of OOB data and control flags */
 	u8	ecn_flags;	/* ECN status bits.			*/
 	u8	keepalive_probes; /* num of allowed keep alive probes	*/
-	u32	reordering;	/* Packet reordering metric.		*/
+	u32	reordering;	/* Packet reordering metric.	dupack thresh, 表达对链路乱序的容忍度 */
 	u32	reord_seen;	/* number of data packet reordering events */
 	u32	snd_up;		/* Urgent pointer		*/
 
@@ -283,18 +284,18 @@ struct tcp_sock {
 /*
  *	Slow start and congestion control (see also Nagle, and Karn & Partridge)
  */
- 	u32	snd_ssthresh;	/* Slow start size threshold		*/
- 	u32	snd_cwnd;	/* Sending congestion window		*/
-	u32	snd_cwnd_cnt;	/* Linear increase counter		*/
+ 	u32	snd_ssthresh;	/* Slow start size threshold		*/ // 初始值: TCP_INFINITE_SSTHRESH, 当然如果 ip 层有记录下之前的度量值的话，可能就用路由表中的值。这样在连接建立的时候可能直接进入拥塞避免阶段
+ 	u32	snd_cwnd;	/* Sending congestion window		*/ // 初始值: TCP_INIT_CWND 
+	u32	snd_cwnd_cnt;	/* Linear increase counter		*/ // 在拥塞避免阶段，每收到一个 ack 将 snd_cwnd_cnt++, 当 snd_cwnd_cnt >= cwnd 的时候，cwnd++，进而实现拥塞避免阶段的线性增长
 	u32	snd_cwnd_clamp; /* Do not allow snd_cwnd to grow above this */
 	u32	snd_cwnd_used;
 	u32	snd_cwnd_stamp;
-	u32	prior_cwnd;	/* cwnd right before starting loss recovery */
-	u32	prr_delivered;	/* Number of newly delivered packets to
+	u32	prior_cwnd;	/* cwnd right before starting loss recovery , 拥塞发生的时候，用来记录之前的 cwnd */
+	u32	prr_delivered;	/* Number of newly delivered packets to // 在 prr 阶段发出的新报文，且被 ack 了的数目
 				 * receiver in Recovery. */
-	u32	prr_out;	/* Total number of pkts sent during Recovery. */
-	u32	delivered;	/* Total data packets delivered incl. rexmits */
-	u32	delivered_ce;	/* Like the above but only ECE marked packets */
+	u32	prr_out;	/* Total number of pkts sent during Recovery. 刚进入 recovery 阶段的时候设置为0，tcp_init_cwnd_reduction */	 // prr 阶段发送出去的总报文数目
+	u32	delivered;	/* Total data packets delivered incl. rexmits */ // 总投递数目
+	u32	delivered_ce;	/* Like the above but only ECE marked packets */ // 总丢包数目
 	u32	lost;		/* Total data packets lost incl. rexmits */
 	u32	app_limited;	/* limited until "delivered" reaches this val */
 	u64	first_tx_mstamp;  /* start of window send phase */
@@ -306,8 +307,8 @@ struct tcp_sock {
 	u32	write_seq;	/* Tail(+1) of data held in tcp send buffer */
 	u32	notsent_lowat;	/* TCP_NOTSENT_LOWAT */
 	u32	pushed_seq;	/* Last pushed seq, required to talk to windows */
-	u32	lost_out;	/* Lost packets			*/
-	u32	sacked_out;	/* SACK'd packets			*/
+	u32	lost_out;	/* Lost packets 快速重传场景下，根据经验公式估计的 */
+	u32	sacked_out;	/* SACK'd packets	(被 sack 的数据包个数)		*/
 
 	struct hrtimer	pacing_timer;
 	struct hrtimer	compressed_ack_timer;
@@ -335,7 +336,7 @@ struct tcp_sock {
 	int     lost_cnt_hint;
 
 	u32	prior_ssthresh; /* ssthresh saved at recovery start	*/
-	u32	high_seq;	/* snd_nxt at onset of congestion	*/
+	u32	high_seq;	/* snd_nxt at onset of congestion	就是 recovery point */
 
 	u32	retrans_stamp;	/* Timestamp of the last retransmit,
 				 * also used in SYN-SENT to remember stamp of

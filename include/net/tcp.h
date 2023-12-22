@@ -226,7 +226,7 @@ void tcp_time_wait(struct sock *sk, int state, int timeo);
 #define TCP_THIN_LINEAR_RETRIES 6       /* After 6 linear retries, do exp. backoff */
 
 /* TCP initial congestion window as per rfc6928 */
-#define TCP_INIT_CWND		10
+#define TCP_INIT_CWND		10	// 10 MSS
 
 /* Bit Flags for sysctl_tcp_fastopen */
 #define	TFO_CLIENT_ENABLE	1
@@ -1176,7 +1176,7 @@ static inline bool tcp_is_reno(const struct tcp_sock *tp)
 
 static inline unsigned int tcp_left_out(const struct tcp_sock *tp)
 {
-	return tp->sacked_out + tp->lost_out;
+	return tp->sacked_out + tp->lost_out;	// 离开了 network(被 sack 了，或者被丢了)，但不是正经被 ack 的数据包。
 }
 
 /* This determines how many packets are "in the network" to the best
@@ -1193,6 +1193,9 @@ static inline unsigned int tcp_left_out(const struct tcp_sock *tp)
  *	"Packets left network, but not honestly ACKed yet" PLUS
  *	"Packets fast retransmitted"
  */
+
+// 发出去的 + 重传的 - 离开网络的
+// 在拥塞控制阶段，就是根据这里的 in_flight 与 cwnd 的大小，判断是否能够发送数据包
 static inline unsigned int tcp_packets_in_flight(const struct tcp_sock *tp)
 {
 	return tp->packets_out - tcp_left_out(tp) + tp->retrans_out;
@@ -1210,6 +1213,7 @@ static inline bool tcp_in_initial_slowstart(const struct tcp_sock *tp)
 	return tp->snd_ssthresh >= TCP_INFINITE_SSTHRESH;
 }
 
+// 当前处于快速恢复阶段
 static inline bool tcp_in_cwnd_reduction(const struct sock *sk)
 {
 	return (TCPF_CA_CWR | TCPF_CA_Recovery) &
@@ -1227,7 +1231,7 @@ static inline __u32 tcp_current_ssthresh(const struct sock *sk)
 	if (tcp_in_cwnd_reduction(sk))
 		return tp->snd_ssthresh;
 	else
-		return max(tp->snd_ssthresh,
+		return max(tp->snd_ssthresh,		// max(snd_ssthresh, 3/4*snd_cwnd)
 			   ((tp->snd_cwnd >> 1) +
 			    (tp->snd_cwnd >> 2)));
 }
@@ -1384,7 +1388,7 @@ static inline void tcp_slow_start_after_idle_check(struct sock *sk)
 	if (!sock_net(sk)->ipv4.sysctl_tcp_slow_start_after_idle || tp->packets_out ||
 	    ca_ops->cong_control)
 		return;
-	delta = tcp_jiffies32 - tp->lsndtime;
+	delta = tcp_jiffies32 - tp->lsndtime; // 从上一次 发送到现在时间已经超过 rto 了
 	if (delta > inet_csk(sk)->icsk_rto)
 		tcp_cwnd_restart(sk, delta);
 }

@@ -710,7 +710,7 @@ typedef unsigned char *sk_buff_data_t;
  *	@end: End pointer
  *	@head: Head of buffer
  *	@data: Data head pointer
- *	@truesize: Buffer size
+ *	@truesize: Buffer size	// 一般表示skb + buff 等真实大小。但是也有特殊情况: skb_set_tcp_pure_ack()
  *	@users: User count - see {datagram,tcp}.c
  *	@extensions: allocated extensions, valid if active_extensions is nonzero
  */
@@ -742,7 +742,7 @@ struct sk_buff {
 
 	union {
 		ktime_t		tstamp;
-		u64		skb_mstamp_ns; /* earliest departure time */
+		u64		skb_mstamp_ns; /* earliest departure time */ // 记录一个时间，用于后续设置重传定时器
 	};
 	/*
 	 * This is the control buffer. It is free to use for every
