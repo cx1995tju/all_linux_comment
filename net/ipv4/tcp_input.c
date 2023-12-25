@@ -2044,6 +2044,7 @@ void tcp_clear_retrans(struct tcp_sock *tp)
 	tp->sacked_out = 0;
 }
 
+// 用于拥塞撤销的
 static inline void tcp_init_undo(struct tcp_sock *tp)
 {
 	tp->undo_marker = tp->snd_una;
@@ -2354,6 +2355,8 @@ static void tcp_update_scoreboard(struct sock *sk, int fast_rexmit)
 
 static bool tcp_tsopt_ecr_before(const struct tcp_sock *tp, u32 when)
 {
+	// 上一个报文看到了 time stamp
+	// 文而且看到了 time stamp echo 且 echo < when
 	return tp->rx_opt.saw_tstamp && tp->rx_opt.rcv_tsecr &&
 	       before(tp->rx_opt.rcv_tsecr, when);
 }
@@ -2371,6 +2374,8 @@ static bool tcp_skb_spurious_retrans(const struct tcp_sock *tp,
 /* Nothing was retransmitted or returned timestamp is less
  * than timestamp of the first retransmission.
  */
+// 有 retrans_stamp
+// 而且还没有收到重传报文的 ack, 即最新收到的报文带回来的 time echo < retrans_stamp
 static inline bool tcp_packet_delayed(const struct tcp_sock *tp)
 {
 	return tp->retrans_stamp &&
@@ -2393,6 +2398,7 @@ static inline bool tcp_packet_delayed(const struct tcp_sock *tp)
  * that successive retransmissions of a segment must not advance
  * retrans_stamp under any conditions.
  */
+// tcp 所有的重传都做了
 static bool tcp_any_retrans_done(const struct sock *sk)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
@@ -2488,10 +2494,10 @@ static bool tcp_try_undo_recovery(struct sock *sk)
 			mib_idx = LINUX_MIB_TCPFULLUNDO;
 
 		NET_INC_STATS(sock_net(sk), mib_idx);
-	} else if (tp->rack.reo_wnd_persist) {
+	} else if (tp->rack.reo_wnd_persist) {	// 不能 undo
 		tp->rack.reo_wnd_persist--;
 	}
-	if (tp->snd_una == tp->high_seq && tcp_is_reno(tp)) {
+	if (tp->snd_una == tp->high_seq && tcp_is_reno(tp)) {	// 传统的 newreno 算法(即没有 sack 的) 且超过了恢复点了
 		/* Hold old state until something *above* high_seq
 		 * is ACKed. For Reno it is MUST to prevent false
 		 * fast retransmits (RFC2582). SACK TCP is safe. */

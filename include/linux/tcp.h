@@ -212,8 +212,9 @@ struct tcp_sock {
 	u32	rcv_ssthresh;	/* Current window clamp			*/
 
 	/* Information of the most recently (s)acked skb */
+	// rack 记录了最近被 ack 或者 sack 的数据包信息
 	struct tcp_rack {
-		u64 mstamp; /* (Re)sent time of the skb */  // 记录数据包发送的时间
+		u64 mstamp; /* (Re)sent time of the skb */  // 这个包发送的时间
 		u32 rtt_us;  /* Associated RTT */
 		u32 end_seq; /* Ending TCP sequence of the skb */
 		u32 last_delivered; /* tp->delivered at last reo_wnd adj */
@@ -279,7 +280,7 @@ struct tcp_sock {
 /*
  *      Options received (usually on last packet, some only on SYN packets).
  */
-	struct tcp_options_received rx_opt; // 接收到的选项值
+	struct tcp_options_received rx_opt; // 最新接收到的选项值
 
 /*
  *	Slow start and congestion control (see also Nagle, and Karn & Partridge)
@@ -335,14 +336,14 @@ struct tcp_sock {
 
 	int     lost_cnt_hint;
 
-	u32	prior_ssthresh; /* ssthresh saved at recovery start	*/
+	u32	prior_ssthresh; /* ssthresh saved at recovery start	基于下拥塞发生时的 ssthresh，在拥塞撤销的时候，可以用这个值来恢复 ssthresh */
 	u32	high_seq;	/* snd_nxt at onset of congestion	就是 recovery point */
 
-	u32	retrans_stamp;	/* Timestamp of the last retransmit,
+	u32	retrans_stamp;	/* Timestamp of the last retransmit,	// 上一次重传的时间戳, 重传结束或者还没有重传的时候，这个值就是 0。
 				 * also used in SYN-SENT to remember stamp of
 				 * the first SYN. */
-	u32	undo_marker;	/* snd_una upon a new recovery episode. */
-	int	undo_retrans;	/* number of undoable retransmissions. */
+	u32	undo_marker;	/* snd_una upon a new recovery episode. 进入快速恢复的时候设置为 recovery point，当发生了拥塞撤销，或者退出快速恢复阶段的时候 reset 为 0*/ // refer to: %tcp_init_undo
+	int	undo_retrans;	/* number of undoable retransmissions. */ // 可以被 undo 的重传 pkts 数目, 初始化的时候设置为已经重传的报文数目 retrans_out
 	u64	bytes_retrans;	/* RFC4898 tcpEStatsPerfOctetsRetrans
 				 * Total data bytes retransmitted
 				 */
