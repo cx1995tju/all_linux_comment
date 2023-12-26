@@ -627,6 +627,7 @@ unsigned int tcp_sync_mss(struct sock *sk, u32 pmtu);
 unsigned int tcp_current_mss(struct sock *sk);
 
 /* Bound MSS / TSO packet size with the half of the window */
+// pkt 大小不能超过窗口的一半
 static inline int tcp_bound_to_half_wnd(struct tcp_sock *tp, int pktsize)
 {
 	int cutoff;
@@ -675,9 +676,14 @@ static inline u32 __tcp_set_rto(const struct tcp_sock *tp)
 
 static inline void __tcp_fast_path_on(struct tcp_sock *tp, u32 snd_wnd)
 {
+	// header_len + ACK flag + snd_wnd
+	// 只要这三个没有变，就可以走快速路径处理
+	// header_len 表示 tcp 选项没有变
+	// FLAG_ACK 表示 flag 没有变化
+	// snd_wnd 表示窗口大小没有变
 	tp->pred_flags = htonl((tp->tcp_header_len << 26) |
-			       ntohl(TCP_FLAG_ACK) |
-			       snd_wnd);
+			       ntohl(TCP_FLAG_ACK) | // bit 16:25
+			       snd_wnd); // bits0:15
 }
 
 static inline void tcp_fast_path_on(struct tcp_sock *tp)
@@ -841,7 +847,8 @@ struct tcp_skb_cb {
 	};
 	__u8		tcp_flags;	/* TCP header flags. (tcp[13])	*/
 
-	__u8		sacked;		/* State flags for SACK.	*/
+	// 在解析参数的时候，sacked 会被设置为 sack 选项在tcp头部的 offset，refer to: tcp_sacktag_write_queue()
+	__u8		sacked;		/* State flags for SACK.	如果为0表示没有 SACKED */
 #define TCPCB_SACKED_ACKED	0x01	/* SKB ACK'd by a SACK block	*/
 #define TCPCB_SACKED_RETRANS	0x02	/* SKB retransmitted		*/
 #define TCPCB_LOST		0x04	/* SKB is lost			*/
@@ -1035,6 +1042,8 @@ struct ack_sample {
  * of ACK processing can optionally chose to consult this sample when
  * setting cwnd and pacing rate.
  * A sample is invalid if "delivered" or "interval_us" is negative.
+ *
+ * 采样，用于 BBR 算法
  */
 struct rate_sample {
 	u64  prior_mstamp; /* starting timestamp for interval */
@@ -1379,6 +1388,7 @@ static inline void tcp_sack_reset(struct tcp_options_received *rx_opt)
 
 void tcp_cwnd_restart(struct sock *sk, s32 delta);
 
+// 检查下是不是好长时间没有交互了，需要重新做慢启动了
 static inline void tcp_slow_start_after_idle_check(struct sock *sk)
 {
 	const struct tcp_congestion_ops *ca_ops = inet_csk(sk)->icsk_ca_ops;
@@ -1483,12 +1493,16 @@ static inline int tcp_fin_time(const struct sock *sk)
 	return fin_timeout;
 }
 
+// 返回 true 表示通过检查
+// 能够调用这个检查的前提，是 seq 都是合法的通过检查了
 static inline bool tcp_paws_check(const struct tcp_options_received *rx_opt,
 				  int paws_win)
 {
+	// 现在接收报文 timestamp 要比 之前记录的报文的 timestatmp 足够大
 	if ((s32)(rx_opt->ts_recent - rx_opt->rcv_tsval) <= paws_win)
 		return true;
-	if (unlikely(!time_before32(ktime_get_seconds(),
+	// 虽然报文的时间戳回绕了，但是距离上一次交互已经超过了 24天(~2^31 ms)了, 所以呢回绕是可以理解的，这一次检查也算通过了
+	if (unlikely(!time_before32(ktime_get_seconds(),			//  (curr_time >= last_ts_recent_update_time + 24Days)		why??????
 				    rx_opt->ts_recent_stamp + TCP_PAWS_24DAYS)))
 		return true;
 	/*
@@ -1496,7 +1510,7 @@ static inline bool tcp_paws_check(const struct tcp_options_received *rx_opt,
 	 * then following tcp messages have valid values. Ignore 0 value,
 	 * or else 'negative' tsval might forbid us to accept their packets.
 	 */
-	if (!rx_opt->ts_recent)
+	if (!rx_opt->ts_recent)	// 或者 ts_recent 根本就没有设置，那么也认为合法
 		return true;
 	return false;
 }
@@ -1874,10 +1888,10 @@ static inline void tcp_push_pending_frames(struct sock *sk)
  */
 static inline u32 tcp_highest_sack_seq(struct tcp_sock *tp)
 {
-	if (!tp->sacked_out)
+	if (!tp->sacked_out)	// 当前没有 sack 块信息
 		return tp->snd_una;
 
-	if (tp->highest_sack == NULL)
+	if (tp->highest_sack == NULL)	// 最大的 SACKed 后面紧挨着的那个 skb(即发送方发送了的)。当然如果还没有发送，这里就是 NULL 了
 		return tp->snd_nxt;
 
 	return TCP_SKB_CB(tp->highest_sack)->seq;
@@ -1895,7 +1909,7 @@ static inline struct sk_buff *tcp_highest_sack(struct sock *sk)
 
 static inline void tcp_highest_sack_reset(struct sock *sk)
 {
-	tcp_sk(sk)->highest_sack = tcp_rtx_queue_head(sk);
+	tcp_sk(sk)->highest_sack = tcp_rtx_queue_head(sk); // 重传队列上序号最小的报文的序号
 }
 
 /* Called when old skb is about to be deleted and replaced by new skb */

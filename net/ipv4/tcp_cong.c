@@ -163,7 +163,7 @@ void tcp_assign_congestion_control(struct sock *sk)
 
 	rcu_read_lock();
 	ca = rcu_dereference(net->ipv4.tcp_congestion_control);
-	if (unlikely(!bpf_try_module_get(ca, ca->owner)))
+	if (unlikely(!bpf_try_module_get(ca, ca->owner)))	// 没有拿到任何拥塞控制算法
 		ca = &tcp_reno;
 	icsk->icsk_ca_ops = ca;
 	rcu_read_unlock();

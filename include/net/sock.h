@@ -1622,6 +1622,7 @@ static inline void unlock_sock_fast(struct sock *sk, bool slow)
  * accesses from user process context.
  */
 
+// 仅仅做一个死锁检测，可以用来检查自己真的持有锁
 static inline void sock_owned_by_me(const struct sock *sk)
 {
 #ifdef CONFIG_LOCKDEP

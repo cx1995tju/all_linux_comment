@@ -1797,6 +1797,8 @@ EXPORT_SYMBOL(tcp_mtup_init);
    NOTE2. inet_csk(sk)->icsk_pmtu_cookie and tp->mss_cache
    are READ ONLY outside this function.		--ANK (980731)
  */
+
+// 很多情况需要更新 mss 的
 unsigned int tcp_sync_mss(struct sock *sk, u32 pmtu)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -1806,8 +1808,8 @@ unsigned int tcp_sync_mss(struct sock *sk, u32 pmtu)
 	if (icsk->icsk_mtup.search_high > pmtu)
 		icsk->icsk_mtup.search_high = pmtu;
 
-	mss_now = tcp_mtu_to_mss(sk, pmtu);
-	mss_now = tcp_bound_to_half_wnd(tp, mss_now);
+	mss_now = tcp_mtu_to_mss(sk, pmtu);		// pmtu 发生了，当然也要更新的
+	mss_now = tcp_bound_to_half_wnd(tp, mss_now);	// mss / tso 报文大小 都不能超过窗口的一半，所以窗口更新的时候，要同步 mss
 
 	/* And store cached results */
 	icsk->icsk_pmtu_cookie = pmtu;

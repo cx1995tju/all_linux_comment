@@ -144,6 +144,8 @@ static inline struct tcp_request_sock *tcp_rsk(const struct request_sock *req)
 
 // tcp 连接的所有信息都在这里
 // tcp_init_sock()
+// 注：这里的很多统计都是开始于tcp波动。一旦 tcp 的波动结束，也就是超过了恢复点(或者说进入了 Open 状态)的时候。相应的统计都应该清零了。
+// 注2: 很多统计的基本单位都是 seg，也就是按 mss 作为基本单位的，mss 变化的时候，seg 的计算也要变化的
 struct tcp_sock {
 	/* inet_connection_sock has to be the first member of tcp_sock */
 	struct inet_connection_sock	inet_conn;
@@ -154,7 +156,7 @@ struct tcp_sock {
  *	Header prediction flags
  *	0x5?10 << 16 + snd_wnd in net byte order
  */
-	__be32	pred_flags;
+	__be32	pred_flags; // 为0时，表示快速路径关闭。因为为0的时候，肯定和报文匹配不上的。%tcp_fast_path_check() ->* __tcp_fast_path_on()
 
 /*
  *	RFC793 variables by their proper names. This means you can
@@ -188,7 +190,7 @@ struct tcp_sock {
 				 * sum(delta(snd_una)), or how many bytes
 				 * were acked.
 				 */
-	u32	dsack_dups;	/* RFC4898 tcpEStatsStackDSACKDups
+	u32	dsack_dups;	/* RFC4898 tcpEStatsStackDSACKDups // 已经收了多少个 dup_segs, 这里的dup_segs 是通过解析 DSACK 找到的
 				 * total number of DSACK blocks received
 				 */
  	u32	snd_una;	/* First byte we want an ack for	*/ // 发送了，但是没有得到 ack 的数据中的 first byte
@@ -203,7 +205,7 @@ struct tcp_sock {
 	struct list_head tsq_node; /* anchor in tsq_tasklet.head list */
 	struct list_head tsorted_sent_queue; /* time-sorted sent but un-SACKed skbs */
 
-	u32	snd_wl1;	/* Sequence for window update 记录更新发送窗口的那个ack包的自身的序号，如果后续接收到的ack端大于snd_wl1，就需要更新窗口见tcp_may_update_window */
+	u32	snd_wl1;	/* Sequence for window update 记录更新发送窗口的那个ack包的自身的序号，如果后续接收到的ack端大于snd_wl1，就需要更新窗口见tcp_may_update_window */ // 也就是说这个序号让窗口左(或)边界右移了
 	u32	snd_wnd;	/* The window we expect to receive 对端给的窗口大小信息 */
 	u32	max_window;	/* Maximal window ever seen from peer	*/
 	u32	mss_cache;	/* Cached effective mss, not including SACKS */
@@ -295,9 +297,9 @@ struct tcp_sock {
 	u32	prr_delivered;	/* Number of newly delivered packets to // 在 prr 阶段发出的新报文，且被 ack 了的数目
 				 * receiver in Recovery. */
 	u32	prr_out;	/* Total number of pkts sent during Recovery. 刚进入 recovery 阶段的时候设置为0，tcp_init_cwnd_reduction */	 // prr 阶段发送出去的总报文数目
-	u32	delivered;	/* Total data packets delivered incl. rexmits */ // 总投递数目
-	u32	delivered_ce;	/* Like the above but only ECE marked packets */ // 总丢包数目
-	u32	lost;		/* Total data packets lost incl. rexmits */
+	u32	delivered;	/* Total data packets delivered incl. rexmits */ // 总投递数目, refer to:  tcp_count_delivered(), 应该是被 ack 以及 sack 的数据包的总数
+	u32	delivered_ce;	/* Like the above but only ECE marked packets */ 
+	u32	lost;		/* Total data packets lost incl. rexmits */	// 总的丢包数目，重传包丢了话，也要++的, refer to: %tcp_mark_skb_lost()
 	u32	app_limited;	/* limited until "delivered" reaches this val */
 	u64	first_tx_mstamp;  /* start of window send phase */
 	u64	delivered_mstamp; /* time we reached "delivered" */
@@ -308,8 +310,8 @@ struct tcp_sock {
 	u32	write_seq;	/* Tail(+1) of data held in tcp send buffer */
 	u32	notsent_lowat;	/* TCP_NOTSENT_LOWAT */
 	u32	pushed_seq;	/* Last pushed seq, required to talk to windows */
-	u32	lost_out;	/* Lost packets 快速重传场景下，根据经验公式估计的 */
-	u32	sacked_out;	/* SACK'd packets	(被 sack 的数据包个数)		*/
+	u32	lost_out;	/* Lost packets */ // 丢包数目，重传包丢的话，这个值不会++  refer to: %tcp_mark_skb_lost()
+	u32	sacked_out;	/* SACK'd packets	(被 sack 的数据包个数), 当然一次tcp连接波动处理结束后(即接收方 ACK 号已经超过了 sack 号，且已经没有接收到 sack 了)，这个值会被reset 为 0 的。*/
 
 	struct hrtimer	pacing_timer;
 	struct hrtimer	compressed_ack_timer;
@@ -342,8 +344,8 @@ struct tcp_sock {
 	u32	retrans_stamp;	/* Timestamp of the last retransmit,	// 上一次重传的时间戳, 重传结束或者还没有重传的时候，这个值就是 0。
 				 * also used in SYN-SENT to remember stamp of
 				 * the first SYN. */
-	u32	undo_marker;	/* snd_una upon a new recovery episode. 进入快速恢复的时候设置为 recovery point，当发生了拥塞撤销，或者退出快速恢复阶段的时候 reset 为 0*/ // refer to: %tcp_init_undo
-	int	undo_retrans;	/* number of undoable retransmissions. */ // 可以被 undo 的重传 pkts 数目, 初始化的时候设置为已经重传的报文数目 retrans_out
+	u32	undo_marker;	/* snd_una upon a new recovery episode. 进入快速恢复的时候设置为 recovery point，当发生了拥塞撤销，或者退出快速恢复阶段的时候 reset 为 0 */
+	int	undo_retrans;	/* number of undoable retransmissions. __这里的注释有误导__ */ // 初始值是 retrans_out，即重传的报文数目，当其值减小到 0 的时候，表示需要 undo 了。比如在DSACK 场景，检测到了一个 dup_seg 的时候，这个值就--。当其减为0了。说明之前做的重传都是 dup的，即都是没有必要的，所以就可以 undo 了。 refer to: %tcp_check_dsack()
 	u64	bytes_retrans;	/* RFC4898 tcpEStatsPerfOctetsRetrans
 				 * Total data bytes retransmitted
 				 */

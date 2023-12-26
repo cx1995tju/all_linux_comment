@@ -90,7 +90,7 @@ struct inet_connection_sock {
 	__u32                     icsk_rto_min;
 	__u32                     icsk_delack_max;
 	__u32			  icsk_pmtu_cookie;
-	const struct tcp_congestion_ops *icsk_ca_ops;	// 拥塞控制算法
+	const struct tcp_congestion_ops *icsk_ca_ops;	// 拥塞控制算法, 默认是 CUBIC %cubictcp
 	const struct inet_connection_sock_af_ops *icsk_af_ops;
 	const struct tcp_ulp_ops  *icsk_ulp_ops;
 	void __rcu		  *icsk_ulp_data;
