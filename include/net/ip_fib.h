@@ -131,7 +131,7 @@ struct nexthop;
 struct fib_info {
 	struct hlist_node	fib_hash;
 	struct hlist_node	fib_lhash;
-	struct list_head	nh_list;
+	struct list_head	nh_list; // nexthop
 	struct net		*fib_net;
 	int			fib_treeref;
 	refcount_t		fib_clntref;
@@ -162,7 +162,7 @@ struct fib_rule;
 #endif
 
 struct fib_table;
-struct fib_result {
+struct fib_result {	// 路由查找的结果
 	__be32			prefix;
 	unsigned char		prefixlen;
 	unsigned char		nh_sel;
@@ -245,12 +245,12 @@ int fib_notify(struct net *net, struct notifier_block *nb,
 	       struct netlink_ext_ack *extack);
 
 struct fib_table {
-	struct hlist_node	tb_hlist;
-	u32			tb_id;
+	struct hlist_node	tb_hlist;	// 路由表肯定也要被组织在某个更上层的管理结构里
+	u32			tb_id; // table_id
 	int			tb_num_default;
 	struct rcu_head		rcu;
 	unsigned long 		*tb_data;
-	unsigned long		__data[];
+	unsigned long		__data[]; // 这个数组就是路由表
 };
 
 struct fib_dump_filter {

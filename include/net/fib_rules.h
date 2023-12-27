@@ -17,6 +17,7 @@ struct fib_kuid_range {
 	kuid_t end;
 };
 
+// 就是一些匹配条件 + fib_table 表示了一个路由表
 struct fib_rule {
 	struct list_head	list;
 	int			iifindex;
@@ -24,7 +25,7 @@ struct fib_rule {
 	u32			mark;
 	u32			mark_mask;
 	u32			flags;
-	u32			table;
+	u32			table;	// table id，可以用来查找一个 fib_table
 	u8			action;
 	u8			l3mdev;
 	u8                      proto;

@@ -228,7 +228,7 @@ int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
 	orig_sport = inet->inet_sport;	// %inet_create() 一般不会绑定本地的 port ，这里是 0
 	orig_dport = usin->sin_port;	// 目的 port
-	fl4 = &inet->cork.fl.u.ip4;
+	fl4 = &inet->cork.fl.u.ip4;	// 用于路由查找的 key
 	// 先查路由看是否可达
 	rt = ip_route_connect(fl4, nexthop, inet->inet_saddr,
 			      RT_CONN_FLAGS(sk), sk->sk_bound_dev_if,

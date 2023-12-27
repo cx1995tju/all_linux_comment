@@ -291,6 +291,9 @@ static void tcp_incr_quickack(struct sock *sk, unsigned int max_quickacks)
 		icsk->icsk_ack.quick = quickacks;
 }
 
+// 相对的就是 delay ack
+// linux 下无法完全控制 delay ack(pingpong mode)，而是其内部自己决定什么时候 quickack，什么时候 delay ack
+// 可以使用 setsockopt(QUICKACK) 临时切换下状态，过一会一会切换为 pingpong mode 的
 void tcp_enter_quickack_mode(struct sock *sk, unsigned int max_quickacks)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);

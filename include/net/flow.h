@@ -27,13 +27,13 @@ struct flowi_tunnel {
 };
 
 struct flowi_common {
-	int	flowic_oif;
-	int	flowic_iif;
-	__u32	flowic_mark;
-	__u8	flowic_tos;
-	__u8	flowic_scope;
-	__u8	flowic_proto;
-	__u8	flowic_flags;
+	int	flowic_oif; // output interface
+	int	flowic_iif; // input interface
+	__u32	flowic_mark;	// firewall mark
+	__u8	flowic_tos;	// ip tos
+	__u8	flowic_scope; // cat /etc/iproute2/rt_scopes  %rt_scope_t
+	__u8	flowic_proto; // cat /etc/iproute2/rt_protos  %RTPROT_UNSPEC	表达了 route 条目是怎么来的
+	__u8	flowic_flags; // %RTM_F_NOTIFY
 #define FLOWI_FLAG_ANYSRC		0x01
 #define FLOWI_FLAG_KNOWN_NH		0x02
 #define FLOWI_FLAG_SKIP_NH_OIF		0x04
@@ -43,14 +43,14 @@ struct flowi_common {
 	__u32		flowic_multipath_hash;
 };
 
-union flowi_uli {
+union flowi_uli {	// 一些协议相关的信息
 	struct {
-		__be16	dport;
+		__be16	dport;	// IP协议
 		__be16	sport;
 	} ports;
 
 	struct {
-		__u8	type;
+		__u8	type;	// ICMP 协议
 		__u8	code;
 	} icmpt;
 
@@ -67,6 +67,7 @@ union flowi_uli {
 	} mht;
 };
 
+// ipv4 路由表的 key
 struct flowi4 {
 	struct flowi_common	__fl_common;
 #define flowi4_oif		__fl_common.flowic_oif

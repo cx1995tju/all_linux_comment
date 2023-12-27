@@ -117,6 +117,7 @@ int __ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 		       dst_output);
 }
 
+// 发送报文了
 int ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
 	int err;
@@ -467,13 +468,13 @@ int __ip_queue_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl,
 	rcu_read_lock();
 	inet_opt = rcu_dereference(inet->inet_opt);
 	fl4 = &fl->u.ip4;
-	rt = skb_rtable(skb);
+	rt = skb_rtable(skb); // skb 里都存了查找好的路由结果, 不需要查找了
 	if (rt)
 		goto packet_routed;
 
 	/* Make sure we can route this packet. */
 	rt = (struct rtable *)__sk_dst_check(sk, 0);
-	if (!rt) {
+	if (!rt) {	// 没有 rt，来查找路由了
 		__be32 daddr;
 
 		/* Use correct destination address if we have options. */
@@ -498,7 +499,7 @@ int __ip_queue_xmit(struct sock *sk, struct sk_buff *skb, struct flowi *fl,
 	}
 	skb_dst_set_noref(skb, &rt->dst);
 
-packet_routed:
+packet_routed: // 路由已经查找好了，构造 ip 头，然后发送了
 	if (inet_opt && inet_opt->opt.is_strictroute && rt->rt_uses_gateway)
 		goto no_route;
 
@@ -529,7 +530,7 @@ packet_routed:
 	skb->priority = sk->sk_priority;
 	skb->mark = sk->sk_mark;
 
-	res = ip_local_out(net, sk, skb);
+	res = ip_local_out(net, sk, skb); // 发送报文了
 	rcu_read_unlock();
 	return res;
 

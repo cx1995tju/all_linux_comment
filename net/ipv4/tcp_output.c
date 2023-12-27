@@ -1375,7 +1375,7 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	/* BPF prog is the last one writing header option */
 	bpf_skops_write_hdr_opt(sk, skb, NULL, NULL, 0, &opts);
 
-	INDIRECT_CALL_INET(icsk->icsk_af_ops->send_check,
+	INDIRECT_CALL_INET(icsk->icsk_af_ops->send_check,	// 为了提高性能的
 			   tcp_v6_send_check, tcp_v4_send_check,
 			   sk, skb);
 

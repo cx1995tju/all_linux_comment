@@ -312,11 +312,12 @@ static inline struct rtable *ip_route_connect(struct flowi4 *fl4,
 	struct net *net = sock_net(sk);
 	struct rtable *rt;
 
+	// 初始化 fl4 这个 key
 	ip_route_connect_init(fl4, dst, src, tos, oif, protocol,
 			      sport, dport, sk);
 
 	if (!dst || !src) {
-		rt = __ip_route_output_key(net, fl4);
+		rt = __ip_route_output_key(net, fl4); // 使用 key 来查找路由entry rt
 		if (IS_ERR(rt))
 			return rt;
 		ip_rt_put(rt);

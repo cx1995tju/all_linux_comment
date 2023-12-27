@@ -257,6 +257,7 @@ enum {
 
 /* rtm_protocol */
 
+// 表达了路由条目是怎么来的
 #define RTPROT_UNSPEC		0
 #define RTPROT_REDIRECT		1	/* Route installed by ICMP redirects;
 					   not used by current IPv4 */
@@ -291,7 +292,7 @@ enum {
 
 /* rtm_scope
 
-   Really it is not scope, but sort of distance to the destination.
+   __Really it is not scope__ , but sort of distance to the destination.
    NOWHERE are reserved for not existing destinations, HOST is our
    local addresses, LINK are destinations, located on directly attached
    link and UNIVERSE is everywhere in the Universe.
@@ -300,13 +301,14 @@ enum {
    could be assigned a value between UNIVERSE and LINK.
 */
 
+// 表达的是离目标的巨鹿
 enum rt_scope_t {
-	RT_SCOPE_UNIVERSE=0,
+	RT_SCOPE_UNIVERSE=0,		// 最常见的, cat /etc/iproute2/rt_scopes 看到的是 global
 /* User defined values  */
 	RT_SCOPE_SITE=200,
-	RT_SCOPE_LINK=253,
-	RT_SCOPE_HOST=254,
-	RT_SCOPE_NOWHERE=255
+	RT_SCOPE_LINK=253,		// dst 是直接连接的
+	RT_SCOPE_HOST=254,		// dst 是 local address
+	RT_SCOPE_NOWHERE=255		// 不存在的 dst
 };
 
 /* rtm_flags */
