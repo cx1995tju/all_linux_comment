@@ -1051,6 +1051,15 @@ static void tcp_notify_skb_loss_event(struct tcp_sock *tp, const struct sk_buff 
 	tp->lost += tcp_skb_pcount(skb);
 }
 
+/* 哪些情况会标记为 lost 
+ * - 经典的 without sack 的new reno 场景，就是被 dupack 的那个包 
+ * - 开启了 rack 的时候，发生快速重传的时候会使用时间戳来比较
+ * - 带 sack 的话，会检查 sacked_out > reordering 的时候，就遍历 skb 来标记 lost	// refer to: tcp_update_scoreboard
+ *	- 如果一个 skb 被 reordering 个 sack 块标记为空洞，就被标记为 lost
+ * - timeout 发生的时候, GBN
+ * - 发现 pmtu 改动, 所以需要检查之前的报文发送的 mss 是不是太大了，如果是的话就标记为 LOST
+ *
+ * */
 void tcp_mark_skb_lost(struct sock *sk, struct sk_buff *skb)
 {
 	__u8 sacked = TCP_SKB_CB(skb)->sacked;
@@ -2120,7 +2129,7 @@ static inline void tcp_init_undo(struct tcp_sock *tp)
 
 static bool tcp_is_rack(const struct sock *sk)
 {
-	return sock_net(sk)->ipv4.sysctl_tcp_recovery & TCP_RACK_LOSS_DETECTION;
+	return sock_net(sk)->ipv4.sysctl_tcp_recovery & TCP_RACK_LOSS_DETECTION; // 一般会开启
 }
 
 /* If we detect SACK reneging, forget all SACK information
