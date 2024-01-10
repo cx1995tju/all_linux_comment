@@ -1140,6 +1140,8 @@ EXPORT_SYMBOL(inode_insert5);
  * Note both @test and @set are called with the inode_hash_lock held, so can't
  * sleep.
  */
+
+// 里面会分配 inode 节点的, 而且实际是分配了一个 block_device 结构的
 struct inode *iget5_locked(struct super_block *sb, unsigned long hashval,
 		int (*test)(struct inode *, void *),
 		int (*set)(struct inode *, void *), void *data)
@@ -1147,7 +1149,7 @@ struct inode *iget5_locked(struct super_block *sb, unsigned long hashval,
 	struct inode *inode = ilookup5(sb, hashval, test, data);
 
 	if (!inode) {
-		struct inode *new = alloc_inode(sb);
+		struct inode *new = alloc_inode(sb); // 具体的 sb 来负责对应 file_system 的分配, 同时需要通过 hashval 找到对应的 block_device
 
 		if (new) {
 			new->i_state = 0;

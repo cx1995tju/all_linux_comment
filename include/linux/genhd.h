@@ -50,6 +50,7 @@ struct partition_meta_info {
 	u8 volname[PARTITION_META_INFO_VOLNAMELTH];
 };
 
+// 表示一个分区
 struct hd_struct {
 	sector_t start_sect;
 	/*
@@ -164,6 +165,8 @@ struct blk_integrity {
 	unsigned char				tag_size;
 };
 
+// 对磁盘结构的通用抽象
+// %alloc_disk
 struct gendisk {
 	/* major, first_minor and minors are input parameters only,
 	 * don't use directly.  Use disk_devt() and disk_max_parts().
@@ -183,11 +186,11 @@ struct gendisk {
 	 * non-critical accesses use RCU.  Always access through
 	 * helpers.
 	 */
-	struct disk_part_tbl __rcu *part_tbl;
-	struct hd_struct part0;
+	struct disk_part_tbl __rcu *part_tbl;	// 记录了分区信息
+	struct hd_struct part0; // 分区0
 
-	const struct block_device_operations *fops;
-	struct request_queue *queue;
+	const struct block_device_operations *fops;	// gendisk 是表示磁盘的通用结构，最终还是要落实到块设备的
+	struct request_queue *queue;		/*  __HERE IT IS__ */
 	void *private_data;
 
 	int flags;

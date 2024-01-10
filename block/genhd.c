@@ -433,6 +433,10 @@ void blkdev_show(struct seq_file *seqf, off_t offset)
  *
  * See Documentation/admin-guide/devices.txt for the list of allocated
  * major numbers.
+ *
+ * cat /proc/devices
+ *
+ * 主要是分配 major id
  */
 int register_blkdev(unsigned int major, const char *name)
 {
@@ -689,6 +693,8 @@ static void disk_scan_partitions(struct gendisk *disk)
 		blkdev_put(bdev, FMODE_READ);
 }
 
+// 这里是关键哦，会为磁盘 disk 创建一个设备文件
+// 后续 mount 的时候就是通过这个设备文件，能够访问到 磁盘上的信息的
 static void register_disk(struct device *parent, struct gendisk *disk,
 			  const struct attribute_group **groups)
 {

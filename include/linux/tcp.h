@@ -186,7 +186,7 @@ struct tcp_sock {
 	u64	bytes_sent;	/* RFC4898 tcpEStatsPerfHCDataOctetsOut
 				 * total number of data bytes sent.
 				 */
-	u64	bytes_acked;	/* RFC4898 tcpEStatsAppHCThruOctetsAcked
+	u64	bytes_acked;	/* RFC4898 tcpEStatsAppHCThruOctetsAcked // 总数
 				 * sum(delta(snd_una)), or how many bytes
 				 * were acked.
 				 */
@@ -208,20 +208,21 @@ struct tcp_sock {
 	u32	snd_wl1;	/* Sequence for window update 记录更新发送窗口的那个ack包的自身的序号，如果后续接收到的ack端大于snd_wl1，就需要更新窗口见tcp_may_update_window */ // 也就是说这个序号让窗口左(或)边界右移了
 	u32	snd_wnd;	/* The window we expect to receive 对端给的窗口大小信息 */
 	u32	max_window;	/* Maximal window ever seen from peer	*/
-	u32	mss_cache;	/* Cached effective mss, not including SACKS */
+	u32	mss_cache;	/* Cached effective mss, not including SACKS, 用这个 */ // refer to: tcp_sync_mss
 
 	u32	window_clamp;	/* Maximal window to advertise		*/
 	u32	rcv_ssthresh;	/* Current window clamp			*/
 
 	/* Information of the most recently (s)acked skb */
 	// rack 记录了最近被 ack 或者 sack 的数据包信息
+	// RFC8985
 	struct tcp_rack {
 		u64 mstamp; /* (Re)sent time of the skb */  // 这个包发送的时间
 		u32 rtt_us;  /* Associated RTT */
 		u32 end_seq; /* Ending TCP sequence of the skb */
 		u32 last_delivered; /* tp->delivered at last reo_wnd adj */
-		u8 reo_wnd_steps;   /* Allowed reordering window */
-#define TCP_RACK_RECOVERY_THRESH 16
+		u8 reo_wnd_steps;   /* Allowed reordering window */	// 基本单位是 min_RTT / 4
+#define TCP_RACK_RECOVERY_THRESH 16		// 发生了太多 recovery 之后，认为之前测量的 reo_wnd_step 已经不可靠了，就会 reset 为1，重新测量
 		u8 reo_wnd_persist:5, /* No. of recovery since last adj */
 		   dsack_seen:1, /* Whether DSACK seen after last adj */
 		   advanced:1;	 /* mstamp advanced since last lost marking */
@@ -260,7 +261,7 @@ struct tcp_sock {
 
 /* RTT measurement */
 	u64	tcp_mstamp;	/* most recent packet received/sent */
-	u32	srtt_us;	/* smoothed round trip time << 3 in usecs  */
+	u32	srtt_us;	/* smoothed round trip time << 3 in usecs  */ // 采样的 rtt 值
 	u32	mdev_us;	/* medium deviation	rtt 的平均偏差 */
 	u32	mdev_max_us;	/* maximal mdev for the last rtt period rtt 测量过程中的最大 mdev */
 	u32	rttvar_us;	/* smoothed mdev_max			*/
@@ -306,7 +307,7 @@ struct tcp_sock {
 	u32	rate_delivered;    /* saved rate sample: packets delivered */
 	u32	rate_interval_us;  /* saved rate sample: time elapsed */
 
- 	u32	rcv_wnd;	/* Current receiver window		*/
+ 	u32	rcv_wnd;	/* Current receiver window		*/ // %tcp_select_window()
 	u32	write_seq;	/* Tail(+1) of data held in tcp send buffer */
 	u32	notsent_lowat;	/* TCP_NOTSENT_LOWAT */
 	u32	pushed_seq;	/* Last pushed seq, required to talk to windows */
@@ -328,7 +329,7 @@ struct tcp_sock {
 	struct tcp_sack_block duplicate_sack[1]; /* D-SACK block */
 	struct tcp_sack_block selective_acks[4]; /* The SACKS themselves*/
 
-	struct tcp_sack_block recv_sack_cache[4];
+	struct tcp_sack_block recv_sack_cache[4]; // 先用后面的空间, 但是前面的 seq 会小些, dsack 不保存在这里
 
 	struct sk_buff *highest_sack;   /* skb just after the highest
 					 * skb with SACKed bit set
@@ -344,7 +345,7 @@ struct tcp_sock {
 	u32	retrans_stamp;	/* Timestamp of the last retransmit,	// 上一次重传的时间戳, 重传结束或者还没有重传的时候，这个值就是 0。
 				 * also used in SYN-SENT to remember stamp of
 				 * the first SYN. */
-	u32	undo_marker;	/* snd_una upon a new recovery episode. 进入快速恢复的时候设置为 recovery point，当发生了拥塞撤销，或者退出快速恢复阶段的时候 reset 为 0 */
+	u32	undo_marker;	/* snd_una upon a new recovery episode. */
 	int	undo_retrans;	/* number of undoable retransmissions. __这里的注释有误导__ */ // 初始值是 retrans_out，即重传的报文数目，当其值减小到 0 的时候，表示需要 undo 了。比如在DSACK 场景，检测到了一个 dup_seg 的时候，这个值就--。当其减为0了。说明之前做的重传都是 dup的，即都是没有必要的，所以就可以 undo 了。 refer to: %tcp_check_dsack()
 	u64	bytes_retrans;	/* RFC4898 tcpEStatsPerfOctetsRetrans
 				 * Total data bytes retransmitted

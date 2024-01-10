@@ -577,7 +577,7 @@ struct super_block *sget(struct file_system_type *type,
 			int (*test)(struct super_block *,void *),
 			int (*set)(struct super_block *,void *),
 			int flags,
-			void *data)
+			void *data) // data 存储的一般是 block_device 结构
 {
 	struct user_namespace *user_ns = current_user_ns();
 	struct super_block *s = NULL;

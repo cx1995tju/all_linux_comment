@@ -62,6 +62,7 @@
  *		Pasi Sarolahti:		F-RTO for dealing with spurious RTOs
  */
 
+#include "net/inet_connection_sock.h"
 #define pr_fmt(fmt) "TCP: " fmt
 
 #include <linux/mm.h>
@@ -1053,7 +1054,7 @@ static void tcp_notify_skb_loss_event(struct tcp_sock *tp, const struct sk_buff 
 
 /* 哪些情况会标记为 lost 
  * - 经典的 without sack 的new reno 场景，就是被 dupack 的那个包 
- * - 开启了 rack 的时候，发生快速重传的时候会使用时间戳来比较
+ * - 开启了 rack 的时候，发生快速重传的时候会使用时间戳来比较。发生 RTO 的时候也会根据时间戳来判断，避免将所有的报文都标记为 lost
  * - 带 sack 的话，会检查 sacked_out > reordering 的时候，就遍历 skb 来标记 lost	// refer to: tcp_update_scoreboard
  *	- 如果一个 skb 被 reordering 个 sack 块标记为空洞，就被标记为 lost
  * - timeout 发生的时候, GBN
@@ -1194,10 +1195,20 @@ static void tcp_count_delivered(struct tcp_sock *tp, u32 delivered,
 // [start_seq, end_seq) 这是一个 sack block 表示的范围
 // is_dsack: 表示这个 sack 块是不是 dsack
 // 第一个 SACK 必须反应接收方收到的最新的数据
-// 合法的 sack块应该 在 snd.una snd.nxt 之间，但是要考虑:
-// - SND.NXT 回绕
-// - start_seq 回绕
-// - end_seq 回绕
+//
+/* 合法的 sack 块 
+ * - sack 块如果涉及到了回绕，处理起来有二义性，直接认为非法不处理了
+ *	- sack.start_seq >= sack.end_seq	// 说明 sack.end_seq 回绕了
+ *	- sack.end_seq > snd_nxt		// 说明 snd_nxt 回绕了
+ *	- snd_nxt >= sack.start_seq		// 说明 sack.start_seq 回绕了
+ *    合法的 sack 块满足:  snd_una < sack.start_seq < sack.end_seq < snd_nxt // 回绕的情况直接视作非法
+ * - 如果是 dsack, 
+ *	- 如果小于 snd_una 的话, 整个 dsack 都必须小于 snd_una, 即 sack.start_seq < sack.end_seq < snd_una
+ *	- 需要满足下述条件之一: undo_marker 是刚进入 recovery 时的 snd_una，肯定时最小的
+ *		- undo_marker <= start_seq < end_seq <= snd_una
+ *		- (start_seq < undo_marker <= end_seq) && (start_seq + max_window >= end_seq)
+ *
+ * */ 
 static bool tcp_is_sackblock_valid(struct tcp_sock *tp, bool is_dsack,
 				   u32 start_seq, u32 end_seq)
 {
@@ -1219,14 +1230,17 @@ static bool tcp_is_sackblock_valid(struct tcp_sock *tp, bool is_dsack,
 	if (after(start_seq, tp->snd_una))
 		return true;
 
+	// 下面是对 dsack 做判断
+	// 能到这个位置，那么必须是 dsack，如果是 dsack 的话，那么肯定做过重传的。那么这里 undo_marker 肯定不能为 0
 	if (!is_dsack || !tp->undo_marker)
 		return false;
 
 	/* ...Then it's D-SACK, and must reside below snd_una completely */
+	// 注意前面已经比较了 start_seq 了
 	if (after(end_seq, tp->snd_una))
 		return false;
 
-	if (!before(start_seq, tp->undo_marker))
+	if (!before(start_seq, tp->undo_marker)) // WHY???
 		return true;
 
 	/* Too old */
@@ -1235,6 +1249,8 @@ static bool tcp_is_sackblock_valid(struct tcp_sock *tp, bool is_dsack,
 
 	/* Undo_marker boundary crossing (overestimates a lot). Known already:
 	 *   start_seq < undo_marker and end_seq >= undo_marker.
+	 *
+	 *   可以跨越，但是不能跨越太多
 	 */
 	return !before(start_seq, end_seq - tp->max_window);
 }
@@ -1299,8 +1315,20 @@ static bool tcp_check_dsack(struct sock *sk, const struct sk_buff *ack_skb,
  * returns).
  *
  * FIXME: this could be merged to shift decision code
+ *
+ *
+ * 注意：这里会将 skb 切片来处理的。因为 tso 情况下 sack 和 tcp fragment 不是完全对应的
+ *
+ * - 首先判断 skb 是不是 fully 在 sack block 里, 如果是，return > 0
+ * - 否则尝试将 tso 的 skb 在 重传丢列上拆成两部分，第一部分是 mss 大小，然后判断 第一部分的 segment 是不是 fully in sack block
+ *	- 第二部分由于挂在重传队列上，下一次迭代会被处理的
+ *
+ *
+ * return > 0 说明 fully 在里面
+ * return == 0, 说明不是 fully 里面
+ * return < 0, 出错了
+ *
  */
-// skb 是否 fully 在 [start_seq, end_seq) 的范围里
 static int tcp_match_skb_to_sack(struct sock *sk, struct sk_buff *skb,
 				  u32 start_seq, u32 end_seq)
 {
@@ -1340,6 +1368,7 @@ static int tcp_match_skb_to_sack(struct sock *sk, struct sk_buff *skb,
 		if (pkt_len >= skb->len && !in_sack)
 			return 0;
 
+		// 这里会从 skb 里拆一个 seg 下来。skb里剩余的那部分也挂在重传队列上，在下一次迭代的时候会处理的
 		err = tcp_fragment(sk, TCP_FRAG_IN_RTX_QUEUE, skb,
 				   pkt_len, mss, GFP_ATOMIC);
 		if (err < 0)
@@ -1350,7 +1379,7 @@ static int tcp_match_skb_to_sack(struct sock *sk, struct sk_buff *skb,
 }
 
 /* Mark the given newly-SACKed range as such, adjusting counters and hints. */
-// skb 的标记就是这个函数完成的
+// skb 的标记就是这个函数完成的, 返回值就是 skb 的标记
 static u8 tcp_sacktag_one(struct sock *sk,
 			  struct tcp_sacktag_state *state, u8 sacked,
 			  u32 start_seq, u32 end_seq,
@@ -1373,10 +1402,10 @@ static u8 tcp_sacktag_one(struct sock *sk,
 	if (!after(end_seq, tp->snd_una))
 		return sacked;
 
-	if (!(sacked & TCPCB_SACKED_ACKED)) {
+	if (!(sacked & TCPCB_SACKED_ACKED)) { // 之前没有被 sack 过
 		tcp_rack_advance(tp, sacked, end_seq, xmit_time);
 
-		if (sacked & TCPCB_SACKED_RETRANS) {
+		if (sacked & TCPCB_SACKED_RETRANS) {	// 之前 retrans 过
 			/* If the segment is not tagged as lost,
 			 * we do not clear RETRANS, believing
 			 * that retransmission is still in flight.
@@ -1386,8 +1415,8 @@ static u8 tcp_sacktag_one(struct sock *sk,
 				tp->lost_out -= pcount;
 				tp->retrans_out -= pcount;
 			}
-		} else {
-			if (!(sacked & TCPCB_RETRANS)) {
+		} else { // 之前没有 sack 过
+			if (!(sacked & TCPCB_RETRANS)) { // 之前没有 retrans 过
 				/* New sack for not retransmitted frame,
 				 * which was in hole. It is reordering.
 				 */
@@ -1409,7 +1438,7 @@ static u8 tcp_sacktag_one(struct sock *sk,
 			}
 		}
 
-		sacked |= TCPCB_SACKED_ACKED;
+		sacked |= TCPCB_SACKED_ACKED;	// 做标记
 		state->flag |= FLAG_DATA_SACKED;
 		tp->sacked_out += pcount;
 		/* Out-of-order packets delivered */
@@ -1549,8 +1578,24 @@ int tcp_skb_shift(struct sk_buff *to, struct sk_buff *from,
 
 /* Try collapsing SACK blocks spanning across multiple skbs to a single
  * skb.
+ *
+ * sack 块可能跨越多个 skb，这里将这些 skb 折叠为一个 skb
+ *
+ * 对于下述case，如何处理: 第一个 skb 前面的部分和最后一个 skb 后面的部分 ???
+ *
+ *
+ *          +-------+         +-------+         +-------+         +-------+
+ * -------->| skb   |-------->| skb   |-------->| skb   |-------->| skb   |-------->
+ *          +-------+         +-------+         +-------+         +-------+
+ *              |                                                     |
+ *              |                                                     |
+ *              |                                                     |
+ *              | <------------------- sack block ------------------->|
+ *              |                                                     |
+ * 从 skb 开始，尝试将多个 skb 折叠为一个, 然后返回折叠后的 skb 指针
+ * - 前面的不在 sack block 里就塞到 prev 里
+ *
  */
-// 会拆分 skb 或者 重组 skb ？？？
 static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 					  struct tcp_sacktag_state *state,
 					  u32 start_seq, u32 end_seq,
@@ -1567,10 +1612,10 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 	if (!dup_sack &&
 	    (TCP_SKB_CB(skb)->sacked & (TCPCB_LOST|TCPCB_SACKED_RETRANS)) == TCPCB_SACKED_RETRANS)
 		goto fallback;
-	if (!skb_can_shift(skb))
+	if (!skb_can_shift(skb)) // 这个 skb 结构无法折叠
 		goto fallback;
 	/* This frame is about to be dropped (was ACKed). */
-	if (!after(TCP_SKB_CB(skb)->end_seq, tp->snd_una))
+	if (!after(TCP_SKB_CB(skb)->end_seq, tp->snd_una))	// ack 过了
 		goto fallback;
 
 	/* Can only happen with delayed DSACK + discard craziness */
@@ -1587,7 +1632,7 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 	in_sack = !after(start_seq, TCP_SKB_CB(skb)->seq) &&
 		  !before(end_seq, TCP_SKB_CB(skb)->end_seq);
 
-	if (in_sack) {
+	if (in_sack) {	// 完全在 sack 块里
 		len = skb->len;
 		pcount = tcp_skb_pcount(skb);
 		mss = tcp_skb_seglen(skb);
@@ -1597,18 +1642,19 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 		 */
 		if (mss != tcp_skb_seglen(prev))
 			goto fallback;
-	} else {
-		if (!after(TCP_SKB_CB(skb)->end_seq, start_seq))
+	} else { // 完全不在，或者部分在 sack 里
+		if (!after(TCP_SKB_CB(skb)->end_seq, start_seq)) // skb 完全在 sack 前面		skb 完全在 sack 后面这个 case 是不会调用进来的
 			goto noop;
 		/* CHECKME: This is non-MSS split case only?, this will
 		 * cause skipped skbs due to advancing loop btw, original
 		 * has that feature too
 		 */
-		if (tcp_skb_pcount(skb) <= 1)
+		if (tcp_skb_pcount(skb) <= 1)		// skb 不是 tso 报文, 但是发生了部分在 sack 块里的情况, 说明在链路发生了意想不到的拆分，这里就不处理了
 			goto noop;
 
-		in_sack = !after(start_seq, TCP_SKB_CB(skb)->seq);
-		if (!in_sack) {
+		// skb 部分在 sack 里，这要分成两种
+		in_sack = !after(start_seq, TCP_SKB_CB(skb)->seq);  // sack.start <= skb.seq
+		if (!in_sack) {  // skb.seq < sack.start <= skb.end_seq		skb 后半部分在
 			/* TODO: head merge to next could be attempted here
 			 * if (!after(TCP_SKB_CB(skb)->end_seq, end_seq)),
 			 * though it might not be worth of the additional hassle
@@ -1623,7 +1669,8 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 			goto fallback;
 		}
 
-		len = end_seq - TCP_SKB_CB(skb)->seq;
+		// skb 前半部分在 sack block 里
+		len = end_seq - TCP_SKB_CB(skb)->seq;	// skb 前面的 len 长度在里面
 		BUG_ON(len < 0);
 		BUG_ON(len > skb->len);
 
@@ -1653,7 +1700,7 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 	if (!after(TCP_SKB_CB(skb)->seq + len, tp->snd_una))
 		goto fallback;
 
-	if (!tcp_skb_shift(prev, skb, pcount, len))
+	if (!tcp_skb_shift(prev, skb, pcount, len)) // len 长度搞到 prev 里？？？
 		goto fallback;
 	if (!tcp_shifted_skb(sk, prev, skb, state, pcount, len, mss, dup_sack))
 		goto out;
@@ -1692,6 +1739,15 @@ fallback:
 // @start_seq, end_seq: [start_seq, end_seq) 这个范围内的数据是第一次出现在 sack 块里，现在要来标记
 // @state, 处理流程中保存的 ctx
 // @dup_sack_in: 当前的这个 sack 块是不是 dsack
+//
+//
+// sack 块和 skb 之间的关系
+// - 非 tso 常见，skb 要么在 sack block 里，要么不在，不存在部分在
+// - tso 场景，划分一个报文的时候，只可能是尾部有一点剩余，前面的部分肯定都是 mss 长度
+//
+// 后续讨论，使用下述符号标记 skb 和 sack 的左右边界
+// skb: [seq, end_seq)
+// sack; [left, right)
 static struct sk_buff *tcp_sacktag_walk(struct sk_buff *skb, struct sock *sk,
 					struct tcp_sack_block *next_dup,
 					struct tcp_sacktag_state *state,
@@ -1706,15 +1762,16 @@ static struct sk_buff *tcp_sacktag_walk(struct sk_buff *skb, struct sock *sk,
 		bool dup_sack = dup_sack_in;
 
 		/* queue is in-order => we can short-circuit the walk early */
-		if (!before(TCP_SKB_CB(skb)->seq, end_seq))	// end_seq <= skb->seq, 说明 skb 不再这个 sack 范围内，直接退出了
+		// right <= seq.	说明这个 skb 已经比 sack block 大了，后面的肯定更大了，所以不需要处理 直接 break 了
+		if (!before(TCP_SKB_CB(skb)->seq, end_seq))
 			break;
 
 		if (next_dup  &&
-		    before(TCP_SKB_CB(skb)->seq, next_dup->end_seq)) { // skb->seq < dup->end_seq
-			in_sack = tcp_match_skb_to_sack(sk, skb,	// skb 在 dup 里
+		    before(TCP_SKB_CB(skb)->seq, next_dup->end_seq)) { // skb->seq < end_seq < dup->end_seq
+			in_sack = tcp_match_skb_to_sack(sk, skb,	// skb 可能在 dup sack 里, 这里检查其是否 fully 在 next_dup 里
 							next_dup->start_seq,
 							next_dup->end_seq);
-			if (in_sack > 0)
+			if (in_sack > 0)	// 说明 fully 在 next_dup sackblock 里面
 				dup_sack = true;
 		}
 
@@ -1722,27 +1779,27 @@ static struct sk_buff *tcp_sacktag_walk(struct sk_buff *skb, struct sock *sk,
 		 * shifting can eat and free both this skb and the next,
 		 * so not even _safe variant of the loop is enough.
 		 */
-		if (in_sack <= 0) {
-			tmp = tcp_shift_skb_data(sk, skb, state,
+		if (in_sack <= 0) { // 不是 fully 在 dup 里, 现在看看 skb 与 [start_seq, end_seq) 的关系
+			tmp = tcp_shift_skb_data(sk, skb, state,	// 在 match skb 之前，根据 sack 块信息，对重传队列的 skb 做一些调整
 						 start_seq, end_seq, dup_sack);
 			if (tmp) {
-				if (tmp != skb) {
+				if (tmp != skb) { // 发生了折叠而且折叠后的 skb 是当前 skb 的 prev，所以这里将 skb 设置为 tmp 后，重新进入循环
 					skb = tmp;
 					continue;
 				}
 
-				in_sack = 0;
-			} else {
+				in_sack = 0; // why???
+			} else {		// 无法折叠, 直接处理 skb 了
 				in_sack = tcp_match_skb_to_sack(sk, skb,
 								start_seq,
 								end_seq);
 			}
 		}
 
-		if (unlikely(in_sack < 0))
+		if (unlikely(in_sack < 0)) // 出错了，就不处理 这个 sack block 了
 			break;
 
-		if (in_sack) {	// 在 sack 里，所以需要做标记
+		if (in_sack) {	// 完全在 sack 里，所以需要做标记。如果 skb 只有部分在的话，这里就不会处理了
 			TCP_SKB_CB(skb)->sacked =
 				tcp_sacktag_one(sk,
 						state,
@@ -1879,11 +1936,11 @@ tcp_sacktag_write_queue(struct sock *sk, const struct sk_buff *ack_skb,
 
 		if (!tcp_is_sackblock_valid(tp, dup_sack,
 					    sp[used_sacks].start_seq,
-					    sp[used_sacks].end_seq)) {
+					    sp[used_sacks].end_seq)) { // 如果是非法的，进来做一些统计
 			int mib_idx;
 
 			if (dup_sack) { // invalid sack 块里包含的 dack
-				if (!tp->undo_marker) // 说明当前不是快速恢复阶段
+				if (!tp->undo_marker) // 说明当前不是快速恢复阶段, 而不是恢复阶段却收到了 dsack，这是比较奇怪的。因为 dsack 肯定是已经发生了重传了
 					mib_idx = LINUX_MIB_TCPDSACKIGNOREDNOUNDO;
 				else
 					mib_idx = LINUX_MIB_TCPDSACKIGNOREDOLD;
@@ -1951,6 +2008,7 @@ s		u32 end_seq = sp[i].end_seq;
 		if (found_dup_sack && ((i + 1) == first_sack_index))
 			next_dup = &sp[i + 1]; // 说明下一个块是 dsack
 
+		// 将当前收到的 sack block 和之前保存的 sack block 信息一起考虑
 		/* Skip too early cached blocks */
 		while (tcp_sack_cache_ok(tp, cache) &&
 		       !before(start_seq, cache->end_seq)) // cache 存的 sack 块信息，已经太靠前了，比当前收到的 sack 块里最早的还早。 注意：在 SACK 中，接收方需要重复之前的 SACK 块的。所以如果cache 里的sack 块比当前的 sack 块靠前的话，说明已经太老了。至少已经经过了三次 ACK 包里的 SACK 信息处理了
@@ -2017,7 +2075,7 @@ advance_sp:
 	for (j = 0; j < used_sacks; j++)
 		tp->recv_sack_cache[i++] = sp[j];
 
-	// 不再 loss 状态，或者在 Loss 状态但是记录了 recovery point 的 (是某个 corner case?)
+	// 不在 loss 状态，或者在 Loss 状态但是记录了 recovery point 的 (是某个 corner case?)
 	if (inet_csk(sk)->icsk_ca_state != TCP_CA_Loss || tp->undo_marker)
 		tcp_check_sack_reordering(sk, state->reord, 0);
 
@@ -2136,6 +2194,8 @@ static bool tcp_is_rack(const struct sock *sk)
  * and reset tags completely, otherwise preserve SACKs. If receiver
  * dropped its ofo queue, we will know this due to reneging detection.
  */
+// 发生了 timeout 所以要标记 skb 了
+// 传统情况下是 GBN 来标记，但是如果有 rack 的话，会略有不同
 static void tcp_timeout_mark_lost(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -2155,9 +2215,9 @@ static void tcp_timeout_mark_lost(struct sock *sk)
 
 	skb = head;
 	skb_rbtree_walk_from(skb) {
-		if (is_reneg)
+		if (is_reneg)						// 当然如果发生了 sack reneg的话，那么 sack 信息就无意义了
 			TCP_SKB_CB(skb)->sacked &= ~TCPCB_SACKED_ACKED;
-		else if (tcp_is_rack(sk) && skb != head &&
+		else if (tcp_is_rack(sk) && skb != head &&			// 一般都是这里，有 rack 了
 			 tcp_rack_skb_timeout(tp, skb, 0) > 0)
 			continue; /* Don't mark recently sent ones lost yet */
 		tcp_mark_skb_lost(sk, skb);
@@ -2354,10 +2414,10 @@ static bool tcp_time_to_recover(struct sock *sk, int flag)
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	/* Trick#1: The loss is proven. */
-	if (tp->lost_out)
+	if (tp->lost_out) // tcp_rack_mark_lost() 如果是 rack 机制的话，在 tcp_rack_mark_lost() 里已经设置了 lost_out 了
 		return true;
 
-	/* Not-A-Trick#2 : Classic rule... */
+	/* Not-A-Trick#2 : Classic rule... */ // 传统算法
 	if (!tcp_is_rack(sk) && tcp_dupack_heuristics(tp) > tp->reordering)
 		return true;
 
@@ -2551,6 +2611,7 @@ static inline bool tcp_may_undo(const struct tcp_sock *tp)
 }
 
 /* People celebrate: "We love our President!" */
+// 从快速恢复退出的时候调用，会尝试 undo
 static bool tcp_try_undo_recovery(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -2945,6 +3006,7 @@ static void tcp_identify_packet_loss(struct sock *sk, int *ack_flag)
 	if (tcp_rtx_queue_empty(sk))
 		return;
 
+	// reno 和 rack 在这里标记，基于 sack 的 scoreboard 不是这里标记的
 	if (unlikely(tcp_is_reno(tp))) {
 		tcp_newreno_mark_lost(sk, *ack_flag & FLAG_SND_UNA_ADVANCED);
 	} else if (tcp_is_rack(sk)) {
@@ -2965,23 +3027,23 @@ static bool tcp_force_fast_retransmit(struct sock *sk)
 }
 
 /* Process an event, which can update packets-in-flight not trivially.
- * Main goal of this function is to calculate new estimate for left_out,
+ * Main goal of this function is to calculate new estimate for left_out,	_HERE_
  * taking into account both packets sitting in receiver's buffer and
  * packets lost by network.
  *
- * Besides that it updates the congestion state when packet loss or ECN
+ * Besides that it updates the congestion state when packet loss or ECN		_update cong state but not update cwnd_ 
  * is detected. But it does not reduce the cwnd, it is done by the
  * congestion control later.
  *
  * It does _not_ decide what to send, it is made in function
  * tcp_xmit_retransmit_queue().
  */
+// 即连接发生了一些不寻常的事情，可能要做快速重传或者其他的事情了
 static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 				  int num_dupack, int *ack_flag, int *rexmit)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
-	int fast_rexmit = 0, flag = *ack_flag;
 	bool ece_ack = flag & FLAG_ECE;
 	bool do_lost = num_dupack || ((flag & FLAG_DATA_SACKED) &&
 				      tcp_force_fast_retransmit(sk));
@@ -3006,7 +3068,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 	if (icsk->icsk_ca_state == TCP_CA_Open) {
 		WARN_ON(tp->retrans_out != 0);
 		tp->retrans_stamp = 0;
-	} else if (!before(tp->snd_una, tp->high_seq)) {
+	} else if (!before(tp->snd_una, tp->high_seq)) { // 超过恢复点了
 		switch (icsk->icsk_ca_state) {
 		case TCP_CA_CWR:
 			/* CWR is to be held something *above* high_seq
@@ -3020,7 +3082,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 		case TCP_CA_Recovery:
 			if (tcp_is_reno(tp))
 				tcp_reset_reno_sack(tp);
-			if (tcp_try_undo_recovery(sk))
+			if (tcp_try_undo_recovery(sk)) // 从快速恢复退出
 				return;
 			tcp_end_cwnd_reduction(sk);
 			break;
@@ -3043,7 +3105,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 			tcp_try_keep_open(sk);
 			return;
 		}
-		tcp_identify_packet_loss(sk, ack_flag);
+		tcp_identify_packet_loss(sk, ack_flag);	// 标记数据包
 		break;
 	case TCP_CA_Loss:
 		tcp_process_loss(sk, flag, num_dupack, rexmit);
@@ -3085,7 +3147,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 		fast_rexmit = 1;
 	}
 
-	if (!tcp_is_rack(sk) && do_lost)
+	if (!tcp_is_rack(sk) && do_lost) // 现在默认都是 rack 了，不通过 scoreboard 来标记了
 		tcp_update_scoreboard(sk, fast_rexmit);
 	*rexmit = REXMIT_LOST;
 }
@@ -3471,15 +3533,15 @@ static void tcp_ack_probe(struct sock *sk)
 	const struct tcp_sock *tp = tcp_sk(sk);
 
 	/* Was it a usable window open? */
-	if (!head)
+	if (!head)	// 没有数据要发送
 		return;
-	if (!after(TCP_SKB_CB(head)->end_seq, tcp_wnd_end(tp))) {
+	if (!after(TCP_SKB_CB(head)->end_seq, tcp_wnd_end(tp))) { // 就算通告了 0 窗口，也还是有空间的
 		icsk->icsk_backoff = 0;
 		inet_csk_clear_xmit_timer(sk, ICSK_TIME_PROBE0);
 		/* Socket must be waked up by subsequent tcp_data_snd_check().
 		 * This function is not for random using!
 		 */
-	} else {
+	} else { // 没有空间可以发送数据了，启动0窗口探测
 		unsigned long when = tcp_probe0_when(sk, TCP_RTO_MAX);
 
 		tcp_reset_xmit_timer(sk, ICSK_TIME_PROBE0,
@@ -3747,6 +3809,8 @@ static inline void tcp_in_ack_event(struct sock *sk, u32 flags)
  * loss recovery then now we do any new sends (for FRTO) or
  * retransmits (for CA_Loss or CA_recovery) that make sense.
  */
+// tcp_ack() 里调用的重传函数
+// 先在 tcp_fastretrans_alert() 里标记，然后到这里来重传
 static void tcp_xmit_recovery(struct sock *sk, int rexmit)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -3870,7 +3934,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 
 		flag |= tcp_ack_update_window(sk, skb, ack, ack_seq);
 
-		if (TCP_SKB_CB(skb)->sacked) // 数据包有 sack 信息, 应该是在 parse_options 的时候设置的		_HERE IT IS, 核心_
+		if (TCP_SKB_CB(skb)->sacked) // 数据包有 sack 信息, 应该是在 parse_options 的时候设置的		__处理 sack 信息对 skb 打标记__
 			flag |= tcp_sacktag_write_queue(sk, skb, prior_snd_una,	// 处理 SACK 信息，对发送队列中的 skb 打标记
 							&sack_state);
 
@@ -3927,7 +3991,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 			if (!(flag & FLAG_DATA))
 				num_dupack = max_t(u16, 1, skb_shinfo(skb)->gso_segs);
 		}
-		tcp_fastretrans_alert(sk, prior_snd_una, num_dupack, &flag,		// 重要, 快速重传入口
+		tcp_fastretrans_alert(sk, prior_snd_una, num_dupack, &flag,		// 重要, 快速重传入口, 这里面先标记，后面在重传
 				      &rexmit);
 	}
 
@@ -3952,6 +4016,8 @@ no_queue:
 	/* If this ack opens up a zero window, clear backoff.  It was
 	 * being used to time the probes, and is probably far higher than
 	 * it needs to be for normal retransmission.
+	 *
+	 * 对端通告了 0 窗口？
 	 */
 	tcp_ack_probe(sk);
 
@@ -5031,6 +5097,7 @@ void tcp_data_ready(struct sock *sk)
 	sk->sk_data_ready(sk);
 }
 
+// syn 也会在这里处理的
 static void tcp_data_queue(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -5494,6 +5561,8 @@ static inline void tcp_data_snd_check(struct sock *sk)
 
 /*
  * Check if sending an ack is needed.
+ *
+ * 判断是不是要 delay ack
  */
 static void __tcp_ack_snd_check(struct sock *sk, int ofo_possible)
 {
@@ -5518,7 +5587,7 @@ send_now:
 		return;
 	}
 
-	if (!ofo_possible || RB_EMPTY_ROOT(&tp->out_of_order_queue)) {
+	if (!ofo_possible || RB_EMPTY_ROOT(&tp->out_of_order_queue)) { // 有乱序的时候要快速回 sack，所以不能 delay
 		tcp_send_delayed_ack(sk);
 		return;
 	}
@@ -5556,7 +5625,7 @@ send_now:
 static inline void tcp_ack_snd_check(struct sock *sk)
 {
 	if (!inet_csk_ack_scheduled(sk)) {
-		/* We sent a data segment already. */
+		/* We sent a data segment already. */ // 发送的 data pkt 里就已经带了 ack 了
 		return;
 	}
 	__tcp_ack_snd_check(sk, 1);
@@ -6646,7 +6715,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 		}
 		fallthrough;
 	case TCP_ESTABLISHED:
-		tcp_data_queue(sk, skb);
+		tcp_data_queue(sk, skb); // fin 也会正在这里处理
 		queued = 1;
 		break;
 	}

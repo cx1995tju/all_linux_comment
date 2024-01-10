@@ -364,6 +364,8 @@ typedef struct {
 typedef int (*read_actor_t)(read_descriptor_t *, struct page *,
 		unsigned long, unsigned long);
 
+// 文件系统和块设备的连接就是通过这个结构建立的
+// %ext2_aops
 struct address_space_operations {
 	int (*writepage)(struct page *page, struct writeback_control *wbc);
 	int (*readpage)(struct file *, struct page *);
@@ -450,6 +452,7 @@ int pagecache_write_end(struct file *, struct address_space *mapping,
  */
 /* 对于内核的每个交换设备有一个address_space结构，在swapper_spaces 数组中 */
 //更多，将4.19.36 comments
+//文件系统和块设备的联系也是这个结构建立的
 struct address_space {
 	struct inode		*host;
 	struct xarray		i_pages;
@@ -719,7 +722,7 @@ struct inode {
 	struct fsverity_info	*i_verity_info;
 #endif
 
-	void			*i_private; /* fs or device private pointer */
+	void			*i_private; /* fs or device private pointer */ // 指向特定的 fs 的 inode 信息, ext2_inode_info。不会将磁盘 inode 结构(ext2_inode)整个保存起来，而是将重要信息提取出来保存
 } __randomize_layout;
 
 struct timespec64 timestamp_truncate(struct timespec64 t, struct inode *inode);
@@ -1415,6 +1418,9 @@ struct sb_writers {
 	struct percpu_rw_semaphore	rw_sem[SB_FREEZE_LEVELS];
 };
 
+// 所有的 super_block 都在 blockdev_superblock，同一个 super_block 下可能有多个 block 设备。会被 hash 在一起的
+// %ext2_fill_super
+// %ext2_sops
 struct super_block {
 	struct list_head	s_list;		/* Keep this first */
 	dev_t			s_dev;		/* search index; _not_ kdev_t */
@@ -1464,7 +1470,7 @@ struct super_block {
 	 * s_fsnotify_marks together for cache efficiency. They are frequently
 	 * accessed and rarely modified.
 	 */
-	void			*s_fs_info;	/* Filesystem private info */
+	void			*s_fs_info;	/* Filesystem private info */	// 指向特定的 fs 的 super_block 信息,  比如：%ext2_sb_info。不会把磁盘里整个 super_block(ext2_super_block) 保存，而是将重要的信息组织起来保存到内存
 
 	/* Granularity of c/m/atime in ns (cannot be worse than a second) */
 	u32			s_time_gran;
@@ -1821,6 +1827,7 @@ struct dir_context {
 
 struct iov_iter;
 
+// %ext2_file_operations %ext2_dir_operations
 struct file_operations {
 	struct module *owner;
 	loff_t (*llseek) (struct file *, loff_t, int);
@@ -1863,6 +1870,7 @@ struct file_operations {
 	int (*fadvise)(struct file *, loff_t, loff_t, int);
 } __randomize_layout;
 
+// %ext2_file_inode_operations %ext2_dir_inode_operations
 struct inode_operations {
 	struct dentry * (*lookup) (struct inode *,struct dentry *, unsigned int);
 	const char * (*get_link) (struct dentry *, struct inode *, struct delayed_call *);
@@ -2227,6 +2235,7 @@ extern int file_modified(struct file *file);
 int sync_inode(struct inode *inode, struct writeback_control *wbc);
 int sync_inode_metadata(struct inode *inode, int wait);
 
+// 文件系统的注册 %ext2_fs_type
 struct file_system_type {
 	const char *name;
 	int fs_flags;
@@ -2239,9 +2248,9 @@ struct file_system_type {
 #define FS_RENAME_DOES_D_MOVE	32768	/* FS will handle d_move() during rename() internally. */
 	int (*init_fs_context)(struct fs_context *);
 	const struct fs_parameter_spec *parameters;
-	struct dentry *(*mount) (struct file_system_type *, int,
+	struct dentry *(*mount) (struct file_system_type *, int,	// 用于挂载，核心就是创建或者找到 super_block。mount 系统调用会到这里的, 第一个参数是 fs type，第二个参数是 superblock flags, 第三个参数是 dev_name。refer to: legacy_get_tree()
 		       const char *, void *);
-	void (*kill_sb) (struct super_block *);
+	void (*kill_sb) (struct super_block *); // 卸载
 	struct module *owner;
 	struct file_system_type * next;
 	struct hlist_head fs_supers;

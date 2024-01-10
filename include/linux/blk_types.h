@@ -19,10 +19,12 @@ struct cgroup_subsys_state;
 typedef void (bio_end_io_t) (struct bio *);
 struct bio_crypt_ctx;
 
+// 很多信息，特别是 super_block 的信息，在创建这个设备的时候就已经读取出来了
+// 表示块设备
 struct block_device {
-	dev_t			bd_dev;
-	int			bd_openers;
-	struct inode *		bd_inode;	/* will die */
+	dev_t			bd_dev; // 索引设备的 key
+	int			bd_openers;	// 统计使用 do_open() 打开设备的次数
+	struct inode *		bd_inode;	/* will die */	// 指向 bdev pesudo-fs 中表示块设备的 inode, 这个信息可以直接通过 bdget() 获取，所以这里可以不要的
 	struct super_block *	bd_super;
 	struct mutex		bd_mutex;	/* open/close mutex */
 	void *			bd_claiming;
@@ -34,12 +36,12 @@ struct block_device {
 #endif
 	struct block_device *	bd_contains;
 	u8			bd_partno;
-	struct hd_struct *	bd_part;
+	struct hd_struct *	bd_part;	// 表示分区
 	/* number of times partitions within this device have been opened. */
-	unsigned		bd_part_count;
+	unsigned		bd_part_count;	// 引用计数
 
 	spinlock_t		bd_size_lock; /* for bd_inode->i_size updates */
-	struct gendisk *	bd_disk;
+	struct gendisk *	bd_disk; // 对磁盘的通用抽象
 	struct backing_dev_info *bd_bdi;
 
 	/* The counter of freeze processes */

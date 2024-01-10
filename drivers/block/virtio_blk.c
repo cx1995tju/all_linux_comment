@@ -699,7 +699,7 @@ module_param_named(queue_depth, virtblk_queue_depth, uint, 0444);
 
 static int virtblk_probe(struct virtio_device *vdev)
 {
-	struct virtio_blk *vblk;
+	struct virtio_blk *vblk; // 核心就初始化这个结构, vdev->priv = vblk;
 	struct request_queue *q;
 	int err, index;
 
@@ -790,7 +790,7 @@ static int virtblk_probe(struct virtio_device *vdev)
 
 	virtblk_name_format("vd", index, vblk->disk->disk_name, DISK_NAME_LEN);
 
-	vblk->disk->major = major;
+	vblk->disk->major = major;	/* 关键 */ 
 	vblk->disk->first_minor = index_to_minor(index);
 	vblk->disk->private_data = vblk;
 	vblk->disk->fops = &virtblk_fops;
@@ -992,7 +992,7 @@ static struct virtio_driver virtio_blk = {
 	.driver.name			= KBUILD_MODNAME,
 	.driver.owner			= THIS_MODULE,
 	.id_table			= id_table,
-	.probe				= virtblk_probe,
+	.probe				= virtblk_probe,	// virtio block 设备 probe 的时候，通过 pcie layer 的 probe 函数最终调用到这里
 	.remove				= virtblk_remove,
 	.config_changed			= virtblk_config_changed,
 #ifdef CONFIG_PM_SLEEP

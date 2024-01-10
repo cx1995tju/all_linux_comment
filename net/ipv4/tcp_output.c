@@ -1532,6 +1532,8 @@ static void tcp_insert_write_queue_after(struct sk_buff *skb,
  * to the specified size and appends a new segment with the rest of the
  * packet to the list.  This won't be called frequently, I hope.
  * Remember, these are still headerless SKBs at this point.
+ *
+ * 将 重传队列上的 一个 skb 拆成两个
  */
 int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
 		 struct sk_buff *skb, u32 len,
@@ -2465,6 +2467,7 @@ static int tcp_mtu_probe(struct sock *sk)
 	return -1;
 }
 
+// bbr 才有
 static bool tcp_pacing_check(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -2729,6 +2732,8 @@ repair:
 	return !tp->packets_out && !tcp_write_queue_empty(sk);
 }
 
+// 尝试启动 tlp
+// %tcp_process_tlp_ack
 bool tcp_schedule_loss_probe(struct sock *sk, bool advancing_rto)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
@@ -2746,9 +2751,11 @@ bool tcp_schedule_loss_probe(struct sock *sk, bool advancing_rto)
 	/* Schedule a loss probe in 2*RTT for SACK capable connections
 	 * not in loss recovery, that are either limited by cwnd or application.
 	 */
+	// 符合下述条件之一就不启动，否则启动 tlp			// 启动 tlp 的条件
+	// 3 or 4 表示 enable TLP
 	if ((early_retrans != 3 && early_retrans != 4) ||
 	    !tp->packets_out || !tcp_is_sack(tp) ||
-	    (icsk->icsk_ca_state != TCP_CA_Open &&
+	    (icsk->icsk_ca_state != TCP_CA_Open && // 为什么只在 Open 和 CWR 状态启动
 	     icsk->icsk_ca_state != TCP_CA_CWR))
 		return false;
 
@@ -2756,8 +2763,9 @@ bool tcp_schedule_loss_probe(struct sock *sk, bool advancing_rto)
 	 * for delayed ack when there's one outstanding packet. If no RTT
 	 * sample is available then probe after TCP_TIMEOUT_INIT.
 	 */
+	// 一旦启动后，默认的 timeout 是 2*rtt 多一点
 	if (tp->srtt_us) {
-		timeout = usecs_to_jiffies(tp->srtt_us >> 2);
+		timeout = usecs_to_jiffies(tp->srtt_us >> 2); // 2 * rtt, refer to: tcp_sock->srtt_us
 		if (tp->packets_out == 1)
 			timeout += TCP_RTO_MIN;
 		else
@@ -3265,13 +3273,13 @@ int tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 	struct tcp_sock *tp = tcp_sk(sk);
 	int err = __tcp_retransmit_skb(sk, skb, segs);
 
-	if (err == 0) {
+	if (err == 0) { // 可能由于本地拥塞出错的
 #if FASTRETRANS_DEBUG > 0
 		if (TCP_SKB_CB(skb)->sacked & TCPCB_SACKED_RETRANS) {
 			net_dbg_ratelimited("retrans_out leaked\n");
 		}
 #endif
-		TCP_SKB_CB(skb)->sacked |= TCPCB_RETRANS;
+		TCP_SKB_CB(skb)->sacked |= TCPCB_RETRANS;	// 如果前面重传出错了，这里就不会被标记为RETRANS 了，后续会再次重传的
 		tp->retrans_out += tcp_skb_pcount(skb);
 	}
 
@@ -3316,7 +3324,7 @@ void tcp_xmit_retransmit_queue(struct sock *sk)
 		if (!hole)
 			tp->retransmit_skb_hint = skb;
 
-		segs = tp->snd_cwnd - tcp_packets_in_flight(tp);
+		segs = tp->snd_cwnd - tcp_packets_in_flight(tp); // 重传的时候也要受 cwnd 限制呀。遵循数据包守恒原理，确认丢了一个，才能发一个
 		if (segs <= 0)
 			break;
 		sacked = TCP_SKB_CB(skb)->sacked;
@@ -3325,27 +3333,28 @@ void tcp_xmit_retransmit_queue(struct sock *sk)
 		 */
 		segs = min_t(int, segs, max_segs);
 
-		if (tp->retrans_out >= tp->lost_out) {
+		if (tp->retrans_out >= tp->lost_out) { // 重传的量已经超过 lost 的量了。 根据数据包守恒原理，不要发了。除非又 lost 了
 			break;
-		} else if (!(sacked & TCPCB_LOST)) {
+		} else if (!(sacked & TCPCB_LOST)) { // 这个 skb 没有标记为 lost
 			if (!hole && !(sacked & (TCPCB_SACKED_RETRANS|TCPCB_SACKED_ACKED)))
 				hole = skb;
 			continue;
 
-		} else {
+		} else { // 这个 skb 标记为 lost 了
 			if (icsk->icsk_ca_state != TCP_CA_Loss)
 				mib_idx = LINUX_MIB_TCPFASTRETRANS;
 			else
 				mib_idx = LINUX_MIB_TCPSLOWSTARTRETRANS;
 		}
 
+		// skb 被标记为 lost 了, 但是被重传或者被 SACKED 过, 就 continue
 		if (sacked & (TCPCB_SACKED_ACKED|TCPCB_SACKED_RETRANS))
 			continue;
 
 		if (tcp_small_queue_check(sk, skb, 1))
 			break;
 
-		if (tcp_retransmit_skb(sk, skb, segs))
+		if (tcp_retransmit_skb(sk, skb, segs)) // 这里出错了报文被 drop 了，如何处理：比如本地拥塞。简单跳过。因为在里面已经处理过了。但是什么时候会再次回来 retry 呢？ 等下一次的 ack 了？？？本地拥塞说明链路有足够的报文维持 ack 心跳。所以等下一次 ack 就可以了？？？
 			break;
 
 		NET_ADD_STATS(sock_net(sk), mib_idx, tcp_skb_pcount(skb));
@@ -3887,6 +3896,8 @@ EXPORT_SYMBOL(tcp_connect);
 /* Send out a delayed ack, the caller does the policy checking
  * to see if we should even be here.  See tcp_input.c:tcp_ack_snd_check()
  * for details.
+ *
+ * 通过 delay ack 来发送
  */
 void tcp_send_delayed_ack(struct sock *sk)
 {

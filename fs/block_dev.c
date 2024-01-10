@@ -36,9 +36,10 @@
 #include <linux/suspend.h>
 #include "internal.h"
 
+// vfs 和 块设备的关联
 struct bdev_inode {
 	struct block_device bdev;
-	struct inode vfs_inode;
+	struct inode vfs_inode;	// 在 vfs 中 这个 block 设备对应的设备文件
 };
 
 static const struct address_space_operations def_blk_aops;
@@ -896,7 +897,9 @@ static struct block_device *bdget(dev_t dev)
 	struct block_device *bdev;
 	struct inode *inode;
 
-	inode = iget5_locked(blockdev_superblock, hash(dev),
+	// dev_t dev 标记了一个设备
+	// 这里生成 bdev 结构，建立了这个设备 dev 和 设备文件 inode 之间的关系
+	inode = iget5_locked(blockdev_superblock, hash(dev),	// 里面会分配 inode 节点的, 而且实际是分配了一个 block_device 结构的
 			bdev_test, bdev_set, &dev);
 
 	if (!inode)
@@ -1456,7 +1459,7 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, void *holder,
 	if (!disk)
 		goto out;
 
-	if (partno) {
+	if (partno) {	// 分区号
 		whole = bdget_disk(disk, 0);
 		if (!whole) {
 			ret = -ENOMEM;

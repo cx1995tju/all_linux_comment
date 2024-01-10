@@ -961,7 +961,7 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
 		mnt->mnt.mnt_flags = MNT_INTERNAL;
 
 	atomic_inc(&fc->root->d_sb->s_active);
-	mnt->mnt.mnt_sb		= fc->root->d_sb;
+	mnt->mnt.mnt_sb		= fc->root->d_sb; // HERE
 	mnt->mnt.mnt_root	= dget(fc->root);
 	mnt->mnt_mountpoint	= mnt->mnt.mnt_root;
 	mnt->mnt_parent		= mnt;
@@ -2756,6 +2756,9 @@ static int do_move_mount_old(struct path *path, const char *old_name)
 /*
  * add a mount into a namespace's mount tree
  */
+/* @newmnt 表达了挂载的设备和文件系统
+ * @mp 则是挂载点
+ */
 static int do_add_mount(struct mount *newmnt, struct mountpoint *mp,
 			struct path *path, int mnt_flags)
 {
@@ -2781,7 +2784,7 @@ static int do_add_mount(struct mount *newmnt, struct mountpoint *mp,
 		return -EINVAL;
 
 	newmnt->mnt.mnt_flags = mnt_flags;
-	return graft_tree(newmnt, parent, mp);
+	return graft_tree(newmnt, parent, mp); // 建立挂载点 mp 和文件系统 newmnt 的关系
 }
 
 static bool mount_too_revealing(const struct super_block *sb, int *new_mnt_flags);
@@ -2790,6 +2793,9 @@ static bool mount_too_revealing(const struct super_block *sb, int *new_mnt_flags
  * Create a new mount using a superblock configuration and request it
  * be added to the namespace tree.
  */
+/* @fc 记录有挂载的设备路径，以及设备的文件系统类型
+ * @mountpoint 是挂载点
+ * */
 static int do_new_mount_fc(struct fs_context *fc, struct path *mountpoint,
 			   unsigned int mnt_flags)
 {
@@ -2809,7 +2815,7 @@ static int do_new_mount_fc(struct fs_context *fc, struct path *mountpoint,
 
 	up_write(&sb->s_umount);
 
-	mnt = vfs_create_mount(fc);
+	mnt = vfs_create_mount(fc); // 核心, 创建 vfsmount 结构，表达挂载的信息
 	if (IS_ERR(mnt))
 		return PTR_ERR(mnt);
 
@@ -2820,7 +2826,7 @@ static int do_new_mount_fc(struct fs_context *fc, struct path *mountpoint,
 		mntput(mnt);
 		return PTR_ERR(mp);
 	}
-	error = do_add_mount(real_mount(mnt), mp, mountpoint, mnt_flags);
+	error = do_add_mount(real_mount(mnt), mp, mountpoint, mnt_flags); // 核心
 	unlock_mount(mp);
 	if (error < 0)
 		mntput(mnt);
@@ -2831,6 +2837,10 @@ static int do_new_mount_fc(struct fs_context *fc, struct path *mountpoint,
  * create a new mount for userspace and request it to be added into the
  * namespace's tree
  */
+/* @name: 设备路径
+ * @path: 挂载路径
+ * @fstype: 保存了设备文件类型的信息
+ * */
 static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 			int mnt_flags, const char *name, void *data)
 {
@@ -2842,7 +2852,7 @@ static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 	if (!fstype)
 		return -EINVAL;
 
-	type = get_fs_type(fstype);
+	type = get_fs_type(fstype); // 先找这个文件系统类型是否存在, 比如:%ext2_fs_type
 	if (!type)
 		return -ENODEV;
 
@@ -2857,7 +2867,7 @@ static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 		}
 	}
 
-	fc = fs_context_for_mount(type, sb_flags);
+	fc = fs_context_for_mount(type, sb_flags); // 文件系统的 type 信息收集到 fc 里
 	put_filesystem(type);
 	if (IS_ERR(fc))
 		return PTR_ERR(fc);
@@ -2866,7 +2876,7 @@ static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 		err = vfs_parse_fs_string(fc, "subtype",
 					  subtype, strlen(subtype));
 	if (!err && name)
-		err = vfs_parse_fs_string(fc, "source", name, strlen(name));
+		err = vfs_parse_fs_string(fc, "source", name, strlen(name)); // 要挂载的设备名也收集到 fc 中了
 	if (!err)
 		err = parse_monolithic_mount_data(fc, data);
 	if (!err && !mount_capable(fc))
@@ -3127,6 +3137,10 @@ static char *copy_mount_string(const void __user *data)
  * Therefore, if this magic number is present, it carries no information
  * and must be discarded.
  */
+/* @dev_name: 设备路径
+ * @path: 挂载路径
+ * @type_page: 保存了设备文件类型的信息
+ * */
 int path_mount(const char *dev_name, struct path *path,
 		const char *type_page, unsigned long flags, void *data_page)
 {
@@ -3209,7 +3223,7 @@ int path_mount(const char *dev_name, struct path *path,
 long do_mount(const char *dev_name, const char __user *dir_name,
 		const char *type_page, unsigned long flags, void *data_page)
 {
-	struct path path;
+	struct path path; // 将相关信息组织到这个结构，后续一路使用, 表达了挂载的路径
 	int ret;
 
 	ret = user_path_at(AT_FDCWD, dir_name, LOOKUP_FOLLOW, &path);
@@ -3399,6 +3413,15 @@ struct dentry *mount_subtree(struct vfsmount *m, const char *name)
 	return path.dentry;
 }
 EXPORT_SYMBOL(mount_subtree);
+
+/* 挂载的本质 
+ * - 从块设备里读取到 fs 的信息，为其构建相关结构，最重要的就是 super_block
+ * - 建立 dir_name 和块设备的联系
+ *
+ * @dev_name: 设备路径
+ * @dir_name: 挂载路径
+ * @type: 设备的文件系统类型
+ * */
 
 SYSCALL_DEFINE5(mount, char __user *, dev_name, char __user *, dir_name,
 		char __user *, type, unsigned long, flags, void __user *, data)

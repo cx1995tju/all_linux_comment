@@ -1391,7 +1391,7 @@ new_segment:
 		if (forced_push(tp)) {
 			tcp_mark_push(tp, skb);
 			__tcp_push_pending_frames(sk, mss_now, TCP_NAGLE_PUSH);
-		} else if (skb == tcp_send_head(sk))
+		} else if (skb == tcp_send_head(sk)) // send head 只有一个报文咯
 			tcp_push_one(sk, mss_now);
 		continue;
 

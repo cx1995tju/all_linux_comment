@@ -347,7 +347,7 @@ static void tcp_probe_timer(struct sock *sk)
 	struct tcp_sock *tp = tcp_sk(sk);
 	int max_probes;
 
-	if (tp->packets_out || !skb) {
+	if (tp->packets_out || !skb) { // 外面有数据，队列上没有数据，直接退出吧
 		icsk->icsk_probes_out = 0;
 		return;
 	}
@@ -383,7 +383,7 @@ static void tcp_probe_timer(struct sock *sk)
 abort:		tcp_write_err(sk);
 	} else {
 		/* Only send another probe if we didn't close things up. */
-		tcp_send_probe0(sk);
+		tcp_send_probe0(sk);	// 探测
 	}
 }
 
@@ -490,7 +490,7 @@ void tcp_retransmit_timer(struct sock *sk)
 			tcp_write_err(sk);
 			goto out;
 		}
-		tcp_enter_loss(sk);
+		tcp_enter_loss(sk);	// 这里面要标记 skb
 		tcp_retransmit_skb(sk, skb, 1);
 		__sk_dst_reset(sk);
 		goto out_reset_timer;
@@ -599,13 +599,13 @@ void tcp_write_timer_handler(struct sock *sk)
 	event = icsk->icsk_pending;
 
 	switch (event) {
-	case ICSK_TIME_REO_TIMEOUT:
+	case ICSK_TIME_REO_TIMEOUT:	// rack 机制的 timer
 		tcp_rack_reo_timeout(sk);
 		break;
-	case ICSK_TIME_LOSS_PROBE:
+	case ICSK_TIME_LOSS_PROBE:	// tlp 机制的 timer
 		tcp_send_loss_probe(sk);
 		break;
-	case ICSK_TIME_RETRANS:
+	case ICSK_TIME_RETRANS:	// 超时重传
 		icsk->icsk_pending = 0;
 		tcp_retransmit_timer(sk);
 		break;

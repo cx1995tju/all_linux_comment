@@ -87,10 +87,11 @@ struct p_log {
  *
  * See Documentation/filesystems/mount_api.rst
  */
+// 记录了文件系统的一些信息
 struct fs_context {
 	const struct fs_context_operations *ops;
 	struct mutex		uapi_mutex;	/* Userspace access mutex */
-	struct file_system_type	*fs_type;
+	struct file_system_type	*fs_type; // 文件系统
 	void			*fs_private;	/* The filesystem's context */
 	void			*sget_key;
 	struct dentry		*root;		/* The root and superblock */
@@ -98,7 +99,7 @@ struct fs_context {
 	struct net		*net_ns;	/* The network namespace for this mount */
 	const struct cred	*cred;		/* The mounter's credentials */
 	struct p_log		log;		/* Logging buffer */
-	const char		*source;	/* The source name (eg. dev path) */
+	const char		*source;	/* The source name (eg. dev path) */ // 要挂载的设备路径
 	void			*security;	/* Linux S&M options */
 	void			*s_fs_info;	/* Proposed s_fs_info */
 	unsigned int		sb_flags;	/* Proposed superblock flags (SB_*) */

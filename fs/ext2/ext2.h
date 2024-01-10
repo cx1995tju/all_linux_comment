@@ -196,11 +196,12 @@ static inline struct ext2_sb_info *EXT2_SB(struct super_block *sb)
 /*
  * Structure of a blocks group descriptor
  */
+// 组描述符
 struct ext2_group_desc
 {
-	__le32	bg_block_bitmap;		/* Blocks bitmap block */
-	__le32	bg_inode_bitmap;		/* Inodes bitmap block */
-	__le32	bg_inode_table;		/* Inodes table block */
+	__le32	bg_block_bitmap;		/* Blocks bitmap block */ // 其指向的 block 保存的是 block bitmap
+	__le32	bg_inode_bitmap;		/* Inodes bitmap block */ // 其指向的 block 保存的是 inode bitmap
+	__le32	bg_inode_table;		/* Inodes table block */	// 指向的 block 保存的是 inode table
 	__le16	bg_free_blocks_count;	/* Free blocks count */
 	__le16	bg_free_inodes_count;	/* Free inodes count */
 	__le16	bg_used_dirs_count;	/* Directories count */
@@ -299,6 +300,11 @@ static inline __u32 ext2_mask_flags(umode_t mode, __u32 flags)
 /*
  * Structure of an inode on the disk
  */
+// inode table 索引到这个结构
+/* 只有目录和普通文件才需要消耗 block，其他文件有不同的处理 
+ * - 符号链接文件，如果目标路小于60字符，直接用inode中的i_block[] 保存, 如果 >60 就需要分配沪剧快了
+ * - 设备文件，管道，socket 也可以通过 inode 直接描述
+ * */
 struct ext2_inode {
 	__le16	i_mode;		/* File mode */
 	__le16	i_uid;		/* Low 16 bits of Owner Uid */
@@ -321,8 +327,8 @@ struct ext2_inode {
 		struct {
 			__le32  m_i_reserved1;
 		} masix1;
-	} osd1;				/* OS dependent 1 */
-	__le32	i_block[EXT2_N_BLOCKS];/* Pointers to blocks */
+	} osd1;				/* OS dependent 1 具体操作系统不同的*/
+	__le32	i_block[EXT2_N_BLOCKS];/* Pointers to blocks */ // 这个文件对应的 inode 表, 是一个多级索引
 	__le32	i_generation;	/* File version (for NFS) */
 	__le32	i_file_acl;	/* File ACL */
 	__le32	i_dir_acl;	/* Directory ACL */
@@ -367,8 +373,8 @@ struct ext2_inode {
 /*
  * File system states
  */
-#define	EXT2_VALID_FS			0x0001	/* Unmounted cleanly */
-#define	EXT2_ERROR_FS			0x0002	/* Errors detected */
+#define	EXT2_VALID_FS			0x0001	/* Unmounted cleanly */ // 分区正确卸载时的状态
+#define	EXT2_ERROR_FS			0x0002	/* Errors detected */ // 如果加载分区后卸载不正确，分区就是该状态，会触发一致性校验
 #define	EFSCORRUPTED			EUCLEAN	/* Filesystem is corrupted */
 
 /*
@@ -420,24 +426,24 @@ struct ext2_super_block {
 	__le32	s_free_blocks_count;	/* Free blocks count */
 	__le32	s_free_inodes_count;	/* Free inodes count */
 	__le32	s_first_data_block;	/* First Data Block */
-	__le32	s_log_block_size;	/* Block size */
+	__le32	s_log_block_size;	/* Block size */ // 取 0 1 2 表示 1023 2048 4096
 	__le32	s_log_frag_size;	/* Fragment size */
 	__le32	s_blocks_per_group;	/* # Blocks per group */
 	__le32	s_frags_per_group;	/* # Fragments per group */
 	__le32	s_inodes_per_group;	/* # Inodes per group */
 	__le32	s_mtime;		/* Mount time */
 	__le32	s_wtime;		/* Write time */
-	__le16	s_mnt_count;		/* Mount count */
-	__le16	s_max_mnt_count;	/* Maximal mount count */
-	__le16	s_magic;		/* Magic signature */
-	__le16	s_state;		/* File system state */
+	__le16	s_mnt_count;		/* Mount count */ // 自上次 check 以来，挂载的次数
+	__le16	s_max_mnt_count;	/* Maximal mount count */ // 当 s_mnt_coung >= s_max_mnt_count 的时候就会执行一致性校验
+	__le16	s_magic;		/* Magic signature */ // 0xEF53 Ext2_SUPER_MAGIC
+	__le16	s_state;		/* File system state */ //%EXT2_VALID_FS
 	__le16	s_errors;		/* Behaviour when detecting errors */
 	__le16	s_minor_rev_level; 	/* minor revision level */
 	__le32	s_lastcheck;		/* time of last check */
 	__le32	s_checkinterval;	/* max. time between checks */
 	__le32	s_creator_os;		/* OS */
 	__le32	s_rev_level;		/* Revision level */
-	__le16	s_def_resuid;		/* Default uid for reserved blocks */
+	__le16	s_def_resuid;		/* Default uid for reserved blocks */ // 这个 uid / gid 用户可以使用 rsvd 的一部分 block。一般就是 0，表示 root 用户
 	__le16	s_def_resgid;		/* Default gid for reserved blocks */
 	/*
 	 * These fields are for EXT2_DYNAMIC_REV superblocks only.
@@ -594,13 +600,20 @@ struct ext2_dir_entry {
  * bigger than 255 chars, it's safe to reclaim the extra byte for the
  * file_type field.
  */
+// 目录文件就是下述结构的数组
+// 一个目录文件的前两项，总是 . 和 ..
 struct ext2_dir_entry_2 {
-	__le32	inode;			/* Inode number */
-	__le16	rec_len;		/* Directory entry length */
+	__le32	inode;			/* Inode number */ // 目录下的一个文件
+	__le16	rec_len;		/* Directory entry length */ // 表示从 rec_len 字段末尾到下一个 rec_len 字段末尾的 offset，用于高效的扫描目录
 	__u8	name_len;		/* Name length */
-	__u8	file_type;
-	char	name[];			/* File name, up to EXT2_NAME_LEN */
+	__u8	file_type; // 文件类型, 注意文件的 类型和名字不在 inode 里保存，而是在目录文件里保存
+	char	name[];			/* File name, up to EXT2_NAME_LEN */ // 文件名字
 };
+/* 只有目录和普通文件才需要消耗 block，其他文件有不同的处理 
+ * - 符号链接文件，如果目标路小于60字符，直接用inode中的i_block[] 保存, 如果 >60 就需要分配沪剧快了
+ * - 设备文件，管道，socket 也可以通过 inode 直接描述
+ * */
+
 
 /*
  * EXT2_DIR_PAD defines the directory entries boundaries

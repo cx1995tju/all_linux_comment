@@ -35,6 +35,7 @@ static u32 tcp_rack_reo_wnd(const struct sock *sk)
 
 s32 tcp_rack_skb_timeout(struct tcp_sock *tp, struct sk_buff *skb, u32 reo_wnd)
 {
+	// 这里的 tcp_mstamp() 就是 RFC8985 里面的 now
 	return tp->rack.rtt_us + reo_wnd -
 	       tcp_stamp_us_delta(tp->tcp_mstamp, tcp_skb_timestamp_us(skb));
 }
@@ -86,11 +87,11 @@ static void tcp_rack_detect_loss(struct sock *sk, u32 *reo_timeout)
 		 * the recent RTT plus the reordering window.
 		 */
 		remaining = tcp_rack_skb_timeout(tp, skb, reo_wnd);
-		if (remaining <= 0) {
+		if (remaining <= 0) { // 说明已经有报文被认为 lost 了，直接去标记，然后在 tcp_skb() 里重传吧
 			tcp_mark_skb_lost(sk, skb);
 			list_del_init(&skb->tcp_tsorted_anchor);
-		} else {
-			/* Record maximum wait time */
+		} else { // 说明当前还没有报文被认为 lost 了。但是在 *reo_timeout 时间后有可能有报文被标记为 lost，所以返回 timeout，用于后续启动 timer 来处理这个可能的 lost 事件。当然 timer 可能不会启动，因为在源源不断的 tcp_ack() 中被 reset 了
+			/* Record maximum wait time */ // 为什么是 max ？？？ 为了减少 timer，然后一批处理这些报文？？？ 这些报文首先都是肯定 sent_before 当前的 sack 块的
 			*reo_timeout = max_t(u32, *reo_timeout, remaining);
 		}
 	}
@@ -104,6 +105,7 @@ void tcp_rack_mark_lost(struct sock *sk)
 	if (!tp->rack.advanced)
 		return;
 
+	// mark 了 lost 后，就要启动一个 timer，即过一会要重传这些 lost 的报文的
 	/* Reset the advanced flag to avoid unnecessary queue scanning */
 	tp->rack.advanced = 0;
 	tcp_rack_detect_loss(sk, &timeout);
@@ -155,16 +157,16 @@ void tcp_rack_reo_timeout(struct sock *sk)
 	u32 timeout, prior_inflight;
 
 	prior_inflight = tcp_packets_in_flight(tp);
-	tcp_rack_detect_loss(sk, &timeout);
+	tcp_rack_detect_loss(sk, &timeout); // 在尝试标记一下
 	if (prior_inflight != tcp_packets_in_flight(tp)) {
 		if (inet_csk(sk)->icsk_ca_state != TCP_CA_Recovery) {
 			tcp_enter_recovery(sk, false);
 			if (!inet_csk(sk)->icsk_ca_ops->cong_control)
 				tcp_cwnd_reduction(sk, 1, 0);
 		}
-		tcp_xmit_retransmit_queue(sk);
+		tcp_xmit_retransmit_queue(sk);	// 重传
 	}
-	if (inet_csk(sk)->icsk_pending != ICSK_TIME_RETRANS)
+	if (inet_csk(sk)->icsk_pending != ICSK_TIME_RETRANS) // 然后启动兜底的 RTO timer
 		tcp_rearm_rto(sk);
 }
 
