@@ -86,21 +86,30 @@ extern struct dentry_stat_t dentry_stat;
 
 #define d_lock	d_lockref.lock
 
+
+/* - 文件总是在目录中，查找一个文件的是，比如 `/home/chengxin/car` 这个路径，在第一次查找的时候，会为每一级目录都创建一个 dentry 结构。同时会在每一级做权限检查 */
+/* - 一句话：加速文件的查找流程, 没有这个结构也可以的。因为 directory 也是文件，其里面记录了目录下的文件的 inode 号，也能找到文件的。 */
+/* - 有了 dentry 后，查找文件的流程就变成了: file -> dentry -> inode */
+/* 	- 不需要根据文件名一层一层的解析目录文件了 */
+// 与 inode 不同，这个结构仅仅在内存里有的。磁盘上是没有的。
+// 注：其并不是代表目录
+//
+// 第一次访问文件时，找不到 dentry 结构。就会去磁盘读取文件，建立 inode / dentry 结构。后续访问文件就直接用 dentry 结构找了
 struct dentry {
 	/* RCU lookup touched fields */
 	unsigned int d_flags;		/* protected by d_lock */
 	seqcount_spinlock_t d_seq;	/* per dentry seqlock */
 	struct hlist_bl_node d_hash;	/* lookup hash list */
-	struct dentry *d_parent;	/* parent directory */
-	struct qstr d_name;
-	struct inode *d_inode;		/* Where the name belongs to - NULL is
+	struct dentry *d_parent;	/* parent directory */	// 其对应的文件所在的目录文件的 dentry 结构
+	struct qstr d_name;			// 表示其对应的文件名字
+	struct inode *d_inode;		/* Where the name belongs to - NULL is		// 其对应的文件的 inode 结构
 					 * negative */
 	unsigned char d_iname[DNAME_INLINE_LEN];	/* small names */
 
 	/* Ref lookup also touches following */
-	struct lockref d_lockref;	/* per-dentry lock and refcount */
+	struct lockref d_lockref;	/* per-dentry lock and refcount */	// 保护 dentry 结构本身
 	const struct dentry_operations *d_op;
-	struct super_block *d_sb;	/* The root of the dentry tree */
+	struct super_block *d_sb;	/* The root of the dentry tree */	// 其对应的文件所属的 fs 的 superblock
 	unsigned long d_time;		/* used by d_revalidate */
 	void *d_fsdata;			/* fs-specific data */
 
@@ -114,7 +123,7 @@ struct dentry {
 	 * d_alias and d_rcu can share memory
 	 */
 	union {
-		struct hlist_node d_alias;	/* inode alias list */
+		struct hlist_node d_alias;	/* inode alias list */			// dentry 本身是被组织为 hash 表的, hash 表的 key 就是文件名
 		struct hlist_bl_node d_in_lookup_hash;	/* only for in-lookup ones */
 	 	struct rcu_head d_rcu;
 	} d_u;

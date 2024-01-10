@@ -1748,6 +1748,13 @@ fallback:
 // 后续讨论，使用下述符号标记 skb 和 sack 的左右边界
 // skb: [seq, end_seq)
 // sack; [left, right)
+//
+// 标记哪些报文被 sack 了，由于某些未知的原因，在 tso 场景下存在一些 零碎的(不足 MSS) 的报文，可能虽然被 sack 了，但是没有打上 sacked 标记
+// 这样，影响也不大，无非是重传的时候多重传一点咯。
+// 对于零碎的报文，原则是宁愿少标记 SACK，也不能多标记 SACKED。
+// 少标记的后果，无非是每个 hole 最多会多传输 MSS - 1 Bytes 的数据而已
+//
+// 所以在这个函数里都是对 fully insack 的报文才会做标记的。 skb 经过聚合，拆分后，如果还是不能 fully in sack 的话，那么就直接不标记了 SACKED 了，后面对这个 skb 直接做重传。
 static struct sk_buff *tcp_sacktag_walk(struct sk_buff *skb, struct sock *sk,
 					struct tcp_sack_block *next_dup,
 					struct tcp_sacktag_state *state,
@@ -2533,7 +2540,8 @@ static inline bool tcp_packet_delayed(const struct tcp_sock *tp)
  * that successive retransmissions of a segment must not advance
  * retrans_stamp under any conditions.
  */
-// tcp 所有的重传都做了
+
+// 返回 true，表示在当前 period 里 至少做了一次 retrans
 static bool tcp_any_retrans_done(const struct sock *sk)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
@@ -2542,7 +2550,7 @@ static bool tcp_any_retrans_done(const struct sock *sk)
 	if (tp->retrans_out)
 		return true;
 
-	skb = tcp_rtx_queue_head(sk);
+	skb = tcp_rtx_queue_head(sk); // 只看开头，是因为重传的时候，肯定是前面的先被重传了
 	if (unlikely(skb && TCP_SKB_CB(skb)->sacked & TCPCB_EVER_RETRANS))
 		return true;
 
@@ -2792,7 +2800,7 @@ static void tcp_try_keep_open(struct sock *sk)
 	struct tcp_sock *tp = tcp_sk(sk);
 	int state = TCP_CA_Open;
 
-	if (tcp_left_out(tp) || tcp_any_retrans_done(sk))
+	if (tcp_left_out(tp) || tcp_any_retrans_done(sk)) // 有任何一点不对劲，就无法 keep open，而是进入 disorder 状态了
 		state = TCP_CA_Disorder;
 
 	if (inet_csk(sk)->icsk_ca_state != state) {
@@ -2814,7 +2822,7 @@ static void tcp_try_to_open(struct sock *sk, int flag)
 		tcp_enter_cwr(sk);
 
 	if (inet_csk(sk)->icsk_ca_state != TCP_CA_CWR) {
-		tcp_try_keep_open(sk);
+		tcp_try_keep_open(sk);	// 这里可能进入 disorder 状态
 	}
 }
 
@@ -3038,7 +3046,7 @@ static bool tcp_force_fast_retransmit(struct sock *sk)
  * It does _not_ decide what to send, it is made in function
  * tcp_xmit_retransmit_queue().
  */
-// 即连接发生了一些不寻常的事情，可能要做快速重传或者其他的事情了
+// 即连接发生了一些不寻常的事情，可能要做快速重传或者其他的事情了, skb 的 lost 标记就在这里进入的
 static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 				  int num_dupack, int *ack_flag, int *rexmit)
 {
@@ -3125,7 +3133,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 		if (icsk->icsk_ca_state <= TCP_CA_Disorder)
 			tcp_try_undo_dsack(sk);
 
-		tcp_identify_packet_loss(sk, ack_flag);
+		tcp_identify_packet_loss(sk, ack_flag);	// 对 skb 做 lost 标记
 		if (!tcp_time_to_recover(sk, flag)) {
 			tcp_try_to_open(sk, flag);
 			return;
@@ -3991,7 +3999,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 			if (!(flag & FLAG_DATA))
 				num_dupack = max_t(u16, 1, skb_shinfo(skb)->gso_segs);
 		}
-		tcp_fastretrans_alert(sk, prior_snd_una, num_dupack, &flag,		// 重要, 快速重传入口, 这里面先标记，后面在重传
+		tcp_fastretrans_alert(sk, prior_snd_una, num_dupack, &flag,		// 重要, 快速重传入口, 这里面先标记 LOST，后面在重传
 				      &rexmit);
 	}
 

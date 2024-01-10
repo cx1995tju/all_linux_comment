@@ -36,6 +36,7 @@ static u32 tcp_rack_reo_wnd(const struct sock *sk)
 s32 tcp_rack_skb_timeout(struct tcp_sock *tp, struct sk_buff *skb, u32 reo_wnd)
 {
 	// 这里的 tcp_mstamp() 就是 RFC8985 里面的 now
+	// 最近 sack 的 rtt_us + reo_wnd
 	return tp->rack.rtt_us + reo_wnd -
 	       tcp_stamp_us_delta(tp->tcp_mstamp, tcp_skb_timestamp_us(skb));
 }

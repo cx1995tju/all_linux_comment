@@ -221,7 +221,7 @@ struct tcp_sock {
 		u32 rtt_us;  /* Associated RTT */
 		u32 end_seq; /* Ending TCP sequence of the skb */
 		u32 last_delivered; /* tp->delivered at last reo_wnd adj */
-		u8 reo_wnd_steps;   /* Allowed reordering window */	// 基本单位是 min_RTT / 4
+		u8 reo_wnd_steps;   /* Allowed reordering window */	// 基本单位是 min_RTT / 4	refer to: tcp_rack_reo_wnd
 #define TCP_RACK_RECOVERY_THRESH 16		// 发生了太多 recovery 之后，认为之前测量的 reo_wnd_step 已经不可靠了，就会 reset 为1，重新测量
 		u8 reo_wnd_persist:5, /* No. of recovery since last adj */
 		   dsack_seen:1, /* Whether DSACK seen after last adj */

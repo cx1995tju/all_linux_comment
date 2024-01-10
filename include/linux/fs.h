@@ -611,22 +611,35 @@ struct fsnotify_mark_connector;
  * Keep mostly read-only and often accessed (especially for
  * the RCU path lookup and 'stat' data) fields at the beginning
  * of the 'struct inode'
+ *
+ * struct inode_operations
+ *
+ * - 从各个具体的文件系统里收集信息，构建内存里的 generic 的 inode 结构
+ * - 最终又通过具体的 inode_operations 将对 inode 的操作落实到具体的 文件系统
+ *
+ *
+ * 一切都是文件，一切都有 inode
+ *
+ * 三类信息:
+ * - 一些属性信息
+ * - 与其他结构的一些链接
+ * - 数据: i_mapping
  */
 struct inode {
 	umode_t			i_mode;
 	unsigned short		i_opflags;
 	kuid_t			i_uid;
 	kgid_t			i_gid;
-	unsigned int		i_flags;
+	unsigned int		i_flags; // filesystem-specific falgs
 
 #ifdef CONFIG_FS_POSIX_ACL
 	struct posix_acl	*i_acl;
 	struct posix_acl	*i_default_acl;
 #endif
 
-	const struct inode_operations	*i_op;
-	struct super_block	*i_sb;
-	struct address_space	*i_mapping;
+	const struct inode_operations	*i_op;	// _HERE_	inode 相关的操作，当然最终要落实到 specific fs
+	struct super_block	*i_sb;	// 所在 fs 的 superblock
+	struct address_space	*i_mapping;	// address_space 建立了 page cache <-> backup device 之间的联系。当然两者都是保存的 inode 对应的文件的数据。 表示的就是这个 inode 的数据
 
 #ifdef CONFIG_SECURITY
 	void			*i_security;
@@ -642,10 +655,10 @@ struct inode {
 	 *    inode_(inc|dec)_link_count
 	 */
 	union {
-		const unsigned int i_nlink;
+		const unsigned int i_nlink;	// hard link 数目
 		unsigned int __i_nlink;
 	};
-	dev_t			i_rdev;
+	dev_t			i_rdev;	// 一些特殊的文件有这个字段，比如：设备文件，其对应的是一个设备，这里就是设备号
 	loff_t			i_size;
 	struct timespec64	i_atime;
 	struct timespec64	i_mtime;
@@ -654,7 +667,7 @@ struct inode {
 	unsigned short          i_bytes;
 	u8			i_blkbits;
 	u8			i_write_hint;
-	blkcnt_t		i_blocks;
+	blkcnt_t		i_blocks;	// 这个文件使用的 block 数目，注意不同的 fs ，block size 是不一样的
 
 #ifdef __NEED_I_SIZE_ORDERED
 	seqcount_t		i_size_seqcount;
@@ -668,7 +681,7 @@ struct inode {
 	unsigned long		dirtied_time_when;
 
 	struct hlist_node	i_hash;
-	struct list_head	i_io_list;	/* backing dev IO list */
+	struct list_head	i_io_list;	/* backing dev IO list */	// 如果在 block dev 的 request 里有这个 inode 的 IO 请求，这个 inode 就会被挂载到对应的 queue 里。当 I/O 请求完成了，也就会被 remove 的
 #ifdef CONFIG_CGROUP_WRITEBACK
 	struct bdi_writeback	*i_wb;		/* the associated cgroup wb */
 
@@ -686,14 +699,14 @@ struct inode {
 	};
 	atomic64_t		i_version;
 	atomic64_t		i_sequence; /* see futex */
-	atomic_t		i_count;
+	atomic_t		i_count;	// 这个 inode 的 reference, 如果被 open 了好多次，这个 count 会增加的
 	atomic_t		i_dio_count;
 	atomic_t		i_writecount;
 #if defined(CONFIG_IMA) || defined(CONFIG_FILE_LOCKING)
 	atomic_t		i_readcount; /* struct files open RO */
 #endif
 	union {
-		const struct file_operations	*i_fop;	/* former ->i_op->default_file_ops */
+		const struct file_operations	*i_fop;	/* former ->i_op->default_file_ops */		// open 一个文件的时候，可以从这里获取文件的 file_operations
 		void (*free_inode)(struct inode *);
 	};
 	struct file_lock_context	*i_flctx;
@@ -1872,17 +1885,17 @@ struct file_operations {
 
 // %ext2_file_inode_operations %ext2_dir_inode_operations
 struct inode_operations {
-	struct dentry * (*lookup) (struct inode *,struct dentry *, unsigned int);
-	const char * (*get_link) (struct dentry *, struct inode *, struct delayed_call *);
-	int (*permission) (struct inode *, int);
+	struct dentry * (*lookup) (struct inode *,struct dentry *, unsigned int); // 查找 文件，返回的 dentry 就是对应的那个文件
+	const char * (*get_link) (struct dentry *, struct inode *, struct delayed_call *);	// 用于符号链接
+	int (*permission) (struct inode *, int); // 访问文件的时候，vfs 使用这个函数来 check 权限
 	struct posix_acl * (*get_acl)(struct inode *, int);
 
 	int (*readlink) (struct dentry *, char __user *,int);
 
-	int (*create) (struct inode *,struct dentry *, umode_t, bool);
-	int (*link) (struct dentry *,struct inode *,struct dentry *);
-	int (*unlink) (struct inode *,struct dentry *);
-	int (*symlink) (struct inode *,struct dentry *,const char *);
+	int (*create) (struct inode *,struct dentry *, umode_t, bool);	// 创建新文件
+	int (*link) (struct dentry *,struct inode *,struct dentry *); // link() 系统调用的时候会调用的, 建立 hard link 的时候使用, 会增加 link 数目, 更新一些 metadata
+	int (*unlink) (struct inode *,struct dentry *); // link() 的反操作，当 link 数目被减少到 0 的时候，会删除文件
+	int (*symlink) (struct inode *,struct dentry *,const char *);	// 建立符号链接的时候调用
 	int (*mkdir) (struct inode *,struct dentry *,umode_t);
 	int (*rmdir) (struct inode *,struct dentry *);
 	int (*mknod) (struct inode *,struct dentry *,umode_t,dev_t);
