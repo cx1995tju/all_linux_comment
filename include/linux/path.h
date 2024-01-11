@@ -5,6 +5,7 @@
 struct dentry;
 struct vfsmount;
 
+// 文件的路径信息，无非就是 mnt 以及 dentry 了
 struct path {
 	struct vfsmount *mnt;
 	struct dentry *dentry;

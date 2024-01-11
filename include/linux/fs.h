@@ -454,7 +454,7 @@ int pagecache_write_end(struct file *, struct address_space *mapping,
 //更多，将4.19.36 comments
 //文件系统和块设备的联系也是这个结构建立的
 struct address_space {
-	struct inode		*host;
+	struct inode		*host; // 指向一个文件，可以是普通的二进制文件，也可以是 device 文件
 	struct xarray		i_pages;
 	gfp_t			gfp_mask;
 	atomic_t		i_mmap_writable;
@@ -638,7 +638,7 @@ struct inode {
 #endif
 
 	const struct inode_operations	*i_op;	// _HERE_	inode 相关的操作，当然最终要落实到 specific fs
-	struct super_block	*i_sb;	// 所在 fs 的 superblock
+	struct super_block	*i_sb;	// 所在 fs 的 superblock, 对 inode 本身的操作，最后要落盘的时候，都需要通过 super_block 来完成
 	struct address_space	*i_mapping;	// address_space 建立了 page cache <-> backup device 之间的联系。当然两者都是保存的 inode 对应的文件的数据。 表示的就是这个 inode 的数据
 
 #ifdef CONFIG_SECURITY
@@ -936,7 +936,7 @@ struct file {
 		struct llist_node	fu_llist;
 		struct rcu_head 	fu_rcuhead;
 	} f_u;
-	struct path		f_path;
+	struct path		f_path;	// 记录的文件路径信息
 	struct inode		*f_inode;	/* cached value */
 	const struct file_operations	*f_op;
 
@@ -944,7 +944,7 @@ struct file {
 	 * Protects f_ep_links, f_flags.
 	 * Must not be taken from IRQ context.
 	 */
-	spinlock_t		f_lock;
+	spinlock_t		f_lock;	// 对 file 结构本身的保护
 	enum rw_hint		f_write_hint;
 	atomic_long_t		f_count;
 	unsigned int 		f_flags;
@@ -1431,12 +1431,12 @@ struct sb_writers {
 	struct percpu_rw_semaphore	rw_sem[SB_FREEZE_LEVELS];
 };
 
-// 所有的 super_block 都在 blockdev_superblock，同一个 super_block 下可能有多个 block 设备。会被 hash 在一起的
+// 基于从分区的文件系统获取的信息，来构建的内核里的结构
 // %ext2_fill_super
 // %ext2_sops
 struct super_block {
-	struct list_head	s_list;		/* Keep this first */
-	dev_t			s_dev;		/* search index; _not_ kdev_t */
+	struct list_head	s_list;		/* Keep this first */  // super_block 结构会被挂载到 super_blocks list head 上
+	dev_t			s_dev;		/* search index; _not_ kdev_t */ // 该 fs 所在的块设备
 	unsigned char		s_blocksize_bits;
 	unsigned long		s_blocksize;
 	loff_t			s_maxbytes;	/* Max file size */
@@ -1447,8 +1447,8 @@ struct super_block {
 	const struct export_operations *s_export_op;
 	unsigned long		s_flags;
 	unsigned long		s_iflags;	/* internal SB_I_* flags */
-	unsigned long		s_magic;
-	struct dentry		*s_root;
+	unsigned long		s_magic;	// 用来区分 fs type 的
+	struct dentry		*s_root;	// 用于索引该 fs 的挂载点
 	struct rw_semaphore	s_umount;
 	int			s_count;
 	atomic_t		s_active;
@@ -1960,12 +1960,12 @@ struct super_operations {
 	void (*destroy_inode)(struct inode *);
 	void (*free_inode)(struct inode *);
 
-   	void (*dirty_inode) (struct inode *, int flags);
+   	void (*dirty_inode) (struct inode *, int flags); // make a inode dirty
 	int (*write_inode) (struct inode *, struct writeback_control *wbc);
 	int (*drop_inode) (struct inode *);
 	void (*evict_inode) (struct inode *);
 	void (*put_super) (struct super_block *);
-	int (*sync_fs)(struct super_block *sb, int wait);
+	int (*sync_fs)(struct super_block *sb, int wait);	// 需要将 super block 自身的 dirty data 同步到磁盘
 	int (*freeze_super) (struct super_block *);
 	int (*freeze_fs) (struct super_block *);
 	int (*thaw_super) (struct super_block *);

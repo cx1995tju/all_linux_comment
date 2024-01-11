@@ -86,16 +86,15 @@ extern struct dentry_stat_t dentry_stat;
 
 #define d_lock	d_lockref.lock
 
-
-/* - 文件总是在目录中，查找一个文件的是，比如 `/home/chengxin/car` 这个路径，在第一次查找的时候，会为每一级目录都创建一个 dentry 结构。同时会在每一级做权限检查 */
-/* - 一句话：加速文件的查找流程, 没有这个结构也可以的。因为 directory 也是文件，其里面记录了目录下的文件的 inode 号，也能找到文件的。 */
-/* - 有了 dentry 后，查找文件的流程就变成了: file -> dentry -> inode */
-/* 	- 不需要根据文件名一层一层的解析目录文件了 */
-// 与 inode 不同，这个结构仅仅在内存里有的。磁盘上是没有的。
-// 注：其并不是代表目录
+// directory entry, 表示的是目录文件的一项内容。会缓存在内存里，加速 inode 的查找
 //
 // 第一次访问文件时，找不到 dentry 结构。就会去磁盘读取文件，建立 inode / dentry 结构。后续访问文件就直接用 dentry 结构找了
-struct dentry {
+//
+// dentry 结构会处于下述 3 种状态之一:
+// - used: vfs 在使用，有 valid inode 与之关联 
+// - unused: vfs 没有使用，有 valid inode 与之关联。可能会被回收的。
+// - negative: 表示 lookup 失败了。比如：查找一个已经被删除的文件，vfs 就会创建一个 negative dentry，表示查找失败
+struct dentry {		// directory
 	/* RCU lookup touched fields */
 	unsigned int d_flags;		/* protected by d_lock */
 	seqcount_spinlock_t d_seq;	/* per dentry seqlock */
@@ -142,17 +141,17 @@ enum dentry_d_lock_class
 };
 
 struct dentry_operations {
-	int (*d_revalidate)(struct dentry *, unsigned int);
+	int (*d_revalidate)(struct dentry *, unsigned int);	// 验证 dentry 表达的信息与磁盘里的信息是否还保持一直, 常用在 NFS
 	int (*d_weak_revalidate)(struct dentry *, unsigned int);
-	int (*d_hash)(const struct dentry *, struct qstr *);
+	int (*d_hash)(const struct dentry *, struct qstr *);	// 输入 dentry，输出一个 hash value
 	int (*d_compare)(const struct dentry *,
-			unsigned int, const char *, const struct qstr *);
+			unsigned int, const char *, const struct qstr *);	// 比较两个路径是否相同
 	int (*d_delete)(const struct dentry *);
-	int (*d_init)(struct dentry *);
-	void (*d_release)(struct dentry *);
+	int (*d_init)(struct dentry *); // 构造函数
+	void (*d_release)(struct dentry *); // 析构函数
 	void (*d_prune)(struct dentry *);
-	void (*d_iput)(struct dentry *, struct inode *);
-	char *(*d_dname)(struct dentry *, char *, int);
+	void (*d_iput)(struct dentry *, struct inode *); // release 前调用，用于释放其关联的 inode
+	char *(*d_dname)(struct dentry *, char *, int);	// pseudo fs 中会使用，用于生成文件名
 	struct vfsmount *(*d_automount)(struct path *);
 	int (*d_manage)(const struct path *, bool);
 	struct dentry *(*d_real)(struct dentry *, const struct inode *);

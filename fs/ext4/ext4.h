@@ -1292,20 +1292,20 @@ struct ext4_super_block {
 	__le32	s_free_blocks_count_lo;	/* Free blocks count */
 /*10*/	__le32	s_free_inodes_count;	/* Free inodes count */
 	__le32	s_first_data_block;	/* First Data Block */
-	__le32	s_log_block_size;	/* Block size */
+	__le32	s_log_block_size;	/* Block size */ // block_size = 2 ^ (10 + s_log_block_size)
 	__le32	s_log_cluster_size;	/* Allocation cluster size */
 /*20*/	__le32	s_blocks_per_group;	/* # Blocks per group */
 	__le32	s_clusters_per_group;	/* # Clusters per group */
 	__le32	s_inodes_per_group;	/* # Inodes per group */
 	__le32	s_mtime;		/* Mount time */
 /*30*/	__le32	s_wtime;		/* Write time */
-	__le16	s_mnt_count;		/* Mount count */
-	__le16	s_max_mnt_count;	/* Maximal mount count */
-	__le16	s_magic;		/* Magic signature */
-	__le16	s_state;		/* File system state */
+	__le16	s_mnt_count;		/* Mount count */	// 自从上一次 一致性检查到现在 被 mount 的次数
+	__le16	s_max_mnt_count;	/* Maximal mount count */ // 如果超过了这么多次，那么必须要做一次一致性检查了
+	__le16	s_magic;		/* Magic signature */ // ext4 is 0xEF53
+	__le16	s_state;		/* File system state */ // clean_unmounted, errors detected, orphans being recovered
 	__le16	s_errors;		/* Behaviour when detecting errors */
 	__le16	s_minor_rev_level;	/* minor revision level */
-/*40*/	__le32	s_lastcheck;		/* time of last check */
+/*40*/	__le32	s_lastcheck;		/* time of last check */ // 上一次检查的时间
 	__le32	s_checkinterval;	/* max. time between checks */
 	__le32	s_creator_os;		/* OS */
 	__le32	s_rev_level;		/* Revision level */
@@ -1324,7 +1324,7 @@ struct ext4_super_block {
 	 * feature set, it must abort and not try to meddle with
 	 * things it doesn't understand...
 	 */
-	__le32	s_first_ino;		/* First non-reserved inode */
+	__le32	s_first_ino;		/* First non-reserved inode */	// 第一 inode 号，前面有一部分留给 lost+found 使用的
 	__le16  s_inode_size;		/* size of inode structure */
 	__le16	s_block_group_nr;	/* block group # of this superblock */
 	__le32	s_feature_compat;	/* compatible feature set */
