@@ -57,18 +57,23 @@ typedef void (bh_end_io_t)(struct buffer_head *bh, int uptodate);
  * a page (via a page_mapping) and for wrapping bio submission
  * for backward compatibility reasons (e.g. submit_bh).
  */
+//  representing blocks in memory
+//  能够表达 block device 里的一个 block
+//  现在一般 block 和 page size 都是 4KB，所以一个 buffer_head 建立了一个 page 和 block 的映射关系
+//
+//  2.6 版本之前，buffer_head 还承担了现在 bio 的作用。即 vfs -> block 层的 io 请求, 性能太低了。后来这部分作用被 bio 替代了
 struct buffer_head {
-	unsigned long b_state;		/* buffer state bitmap (see above) */
+	unsigned long b_state;		/* buffer state bitmap (see above) */ // %BH_Uptodate
 	struct buffer_head *b_this_page;/* circular list of page's buffers */
 	struct page *b_page;		/* the page this bh is mapped to */
 
-	sector_t b_blocknr;		/* start block number */
-	size_t b_size;			/* size of mapping */
-	char *b_data;			/* pointer to data within the page */
+	sector_t b_blocknr;		/* start block number */	// 表示 disk 上 start block 的编号
+	size_t b_size;			/* size of mapping */ // 数据的大小
+	char *b_data;			/* pointer to data within the page */ // 内存里数据的地址
 
-	struct block_device *b_bdev;
-	bh_end_io_t *b_end_io;		/* I/O completion */
- 	void *b_private;		/* reserved for b_end_io */
+	struct block_device *b_bdev;	// 指向其对应的块设备
+	bh_end_io_t *b_end_io;		/* I/O completion */	// 函数指针, buffer 上的 I/O 操作的完成函数, 可以做一些清理操作
+ 	void *b_private;		/* reserved for b_end_io */	// fs 可以存储一些私有的信息
 	struct list_head b_assoc_buffers; /* associated with another mapping */
 	struct address_space *b_assoc_map;	/* mapping this buffer is
 						   associated with */

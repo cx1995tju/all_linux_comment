@@ -1330,7 +1330,7 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	skb_set_dst_pending_confirm(skb, sk->sk_dst_pending_confirm);
 
 	/* Build TCP header and checksum it. */
-	th = (struct tcphdr *)skb->data;	// 这里才会阵阵设置报文的。
+	th = (struct tcphdr *)skb->data;	// 这里才会真正设置报文的。
 	th->source		= inet->inet_sport;
 	th->dest		= inet->inet_dport;
 	th->seq			= htonl(tcb->seq);

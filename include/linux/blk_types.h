@@ -201,11 +201,13 @@ static inline void bio_issue_init(struct bio_issue *issue,
 /*
  * main unit of I/O for the block layer and lower layers (ie drivers and
  * stacking drivers)
+ *
+ * specific fs 和 generic block layer 之间的接口
  */
 struct bio {
-	struct bio		*bi_next;	/* request queue link */
+	struct bio		*bi_next;	/* request queue link */	// 多个 bio 代表一个 io request
 	struct gendisk		*bi_disk;
-	unsigned int		bi_opf;		/* bottom bits req flags,
+	unsigned int		bi_opf;		/* bottom bits req flags,	// bit amsk: enum req_opf
 						 * top bits REQ_OP. Use
 						 * accessors.
 						 */
@@ -216,9 +218,9 @@ struct bio {
 	u8			bi_partno;
 	atomic_t		__bi_remaining;
 
-	struct bvec_iter	bi_iter;
+	struct bvec_iter	bi_iter;	// 表达这个 bio 对应的 磁盘位置？？？
 
-	bio_end_io_t		*bi_end_io;
+	bio_end_io_t		*bi_end_io;	// 函数指针，io 完成后 callback
 
 	void			*bi_private;
 #ifdef CONFIG_BLK_CGROUP
@@ -255,7 +257,7 @@ struct bio {
 
 	atomic_t		__bi_cnt;	/* pin count */
 
-	struct bio_vec		*bi_io_vec;	/* the actual vec list */
+	struct bio_vec		*bi_io_vec;	/* the actual vec list */	// bio_vec 数组，描述了具体的数据位置
 
 	struct bio_set		*bi_pool;
 

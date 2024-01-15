@@ -172,9 +172,9 @@ struct gendisk {
 	 * don't use directly.  Use disk_devt() and disk_max_parts().
 	 */
 	int major;			/* major number of driver */
-	int first_minor;
+	int first_minor;		// 即这个 磁盘在该 major 下的第一个 minor 号，一个磁盘有多个 分区，会占据多个 minor 号的。磁盘本身还会消耗一个
 	int minors;                     /* maximum number of minors, =1 for
-                                         * disks that can't be partitioned. */
+                                         * disks that can't be partitioned. */	// 这个 disk 消耗的总的 minor 号数目
 
 	char disk_name[DISK_NAME_LEN];	/* name of major driver */
 
@@ -190,8 +190,8 @@ struct gendisk {
 	struct hd_struct part0; // 分区0
 
 	const struct block_device_operations *fops;	// gendisk 是表示磁盘的通用结构，最终还是要落实到块设备的
-	struct request_queue *queue;		/*  __HERE IT IS__ */
-	void *private_data;
+	struct request_queue *queue;		/*  __HERE IT IS__ */	// 和 driver 层的交互接口
+	void *private_data;	// driver 用的, 比如： %struct virtio_blk *vblk
 
 	int flags;
 	unsigned long state;
