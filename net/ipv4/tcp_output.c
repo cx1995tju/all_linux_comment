@@ -2048,7 +2048,7 @@ static inline unsigned int tcp_cwnd_test(const struct tcp_sock *tp,
 	if (in_flight >= cwnd)
 		return 0;
 
-	/* For better scheduling, ensure we have at least
+	/* For better scheduling, ensure we have at least		// 这里会限制 gso packet 的 size 不超过 cwnd 的一半
 	 * 2 GSO packets in flight.
 	 */
 	halfcwnd = max(cwnd >> 1, 1U);
@@ -2676,7 +2676,7 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
 		if (tso_segs > 1 && !tcp_urg_mode(tp))
 			limit = tcp_mss_split_point(sk, skb, mss_now,
 						    min_t(unsigned int,
-							  cwnd_quota,
+							  cwnd_quota,		// 这里的 cwnd_quota 会限制了 gso packet 大小, 不会超过 cwnd 的一半大小
 							  max_segs),
 						    nonagle);
 
