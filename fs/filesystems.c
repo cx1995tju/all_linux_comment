@@ -270,7 +270,7 @@ struct file_system_type *get_fs_type(const char *name)
 	int len = dot ? dot - name : strlen(name);
 
 	fs = __get_fs_type(name, len);
-	if (!fs && (request_module("fs-%.*s", len, name) == 0)) {
+	if (!fs && (request_module("fs-%.*s", len, name) == 0)) {	// 没找到的话，请求插入模块支持
 		fs = __get_fs_type(name, len);
 		if (!fs)
 			pr_warn_once("request_module fs-%.*s succeeded, but still no fs?\n",

@@ -1688,7 +1688,7 @@ out_unlock:
 /*
  * Is the caller allowed to modify his namespace?
  */
-static inline bool may_mount(void)
+static inline bool may_mount(void) // 权限检查
 {
 	return ns_capable(current->nsproxy->mnt_ns->user_ns, CAP_SYS_ADMIN);
 }
@@ -2852,6 +2852,7 @@ static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 	if (!fstype)
 		return -EINVAL;
 
+	// 根据fs类型名，找到对应的结构
 	type = get_fs_type(fstype); // 先找这个文件系统类型是否存在, 比如:%ext2_fs_type
 	if (!type)
 		return -ENODEV;
@@ -3205,6 +3206,7 @@ int path_mount(const char *dev_name, struct path *path,
 			    SB_LAZYTIME |
 			    SB_I_VERSION);
 
+	/* __HERE__ */
 	if ((flags & (MS_REMOUNT | MS_BIND)) == (MS_REMOUNT | MS_BIND))
 		return do_reconfigure_mnt(path, mnt_flags);
 	if (flags & MS_REMOUNT)
@@ -3220,15 +3222,21 @@ int path_mount(const char *dev_name, struct path *path,
 			    data_page);
 }
 
+/* @type_page: 保存了文件系统的类型
+ * @data_page: 保存了挂载的选项
+*/
 long do_mount(const char *dev_name, const char __user *dir_name,
 		const char *type_page, unsigned long flags, void *data_page)
 {
 	struct path path; // 将相关信息组织到这个结构，后续一路使用, 表达了挂载的路径
 	int ret;
 
+	// 收集信息到 path
 	ret = user_path_at(AT_FDCWD, dir_name, LOOKUP_FOLLOW, &path);
 	if (ret)
 		return ret;
+
+	// 基于 path 收集到的信息，完成 dev_name 的挂载
 	ret = path_mount(dev_name, &path, type_page, flags, data_page);
 	path_put(&path);
 	return ret;
@@ -3418,9 +3426,10 @@ EXPORT_SYMBOL(mount_subtree);
  * - 从块设备里读取到 fs 的信息，为其构建相关结构，最重要的就是 super_block
  * - 建立 dir_name 和块设备的联系
  *
- * @dev_name: 设备路径
+ * @dev_name: 设备文件的路径, 一切都是文件，对设备做操作，也是从设备文件开始的
  * @dir_name: 挂载路径
  * @type: 设备的文件系统类型
+ * @data: 一些 options
  * */
 
 SYSCALL_DEFINE5(mount, char __user *, dev_name, char __user *, dir_name,

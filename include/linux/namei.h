@@ -53,6 +53,10 @@ extern int path_pts(struct path *path);
 
 extern int user_path_at_empty(int, const char __user *, unsigned, struct path *, int *empty);
 
+/* @dfd: directory fd
+ *
+ * 收集信息到 path 结构
+ * */
 static inline int user_path_at(int dfd, const char __user *name, unsigned flags,
 		 struct path *path)
 {

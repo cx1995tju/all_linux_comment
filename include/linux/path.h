@@ -7,7 +7,7 @@ struct vfsmount;
 
 // 文件的路径信息，无非就是 mnt 以及 dentry 了
 struct path {
-	struct vfsmount *mnt;
+	struct vfsmount *mnt; // 表示其所在的 fs 的挂载信息
 	struct dentry *dentry;
 } __randomize_layout;
 
