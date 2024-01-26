@@ -5578,6 +5578,12 @@ static void __tcp_ack_snd_check(struct sock *sk, int ofo_possible)
 	unsigned long rtt, delay;
 
 	    /* More than one full frame received... */
+	// 立即发送的条件
+	/* - 收到超过 1mss 的数据了
+	 * - 当前在 quickack 模式
+	 * - 底层的具体的面向连接的协议栈设置了 ICSK_NOW
+	 *
+	 * */
 	if (((tp->rcv_nxt - tp->rcv_wup) > inet_csk(sk)->icsk_ack.rcv_mss &&
 	     /* ... and right edge of window advances far enough.
 	      * (tcp_recvmsg() will send ACK otherwise).

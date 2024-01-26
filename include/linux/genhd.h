@@ -167,6 +167,12 @@ struct blk_integrity {
 
 // 对磁盘结构的通用抽象
 // %alloc_disk
+/* - `struct gendisk` */
+/* 	- 表示磁盘: 从数据角度(相对于 block_device 结构)来表示一个块设备。核心结构就是一些 `request_queue` */
+/* 	- 创建函数: `alloc_disk()` */
+/* 	- 创建时机: probe 的时候 */
+/* 	- 注:同一个磁盘上的多个分区，是同一个 gendisk 结构的。但是 block_device 不是一个 */
+/* 	- 注2:gendisk 会关联到整个磁盘的那个 block_device 结构 */
 struct gendisk {
 	/* major, first_minor and minors are input parameters only,
 	 * don't use directly.  Use disk_devt() and disk_max_parts().
@@ -174,7 +180,7 @@ struct gendisk {
 	int major;			/* major number of driver */
 	int first_minor;		// 即这个 磁盘在该 major 下的第一个 minor 号，一个磁盘有多个 分区，会占据多个 minor 号的。磁盘本身还会消耗一个
 	int minors;                     /* maximum number of minors, =1 for
-                                         * disks that can't be partitioned. */	// 这个 disk 消耗的总的 minor 号数目
+                                         * disks that can't be partitioned. */	// 这个 disk 消耗的总的 minor 号数目, 一般就是分区数目 + 1(磁盘本身消耗一个设备号)
 
 	char disk_name[DISK_NAME_LEN];	/* name of major driver */
 

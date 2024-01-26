@@ -2812,6 +2812,10 @@ static int device_private_init(struct device *dev)
  * *not* succeeded, use *only* put_device() to drop the reference
  * count.
  */
+/* 设备文件在这里创建的: */
+/* 	- `device_add() -> devtmpfs_create_node() -> devtmpfs_submit_req()` 提交 req 给 kdevtmpfs */
+/* 	- kdevtmpfs 进程会执行 `vfs_mknod -> init_special_inode` 来创建 */
+
 int device_add(struct device *dev)
 {
 	struct device *parent;

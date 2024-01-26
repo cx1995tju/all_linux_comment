@@ -13,6 +13,7 @@ struct blk_flush_queue;
  * struct blk_mq_hw_ctx - State for a hardware queue facing the hardware
  * block device
  */
+// hardrware dispatch queue
 struct blk_mq_hw_ctx {
 	struct {
 		/** @lock: Protects the dispatch list. */
@@ -192,6 +193,7 @@ struct blk_mq_hw_ctx {
  *	driver to map each hardware queue type (enum hctx_type) onto a distinct
  *	set of hardware queues.
  */
+// maping: software staging queues -> hardware dispatch queues
 struct blk_mq_queue_map {
 	unsigned int *mq_map;
 	unsigned int nr_queues;
@@ -287,6 +289,7 @@ typedef bool (busy_tag_iter_fn)(struct request *, void *, bool);
  * struct blk_mq_ops - Callback functions that implements block driver
  * behaviour.
  */
+// blk-mq layer 和 driver 之间的接口
 struct blk_mq_ops {
 	/**
 	 * @queue_rq: Queue a new request from block IO.

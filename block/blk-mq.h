@@ -15,6 +15,7 @@ struct blk_mq_ctxs {
 /**
  * struct blk_mq_ctx - State for a software queue facing the submitting CPUs
  */
+// software  staging queue
 struct blk_mq_ctx {
 	struct {
 		spinlock_t		lock;

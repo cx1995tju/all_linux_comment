@@ -134,6 +134,7 @@ static inline struct dm_stats *dm_get_stats(struct mapped_device *md)
 
 #define DM_TABLE_MAX_DEPTH 16
 
+// 定义了一个逻辑设备的每个 sector 应该如何被 map 到 target device
 struct dm_table {
 	struct mapped_device *md;
 	enum dm_queue_mode type;

@@ -128,8 +128,8 @@ enum mq_rq_state {
  * especially blk_mq_rq_ctx_init() to take care of the added fields.
  */
 struct request {
-	struct request_queue *q;
-	struct blk_mq_ctx *mq_ctx;
+	struct request_queue *q;   // 该 request 所在的 queue
+	struct blk_mq_ctx *mq_ctx; // 用来追踪 state of requests that are processed on that CPU
 	struct blk_mq_hw_ctx *mq_hctx;
 
 	unsigned int cmd_flags;		/* op and common flags */
@@ -140,12 +140,12 @@ struct request {
 
 	/* the following two fields are internal, NEVER access directly */
 	unsigned int __data_len;	/* total data len */
-	sector_t __sector;		/* sector cursor */
+	sector_t __sector;		/* sector cursor */	// 起始扇区
 
-	struct bio *bio;
-	struct bio *biotail;
+	struct bio *bio;	// 包含的数据或者内存空间在这里
+	struct bio *biotail; // request 对应的 bio 中的最后一个
 
-	struct list_head queuelist;
+	struct list_head queuelist; // 等待处理的 request 挂在这里
 
 	/*
 	 * The hash is used inside the scheduler, and killed once the
@@ -397,18 +397,18 @@ static inline int blkdev_zone_mgmt_ioctl(struct block_device *bdev,
 #endif /* CONFIG_BLK_DEV_ZONED */
 
 struct request_queue {
-	struct request		*last_merge;
-	struct elevator_queue	*elevator;
+	struct request		*last_merge; // io scheduler 会使用, track the last request that was merged with another request. 
+	struct elevator_queue	*elevator; // io scheduler 使用的
 
-	struct percpu_ref	q_usage_counter;
+	struct percpu_ref	q_usage_counter; // queue 的一些统计
 
 	struct blk_queue_stats	*stats;
 	struct rq_qos		*rq_qos;
 
-	const struct blk_mq_ops	*mq_ops;
+	const struct blk_mq_ops	*mq_ops; // io scheduler 使用这些 callback 来操作 queue
 
 	/* sw queues */
-	struct blk_mq_ctx __percpu	*queue_ctx;
+	struct blk_mq_ctx __percpu	*queue_ctx; // per_cpu 变量, 软件 queue，用来追踪 state of requests that are processed on that CPU
 
 	unsigned int		queue_depth;
 

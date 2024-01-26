@@ -122,7 +122,7 @@ typedef s64			int64_t;
  *
  * blkcnt_t is the type of the inode's block count.
  */
-typedef u64 sector_t;
+typedef u64 sector_t;	// 每个 sector 大小默认是 512B，与具体设备无关
 typedef u64 blkcnt_t;
 
 /*

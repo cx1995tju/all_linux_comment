@@ -21,6 +21,10 @@ struct bio_crypt_ctx;
 
 // 很多信息，特别是 super_block 的信息，在创建这个设备的时候就已经读取出来了
 // 表示块设备
+/* - 表示设备：强调设备概念, 是从 linux 的统一设备框架的角度来表示一个硬件块设备(整个设备，或者一个分区) */
+/* - 创建时机: driver probe 的时候 */
+/* - 创建函数: */
+/* 	- `blkdev_get_by_dev() -> bdget() -> bdev_alloc_inode()` */
 struct block_device {
 	dev_t			bd_dev; // 索引设备的 key
 	int			bd_openers;	// 统计使用 do_open() 打开设备的次数
@@ -35,7 +39,7 @@ struct block_device {
 	struct list_head	bd_holder_disks;
 #endif
 	struct block_device *	bd_contains;
-	u8			bd_partno;
+	u8			bd_partno;	// 如果这个结构是用来表示一个分区的时候，其表示分区号
 	struct hd_struct *	bd_part;	// 表示分区
 	/* number of times partitions within this device have been opened. */
 	unsigned		bd_part_count;	// 引用计数
