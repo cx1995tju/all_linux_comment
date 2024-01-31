@@ -2604,6 +2604,7 @@ void tcp_chrono_stop(struct sock *sk, const enum tcp_chrono type)
  *
  * 这种情况就需要设置一个定时器，后续用来做重传。因为没有 in-flight data，意味着可能没有 ack 心跳了
  */
+// push_one 大于 0 的时候，最多发送一个报文
 static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
 			   int push_one, gfp_t gfp)
 {

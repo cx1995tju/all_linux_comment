@@ -1266,7 +1266,7 @@ int tcp_sendmsg_locked(struct sock *sk, struct msghdr *msg, size_t size)
 	copied = 0;
 
 restart:
-	mss_now = tcp_send_mss(sk, &size_goal, flags); // 一般是 tp->gso_segs * mss_now
+	mss_now = tcp_send_mss(sk, &size_goal, flags); // size_goal 一般是 tp->gso_segs * mss_now
 
 	err = -EPIPE;
 	if (sk->sk_err || (sk->sk_shutdown & SEND_SHUTDOWN))
@@ -1312,17 +1312,17 @@ new_segment:
 		}
 
 		/* Try to append data to the end of skb. */
-		if (copy > msg_data_left(msg))
+		if (copy > msg_data_left(msg)) // msg 中的 数据，小于可以 copy 的数量, copy 表示的是当前这个skb 可以保存的数据量
 			copy = msg_data_left(msg);
 
 		/* Where to copy to? */
-		if (skb_availroom(skb) > 0 && !zc) {
+		if (skb_availroom(skb) > 0 && !zc) {	// skb 有空间，那么就cop有进去
 			/* We have some space in skb head. Superb! */
 			copy = min_t(int, copy, skb_availroom(skb));
 			err = skb_add_data_nocache(sk, skb, &msg->msg_iter, copy);
 			if (err)
 				goto do_fault;
-		} else if (!zc) {
+		} else if (!zc) { // skb 没有空间了，那么分配 frag ，copy 到 frag 里
 			bool merge = true;
 			int i = skb_shinfo(skb)->nr_frags;
 			struct page_frag *pfrag = sk_page_frag(sk);
@@ -1379,7 +1379,7 @@ new_segment:
 		tcp_skb_pcount_set(skb, 0);
 
 		copied += copy;
-		if (!msg_data_left(msg)) {
+		if (!msg_data_left(msg)) { // 数据全部 copy 过来了就去发送了
 			if (unlikely(flags & MSG_EOR))
 				TCP_SKB_CB(skb)->eor = 1;
 			goto out;
@@ -1388,11 +1388,13 @@ new_segment:
 		if (skb->len < size_goal || (flags & MSG_OOB) || unlikely(tp->repair))
 			continue;
 
+		// 进入了这个函数，都会触发报文发送的。虽然在内层可能有 nagle 或者 cork 参数导致不发报文
+		// 甚至还会因为 tc / napi 等导致报文延迟到网络。但是那和 TCP 层没有关系了。在 TCP 层看来是已经发送了
 		if (forced_push(tp)) {
 			tcp_mark_push(tp, skb);
 			__tcp_push_pending_frames(sk, mss_now, TCP_NAGLE_PUSH);
-		} else if (skb == tcp_send_head(sk)) // send head 只有一个报文咯
-			tcp_push_one(sk, mss_now);
+		} else if (skb == tcp_send_head(sk))
+			tcp_push_one(sk, mss_now);	// 这里最多会发送一个报文
 		continue;
 
 wait_for_space:
@@ -1411,9 +1413,9 @@ wait_for_space:
 out:
 	if (copied) {
 		tcp_tx_timestamp(sk, sockc.tsflags);
-		tcp_push(sk, flags, mss_now, tp->nonagle, size_goal);
+		tcp_push(sk, flags, mss_now, tp->nonagle, size_goal);	// 去发送 skb 了
 	}
-out_nopush:
+out_nopush:	// 退出但是并没有发送 skb
 	sock_zerocopy_put(uarg);
 	return copied + copied_syn;
 

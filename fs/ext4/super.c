@@ -4008,7 +4008,7 @@ static void ext4_set_resv_clusters(struct super_block *sb)
 static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct dax_device *dax_dev = fs_dax_get_by_bdev(sb->s_bdev);
-	char *orig_data = kstrdup(data, GFP_KERNEL);
+	char *orig_data = kstrdup(data, GFP_KERNEL);	// data 保存的是各种参数，是 fs_context->private
 	struct buffer_head *bh, **group_desc;
 	struct ext4_super_block *es = NULL;
 	struct ext4_sb_info *sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);

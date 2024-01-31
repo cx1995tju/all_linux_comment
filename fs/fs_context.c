@@ -260,7 +260,7 @@ static struct fs_context *alloc_fs_context(struct file_system_type *fs_type,
 	}
 
 	/* TODO: Make all filesystems support this unconditionally */
-	init_fs_context = fc->fs_type->init_fs_context;
+	init_fs_context = fc->fs_type->init_fs_context;	// 很多 fs 都还没有
 	if (!init_fs_context)
 		init_fs_context = legacy_init_fs_context;
 
@@ -589,7 +589,7 @@ static int legacy_get_tree(struct fs_context *fc)
 	struct super_block *sb;
 	struct dentry *root;
 
-	root = fc->fs_type->mount(fc->fs_type, fc->sb_flags,
+	root = fc->fs_type->mount(fc->fs_type, fc->sb_flags,		// %ext4_mount()
 				      fc->source, ctx->legacy_data);
 	if (IS_ERR(root))
 		return PTR_ERR(root);
@@ -644,7 +644,7 @@ int parse_monolithic_mount_data(struct fs_context *fc, void *data)
 
 	monolithic_mount_data = fc->ops->parse_monolithic;
 	if (!monolithic_mount_data)
-		monolithic_mount_data = generic_parse_monolithic;
+		monolithic_mount_data = generic_parse_monolithic; // 一般是这里
 
 	return monolithic_mount_data(fc, data);
 }

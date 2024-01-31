@@ -37,6 +37,7 @@ struct mountpoint {
 	int m_count;
 };
 
+// refer to: %vfs_create_mount()
 struct mount {
 	struct hlist_node mnt_hash;
 	struct mount *mnt_parent;

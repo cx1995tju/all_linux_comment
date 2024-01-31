@@ -131,6 +131,7 @@ static struct file *__alloc_file(int flags, const struct cred *cred)
  * done, you will imbalance int the mount's writer count
  * and a warning at __fput() time.
  */
+// 分配的时候，还会根据 flags 来设置 file 对应的 flag 和 mode
 struct file *alloc_empty_file(int flags, const struct cred *cred)
 {
 	static long old_max;

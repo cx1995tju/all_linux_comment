@@ -2840,6 +2840,11 @@ static int do_new_mount_fc(struct fs_context *fc, struct path *mountpoint,
 /* @name: 设备路径
  * @path: 挂载路径
  * @fstype: 保存了设备文件类型的信息
+ * @data: 挂载的一些参数
+ *
+ * 通过 fc 收集各种信息，在收集的过程中会分配资源，做初始化。最后调用 do_new_mount_fc() 创建 mount 结构
+ *
+ * 建立挂载点和新的fs的联系
  * */
 static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 			int mnt_flags, const char *name, void *data)
@@ -2883,9 +2888,9 @@ static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 	if (!err && !mount_capable(fc))
 		err = -EPERM;
 	if (!err)
-		err = vfs_get_tree(fc);
+		err = vfs_get_tree(fc);	// _HERE IT IS_ _重要_
 	if (!err)
-		err = do_new_mount_fc(fc, path, mnt_flags);
+		err = do_new_mount_fc(fc, path, mnt_flags);	// __HERE IT IS__ _重要_
 
 	put_fs_context(fc);
 	return err;

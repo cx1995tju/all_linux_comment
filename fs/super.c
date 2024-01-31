@@ -574,8 +574,8 @@ EXPORT_SYMBOL(sget_fc);
  *	@data:	  argument to each of them
  */
 struct super_block *sget(struct file_system_type *type,
-			int (*test)(struct super_block *,void *),
-			int (*set)(struct super_block *,void *),
+			int (*test)(struct super_block *,void *),	// %test_bdev_super
+			int (*set)(struct super_block *,void *),	// %set_bdev_super
 			int flags,
 			void *data) // data 存储的一般是 block_device 结构
 {
@@ -595,7 +595,7 @@ retry:
 	spin_lock(&sb_lock);
 	if (test) {
 		hlist_for_each_entry(old, &type->fs_supers, s_instances) {
-			if (!test(old, data))
+			if (!test(old, data))	// 即 old 上的 bdev 是不是就是这个 bdev
 				continue;
 			if (user_ns != old->s_user_ns) {
 				spin_unlock(&sb_lock);
@@ -1364,7 +1364,7 @@ static int test_bdev_super(struct super_block *s, void *data)
 
 struct dentry *mount_bdev(struct file_system_type *fs_type,
 	int flags, const char *dev_name, void *data,
-	int (*fill_super)(struct super_block *, void *, int))
+	int (*fill_super)(struct super_block *, void *, int)) // %ext4_fill_super
 {
 	struct block_device *bdev;
 	struct super_block *s;
@@ -1389,7 +1389,7 @@ struct dentry *mount_bdev(struct file_system_type *fs_type,
 		error = -EBUSY;
 		goto error_bdev;
 	}
-	s = sget(fs_type, test_bdev_super, set_bdev_super, flags | SB_NOSEC,
+	s = sget(fs_type, test_bdev_super, set_bdev_super, flags | SB_NOSEC,	// __HERE__, 主要就是创建 super_block 结构
 		 bdev);
 	mutex_unlock(&bdev->bd_fsfreeze_mutex);
 	if (IS_ERR(s))
@@ -1416,7 +1416,7 @@ struct dentry *mount_bdev(struct file_system_type *fs_type,
 		s->s_mode = mode;
 		snprintf(s->s_id, sizeof(s->s_id), "%pg", bdev);
 		sb_set_blocksize(s, block_size(bdev));
-		error = fill_super(s, data, flags & SB_SILENT ? 1 : 0);
+		error = fill_super(s, data, flags & SB_SILENT ? 1 : 0);		// sget() 里获取了 super_block 后在，这里初始化的
 		if (error) {
 			deactivate_locked_super(s);
 			goto error;
@@ -1546,7 +1546,7 @@ int vfs_get_tree(struct fs_context *fc)
 	/* Get the mountable root in fc->root, with a ref on the root and a ref
 	 * on the superblock.
 	 */
-	error = fc->ops->get_tree(fc);
+	error = fc->ops->get_tree(fc);	// 重要, legacy_get_tree, 里面会调用 fs specific 的 mount(%ext4_mount) 函数填充 super_block
 	if (error < 0)
 		return error;
 

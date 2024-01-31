@@ -931,7 +931,9 @@ static inline int ra_has_index(struct file_ra_state *ra, pgoff_t index)
 		index <  ra->start + ra->size);
 }
 
-struct file {
+// 分配: alloc_empty_file()
+// 填充：do_open()
+struct file { 
 	union {
 		struct llist_node	fu_llist;
 		struct rcu_head 	fu_rcuhead;
@@ -1434,6 +1436,10 @@ struct sb_writers {
 // 基于从分区的文件系统获取的信息，来构建的内核里的结构
 // %ext2_fill_super
 // %ext2_sops
+// 每个设备挂载的时候会创建的:
+// - 同一个类型的文件系统的 super_block 都会组织在file_system_type 结构中
+// - 同一个设备多次挂载的话，只会有一个该结构
+// - refer to: sget() 分配,  mount_bdev() 初始化
 struct super_block {
 	struct list_head	s_list;		/* Keep this first */  // super_block 结构会被挂载到 super_blocks list head 上
 	dev_t			s_dev;		/* search index; _not_ kdev_t */ // 该 fs 所在的块设备
@@ -1472,7 +1478,7 @@ struct super_block {
 	struct block_device	*s_bdev;
 	struct backing_dev_info *s_bdi;
 	struct mtd_info		*s_mtd;
-	struct hlist_node	s_instances;
+	struct hlist_node	s_instances;	// 挂载到 file_system_type 上的
 	unsigned int		s_quota_types;	/* Bitmask of supported quota types */
 	struct quota_info	s_dquot;	/* Diskquota specific options */
 
@@ -2248,7 +2254,7 @@ extern int file_modified(struct file *file);
 int sync_inode(struct inode *inode, struct writeback_control *wbc);
 int sync_inode_metadata(struct inode *inode, int wait);
 
-// 文件系统的注册 %ext2_fs_type
+// 文件系统的注册 %ext4_fs_type
 struct file_system_type {
 	const char *name;
 	int fs_flags;
@@ -2266,7 +2272,7 @@ struct file_system_type {
 	void (*kill_sb) (struct super_block *); // 卸载
 	struct module *owner;
 	struct file_system_type * next;
-	struct hlist_head fs_supers;
+	struct hlist_head fs_supers;	// 挂载的时候会创建 super_block 结构，然后会挂到该结构上。即同类型的 fs 的所有的 super_block 都挂载在这里。但是一个设备如果被挂载多次的话，只会有一个 super_block, refer to: sget()
 
 	struct lock_class_key s_lock_key;
 	struct lock_class_key s_umount_key;

@@ -518,7 +518,7 @@ struct skb_shared_info {
 	unsigned short	gso_size;
 	/* Warning: this field is not always filled in (UFO)! */
 	unsigned short	gso_segs;
-	struct sk_buff	*frag_list; // 基于 skb 组织的 frag 形式
+	struct sk_buff	*frag_list; // 基于 skb 组织的 frag 形式, 在接收方向 gro 会使用的
 	struct skb_shared_hwtstamps hwtstamps;
 	unsigned int	gso_type;
 	u32		tskey;
@@ -533,7 +533,7 @@ struct skb_shared_info {
 	void *		destructor_arg;
 
 	/* must be last field, see pskb_expand_head() */
-	skb_frag_t	frags[MAX_SKB_FRAGS];	// 每个元素是一个 frag
+	skb_frag_t	frags[MAX_SKB_FRAGS];	// 每个元素是一个 frag, 默认情况下一个 frag 的大小是 32KB, refer to: skb_page_frag_refill。在发送方向一般用这个来组织 frag
 };
 
 /* We divide dataref into two halves.  The higher 16 bits hold references

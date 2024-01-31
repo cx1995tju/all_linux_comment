@@ -61,7 +61,7 @@ enum fs_value_type {
  * Configuration parameter.
  */
 struct fs_parameter {
-	const char		*key;		/* Parameter name */
+	const char		*key;		/* Parameter name */	// %source do_new_mount()
 	enum fs_value_type	type:8;		/* The type of value here */
 	union {
 		char		*string;
@@ -88,25 +88,26 @@ struct p_log {
  * See Documentation/filesystems/mount_api.rst
  */
 // 记录了文件系统的一些信息
+// alloc_fs_context()
 struct fs_context {
-	const struct fs_context_operations *ops;
+	const struct fs_context_operations *ops; // %legacy_fs_context_ops
 	struct mutex		uapi_mutex;	/* Userspace access mutex */
 	struct file_system_type	*fs_type; // 文件系统
-	void			*fs_private;	/* The filesystem's context */
+	void			*fs_private;	/* The filesystem's context */	// %legacy_parse_param()
 	void			*sget_key;
-	struct dentry		*root;		/* The root and superblock */
+	struct dentry		*root;		/* The root and superblock */	// 一个 filsesystem 挂载的时候，肯定有一个 root。这样可以通过挂载点的 dentry 索引到这个 root，进而索引到fs的所有文件
 	struct user_namespace	*user_ns;	/* The user namespace for this mount */
 	struct net		*net_ns;	/* The network namespace for this mount */
 	const struct cred	*cred;		/* The mounter's credentials */
 	struct p_log		log;		/* Logging buffer */
-	const char		*source;	/* The source name (eg. dev path) */ // 要挂载的设备路径
+	const char		*source;	/* The source name (eg. dev path) */ // 要挂载的设备路径, vfs_parse_fs_param()
 	void			*security;	/* Linux S&M options */
 	void			*s_fs_info;	/* Proposed s_fs_info */
-	unsigned int		sb_flags;	/* Proposed superblock flags (SB_*) */
+	unsigned int		sb_flags;	/* Proposed superblock flags (SB_*) */	// %SB_RDONLY
 	unsigned int		sb_flags_mask;	/* Superblock flags that were changed */
 	unsigned int		s_iflags;	/* OR'd with sb->s_iflags */
 	unsigned int		lsm_flags;	/* Information flags from the fs to the LSM */
-	enum fs_context_purpose	purpose:8;
+	enum fs_context_purpose	purpose:8;	// %FS_CONTEXT_FOR_MOUNT
 	enum fs_context_phase	phase:8;	/* The phase the context is in */
 	bool			need_free:1;	/* Need to call ops->free() */
 	bool			global:1;	/* Goes into &init_user_ns */

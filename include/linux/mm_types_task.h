@@ -62,7 +62,7 @@ struct mm_rss_stat {
 };
 
 struct page_frag {
-	struct page *page;
+	struct page *page; // 默认情况下这里的 page 是 32KB 大小的, refer to: %skb_page_frag_refill()
 #if (BITS_PER_LONG > 32) || (PAGE_SIZE >= 65536)
 	__u32 offset;
 	__u32 size;

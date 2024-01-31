@@ -1163,6 +1163,8 @@ struct file *file_open_root(struct dentry *dentry, struct vfsmount *mnt,
 }
 EXPORT_SYMBOL(file_open_root);
 
+/* dfd: directory fd
+ */
 static long do_sys_openat2(int dfd, const char __user *filename,
 			   struct open_how *how)
 {
@@ -1179,7 +1181,7 @@ static long do_sys_openat2(int dfd, const char __user *filename,
 
 	fd = get_unused_fd_flags(how->flags);
 	if (fd >= 0) {
-		struct file *f = do_filp_open(dfd, tmp, &op); // 到底层文件系统区处理咯
+		struct file *f = do_filp_open(dfd, tmp, &op); // 去底层文件系统处理咯
 		if (IS_ERR(f)) {
 			put_unused_fd(fd);
 			fd = PTR_ERR(f);

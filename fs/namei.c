@@ -500,11 +500,12 @@ void path_put(const struct path *path)
 EXPORT_SYMBOL(path_put);
 
 #define EMBEDDED_LEVELS 2
-struct nameidata {
+// do_filp_open -> path_init()
+struct nameidata {	// 临时存一些东西???
 	struct path	path;
 	struct qstr	last;
 	struct path	root;
-	struct inode	*inode; /* path.dentry.d_inode */	/* HERE IT IS */
+	struct inode	*inode; /* path.dentry.d_inode parent directory inode */	/* HERE IT IS */
 	unsigned int	flags;
 	unsigned	seq, m_seq, r_seq;
 	int		last_type;
@@ -516,10 +517,10 @@ struct nameidata {
 		const char *name;
 		unsigned seq;
 	} *stack, internal[EMBEDDED_LEVELS];
-	struct filename	*name;
+	struct filename	*name;	// 文件路径名
 	struct nameidata *saved;
 	unsigned	root_seq;
-	int		dfd;
+	int		dfd; // AT_FDCWD, directory fd?
 	kuid_t		dir_uid;
 	umode_t		dir_mode;
 } __randomize_layout;
@@ -2259,7 +2260,7 @@ static const char *path_init(struct nameidata *nd, unsigned flags)
 	}
 
 	/* Relative pathname -- get the starting-point it is relative to. */
-	if (nd->dfd == AT_FDCWD) {
+	if (nd->dfd == AT_FDCWD) {		// 常态
 		if (flags & LOOKUP_RCU) {
 			struct fs_struct *fs = current->fs;
 			unsigned seq;
@@ -2267,7 +2268,7 @@ static const char *path_init(struct nameidata *nd, unsigned flags)
 			do {
 				seq = read_seqcount_begin(&fs->seq);
 				nd->path = fs->pwd;
-				nd->inode = nd->path.dentry->d_inode;
+				nd->inode = nd->path.dentry->d_inode;	// current working directory
 				nd->seq = __read_seqcount_begin(&nd->path.dentry->d_seq);
 			} while (read_seqcount_retry(&fs->seq, seq));
 		} else {
@@ -3218,7 +3219,9 @@ finish_lookup:
 /*
  * Handle the last step of open()
  *
- * 核心就是 填充 file 结构
+ * 核心就是根据 nd 中的信息来填充 file 结构
+ *
+ * nameidata 保存了路径信息，包括 parent directory 信息
  */
 static int do_open(struct nameidata *nd,
 		   struct file *file, const struct open_flags *op)
@@ -3375,12 +3378,12 @@ static struct file *path_openat(struct nameidata *nd,
 	} else if (unlikely(file->f_flags & O_PATH)) {
 		error = do_o_path(nd, flags, file);
 	} else {
-		const char *s = path_init(nd, flags);
+		const char *s = path_init(nd, flags);		// __HERE__, 填充 nd 结构
 		while (!(error = link_path_walk(s, nd)) &&
 		       (s = open_last_lookups(nd, file, op)) != NULL)
 			;
 		if (!error)
-			error = do_open(nd, file, op);
+			error = do_open(nd, file, op);	// __HERE__
 		terminate_walk(nd);
 	}
 	if (likely(!error)) {
@@ -3399,6 +3402,7 @@ static struct file *path_openat(struct nameidata *nd,
 	return ERR_PTR(error);
 }
 
+// @dfd: AT_FDCWD
 struct file *do_filp_open(int dfd, struct filename *pathname,
 		const struct open_flags *op)
 {
@@ -3406,7 +3410,7 @@ struct file *do_filp_open(int dfd, struct filename *pathname,
 	int flags = op->lookup_flags;
 	struct file *filp;
 
-	set_nameidata(&nd, dfd, pathname);
+	set_nameidata(&nd, dfd, pathname); // HERE
 
 	/* Calling path_openat() 3 times
 	 *
