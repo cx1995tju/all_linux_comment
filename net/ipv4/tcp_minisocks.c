@@ -250,6 +250,7 @@ EXPORT_SYMBOL(tcp_timewait_state_process);
 /*
  * Move a socket to time-wait or dead fin-wait-2 state.
  */
+// 断开连接时的各种异常状态的处理都是通过这个 timer 处理
 void tcp_time_wait(struct sock *sk, int state, int timeo)
 {
 	const struct inet_connection_sock *icsk = inet_csk(sk);

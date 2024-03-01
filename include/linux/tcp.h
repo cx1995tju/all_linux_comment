@@ -261,7 +261,7 @@ struct tcp_sock {
 
 /* RTT measurement */
 	u64	tcp_mstamp;	/* most recent packet received/sent */
-	u32	srtt_us;	/* smoothed round trip time << 3 in usecs  */ // 采样的 rtt 值
+	u32	srtt_us;	/* smoothed round trip time << 3 in usecs  */ // 采样的 rtt 值 向左移动了 3b。向右移动 3b才是 us
 	u32	mdev_us;	/* medium deviation	rtt 的平均偏差 */
 	u32	mdev_max_us;	/* maximal mdev for the last rtt period rtt 测量过程中的最大 mdev */
 	u32	rttvar_us;	/* smoothed mdev_max			*/

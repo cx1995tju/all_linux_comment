@@ -6677,7 +6677,7 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			 */
 			inet_csk_reset_keepalive_timer(sk, tmo);
 		} else {
-			tcp_time_wait(sk, TCP_FIN_WAIT2, tmo);
+			tcp_time_wait(sk, TCP_FIN_WAIT2, tmo); // FIN_WAIT_1 状态下会等这么久时间
 			goto discard;
 		}
 		break;

@@ -3442,8 +3442,8 @@ void tcp_get_info(struct sock *sk, struct tcp_info *info)
 
 	info->tcpi_pmtu = icsk->icsk_pmtu_cookie;
 	info->tcpi_rcv_ssthresh = tp->rcv_ssthresh;
-	info->tcpi_rtt = tp->srtt_us >> 3;
-	info->tcpi_rttvar = tp->mdev_us >> 2;
+	info->tcpi_rtt = tp->srtt_us >> 3;	// tcp_sock 结构中存储这个值的时候，向左移动了 3b, 所以这里移动回来
+	info->tcpi_rttvar = tp->mdev_us >> 2;	// 可以看 标准方法(RFC: 6298)中 rto 的计算，是将 mdev_us * 4 的
 	info->tcpi_snd_ssthresh = tp->snd_ssthresh;
 	info->tcpi_advmss = tp->advmss;
 

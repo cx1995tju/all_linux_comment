@@ -246,7 +246,7 @@ void __inet_twsk_schedule(struct inet_timewait_sock *tw, int timeo, bool rearm)
 
 	tw->tw_kill = timeo <= 4*HZ;
 	if (!rearm) {
-		BUG_ON(mod_timer(&tw->tw_timer, jiffies + timeo));
+		BUG_ON(mod_timer(&tw->tw_timer, jiffies + timeo)); // timewait timer, 2MSL timer
 		atomic_inc(&tw->tw_dr->tw_count);
 	} else {
 		mod_timer_pending(&tw->tw_timer, jiffies + timeo);
