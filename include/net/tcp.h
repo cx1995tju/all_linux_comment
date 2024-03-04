@@ -1073,9 +1073,9 @@ struct tcp_congestion_ops {
 	void (*release)(struct sock *sk);
 
 	/* return slow start threshold (required) */
-	u32 (*ssthresh)(struct sock *sk);
+	u32 (*ssthresh)(struct sock *sk); // 快速重传的时候，prr 算法也会调用这个的。获得 ssthresh，prr 算法确保快速恢复结束的时候，cwnd 就是这个值
 	/* do new cwnd calculation (required) */
-	void (*cong_avoid)(struct sock *sk, u32 ack, u32 acked);
+	void (*cong_avoid)(struct sock *sk, u32 ack, u32 acked); // 拥塞避免算法
 	/* call before changing ca_state (optional) */
 	void (*set_state)(struct sock *sk, u8 new_state);
 	/* call when cwnd event occurs (optional) */

@@ -158,9 +158,9 @@ void tcp_rack_reo_timeout(struct sock *sk)
 	u32 timeout, prior_inflight;
 
 	prior_inflight = tcp_packets_in_flight(tp);
-	tcp_rack_detect_loss(sk, &timeout); // 在尝试标记一下
-	if (prior_inflight != tcp_packets_in_flight(tp)) {
-		if (inet_csk(sk)->icsk_ca_state != TCP_CA_Recovery) {
+	tcp_rack_detect_loss(sk, &timeout); // 再尝试标记一下
+	if (prior_inflight != tcp_packets_in_flight(tp)) { // 不等，说明标记了一些 loss 的报文
+		if (inet_csk(sk)->icsk_ca_state != TCP_CA_Recovery) { // 所以要进入 快速恢复 阶段，运行 prr 算法
 			tcp_enter_recovery(sk, false);
 			if (!inet_csk(sk)->icsk_ca_ops->cong_control)
 				tcp_cwnd_reduction(sk, 1, 0);

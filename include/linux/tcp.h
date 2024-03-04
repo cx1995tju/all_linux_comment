@@ -290,14 +290,14 @@ struct tcp_sock {
  */
  	u32	snd_ssthresh;	/* Slow start size threshold		*/ // 初始值: TCP_INFINITE_SSTHRESH, 当然如果 ip 层有记录下之前的度量值的话，可能就用路由表中的值。这样在连接建立的时候可能直接进入拥塞避免阶段
  	u32	snd_cwnd;	/* Sending congestion window		*/ // 初始值: TCP_INIT_CWND 
-	u32	snd_cwnd_cnt;	/* Linear increase counter		*/ // 在拥塞避免阶段，每收到一个 ack 将 snd_cwnd_cnt++, 当 snd_cwnd_cnt >= cwnd 的时候，cwnd++，进而实现拥塞避免阶段的线性增长
+	u32	snd_cwnd_cnt;	/* Linear increase counter		*/ // 在拥塞避免阶段，每收到一个 ack 将 snd_cwnd_cnt++, 当 snd_cwnd_cnt >= cwnd 的时候，cwnd++，进而实现拥塞避免阶段的线性增长。用来实现线性增长的，即每个 ack 不能将 cwnd++。而是先将 snd_cwnd_cnt++，当前超过 cwnd 的时候，表示应该经过了 一个 RTT 了，cwnd 可以 ++ 了
 	u32	snd_cwnd_clamp; /* Do not allow snd_cwnd to grow above this */
 	u32	snd_cwnd_used;
 	u32	snd_cwnd_stamp;
-	u32	prior_cwnd;	/* cwnd right before starting loss recovery , 拥塞发生的时候，用来记录之前的 cwnd */
-	u32	prr_delivered;	/* Number of newly delivered packets to // 在 prr 阶段发出的新报文，且被 ack 了的数目
+	u32	prior_cwnd;	/* cwnd right before starting loss recovery , 拥塞发生(快速重传或者超时重传)的时候，用来记录之前的 cwnd */
+	u32	prr_delivered;	/* Number of newly delivered packets to // 在 prr 阶段收到的 ack 报文中被 确认的数据量, 即表示在此期间离开链路的数据包
 				 * receiver in Recovery. */
-	u32	prr_out;	/* Total number of pkts sent during Recovery. 刚进入 recovery 阶段的时候设置为0，tcp_init_cwnd_reduction */	 // prr 阶段发送出去的总报文数目
+	u32	prr_out;	/* Total number of pkts sent during Recovery. 刚进入 recovery 阶段的时候设置为0，tcp_init_cwnd_reduction */	 // prr 阶段发送出去的总报文数目, 即表示在此期间送入链路的数据包
 	u32	delivered;	/* Total data packets delivered incl. rexmits */ // 总投递数目, refer to:  tcp_count_delivered(), 应该是被 ack 以及 sack 的数据包的总数
 	u32	delivered_ce;	/* Like the above but only ECE marked packets */ 
 	u32	lost;		/* Total data packets lost incl. rexmits */	// 总的丢包数目，重传包丢了话，也要++的, refer to: %tcp_mark_skb_lost()

@@ -2736,33 +2736,54 @@ static void tcp_init_cwnd_reduction(struct sock *sk)
 /* 	- 但是最大塞入的量不能超过 `ssthresh - in-flight` */
 /* 	- 所以 cwnd 最大可以设置为 $in-flight + ssthresh - in-flight$ */
 
+// 这里的乘法系数是多少呢？ 具体的拥塞控制算法决定，refer to: tcp_init_cwnd_reduction
+//
+/* @newly_acked_sacked: 正在处理的 ack 包，确认了(acked / sacked)多少数据
+ *
+ * */
 void tcp_cwnd_reduction(struct sock *sk, int newly_acked_sacked, int flag)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	int sndcnt = 0; // 用于快速恢复阶段临时扩大窗口
+	int sndcnt = 0; // 即当前的 ack 报文可以让 cwnd 临时增大多少？用于快速恢复阶段临时扩大窗口, 即 snd_cwnd = in-flight + sndcnt。
 	int delta = tp->snd_ssthresh - tcp_packets_in_flight(tp);	// refer to: tcp_init_cwnd_reduction(), 分情况做不同处理, snd_ssthresh 是在里面更新的, 快速恢复结束时，cwnd 应该平稳的到达 ssthresh 这个值
 
 	// 这个ack没有确认任何包，prr 也不运行
-	if (newly_acked_sacked <= 0 || WARN_ON_ONCE(!tp->prior_cwnd)) // 拥塞发生时的 prior_cwnd 已经是0了，现在没有办法减少了
+	// 或者 拥塞发生时的 prior_cwnd 已经是0了，现在没有办法减少了
+	if (newly_acked_sacked <= 0 || WARN_ON_ONCE(!tp->prior_cwnd))
 		return;
 
 	tp->prr_delivered += newly_acked_sacked;
 	if (delta < 0) { // ssthresh < in-flight, 在外的数据太多了，要按照比例来减小 cwnd 了。另外这时候也说明，在外的数据包够多，链路带宽是得到了充分利用的。链路上的心跳也是够的。
+		/*
+		 * sndcnt = [snd_ssthresh * prr_delivered / prior_cwnd] - prr_out
+		 * prr_out = [snd_ssthresh * (prr_delivered - newly_acked_sacked) / prior_cwnd] // prr_out 就是之前的 sndcnt 的总和
+		 * sndcnt - prr_out = [snd_ssthresh * newly_acked_sacked / prior_cwnd]
+		 *                  = (1 - \beta) * newly_acked_sacked
+		 *                  snd_ssthresh / prior_cwnd 就是乘法减少系数 (1 - \beta)
+		 *
+		 *                  注意后续 snd_cwnd = in_flight + sndcnt, 由于当前这个 ack 包确认了 newly_acked_sacked 个数据，即 in_flight 减少了 newly_acked_sacked， snd_cwnd 就是减少了:
+		 *                  -newly_acked_sacked + sndcnt = \beta * newly_acked_sacked
+		 *
+		 * prr 的目标就是, 在 prior_cwnd 里未确认的数据都被确认的时候，能够将 cwnd 减少到 snd_ssthresh, 所以每个 prior_cwnd 里的数据被确认的时候，就应该将 snd_cwnd 减少 \beta
+		 */
 		u64 dividend = (u64)tp->snd_ssthresh * tp->prr_delivered +
 			       tp->prior_cwnd - 1;	// 注意这里的 tp->prior_cwnd - 1 结合上下面的除以 tp->prior_cwnd，本质就是对于 (tp—>snd_ssthresh * tp->pr_delievered) / tp->prior_cwnd 向上取整
 		sndcnt = div_u64(dividend, tp->prior_cwnd) - tp->prr_out;	// prr_out 是在快速恢复阶段已经发出去的数量, (tp—>snd_ssthresh * tp->pr_delievered) / tp->prior_cwnd 表示prr允许发送的数量, 做差就是对 cwnd 的更新
 										// 通过这里的 sndcnt 慢慢调整，当超过 recovery point 后 cwnd 也会恢复到预期的 ssthresh 值的
-	} else if ((flag & (FLAG_RETRANS_DATA_ACKED | FLAG_LOST_RETRANS)) ==	// 重传的数据被 ack 了, 另外没有发现重传报文丢失了。说明至少收到了 partial ack
-		   FLAG_RETRANS_DATA_ACKED) {
-		sndcnt = min_t(int, delta,
-			       max_t(int, tp->prr_delivered - tp->prr_out,
+	} else if ((flag & (FLAG_RETRANS_DATA_ACKED | FLAG_LOST_RETRANS)) ==	// 重传的数据被 ack 了, 另外没有发现重传报文丢失了。说明当前正在处理的这个 ack 是一个 partial ack, 如果超过了恢复点的话，也不会进入这里的
+		   FLAG_RETRANS_DATA_ACKED) { // 进入这里是 delta > 0, 说明链路上的数据不足了，需要快点向链路填充数据。
+					      // deliverd 表示从链路中出去的报文，out 表示送入链路的报文。相减表示链路腾出的空间，根据数据包守恒原理，可以送这么多进去。另外考虑已经收到了 partial ack 了，需要尽快恢复，所以在此基础上 在加 1.
+					      // 另外至少会让 cwnd 增长 1(即 sndcnt 至少是 newly_acked_sacked + 1)。但是也不能超过 delta。
+		sndcnt = min_t(int, delta, max_t(int, tp->prr_delivered - tp->prr_out,
 				     newly_acked_sacked) + 1);
 	} else { // in-flight <= ssthresh, 此时遵循数据包守恒原理，ack 了几个包，我们的 sndcnt 就增大多少。当然最大不能超过 ssthresh，因为 ssthresh 是我们对链路容量的评估
 		sndcnt = min(delta, newly_acked_sacked);
 	}
 	/* Force a fast retransmit upon entering fast recovery */
 	sndcnt = max(sndcnt, (tp->prr_out ? 0 : 1)); // prr_out 为0时，表示时刚发生多次 dupack, 刚进入 recovery 状态，所以要强制做一次快速重传，即一定要 cwnd 比 in-flight 大一点
-	tp->snd_cwnd = tcp_packets_in_flight(tp) + sndcnt; // 这么设置拥塞窗口，就可以确保接下来还能发送 sndcnt 的数据
+	// cwnd 的减少不是通过 sndcnt 变成负数来实现的。而是 sndcnt 设置为 0 来实现的。即收到一个 ack 的时候，in_flight 就会减减，这时候自然就缩小了 cwnd 的
+	// XXX: 由于被确认了 newly_acked_sacked 个数据，所以这里的 in_flight 是减少了 newly_acked_sacked 这个多数据的。只要 sndcnt 小于 newly_acked_sacked，这里的 cwnd 就是减少的
+	tp->snd_cwnd = tcp_packets_in_flight(tp) + sndcnt; // 这么设置拥塞窗口，就可以确保接下来还能发送 sndcnt 的数据, cwnd 不能小于 sndcnt 的
 }
 
 static inline void tcp_end_cwnd_reduction(struct sock *sk)
@@ -3593,10 +3614,10 @@ static void tcp_cong_control(struct sock *sk, u32 ack, u32 acked_sacked,
 		return;
 	}
 
-	if (tcp_in_cwnd_reduction(sk)) {
+	if (tcp_in_cwnd_reduction(sk)) { // 说明是在 快速恢复阶段，需要运行 prr 算法，缓慢减少 cwnd
 		/* Reduce cwnd if state mandates */
 		tcp_cwnd_reduction(sk, acked_sacked, flag); // 快速恢复算法入口, 更新 cwnd
-	} else if (tcp_may_raise_cwnd(sk, flag)) { // 这一次的数据包可以触发 cwnd 的增长
+	} else if (tcp_may_raise_cwnd(sk, flag)) { // 这一次的数据包可以触发 cwnd 的增长, 那么就是慢启动或者拥塞避免阶段
 		/* Advance cwnd if state allows */
 		tcp_cong_avoid(sk, ack, acked_sacked); // 拥塞避免或者慢启动入口
 	}

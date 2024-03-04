@@ -46,8 +46,9 @@
 
 static int fast_convergence __read_mostly = 1;
 static int beta __read_mostly = 717;	/* = 717/1024 (BICTCP_BETA_SCALE) */
+// 注意此处的 beta 和 cubic 原始论文里的 beta 是不一样的，那个 \beta = 1 - (beta / 1024)
 static int initial_ssthresh __read_mostly;
-static int bic_scale __read_mostly = 41;
+static int bic_scale __read_mostly = 41; // 和 cubic 论文里的 C 有关
 static int tcp_friendliness __read_mostly = 1;
 
 static int hystart __read_mostly = 1;
@@ -81,18 +82,22 @@ module_param(hystart_ack_delta_us, int, 0644);
 MODULE_PARM_DESC(hystart_ack_delta_us, "spacing between ack's indicating train (usecs)");
 
 /* BIC TCP Parameters */
+// cubic 函数: W(t) = C(t-K)^3 + W_{max}
+// - t 的单位是s
+// - 这个三次函数的中心对称点是 (K, W_{max})			// 即时间 K 的时候会 cwnd 会增长到 W_{max}
 struct bictcp {
-	u32	cnt;		/* increase cwnd by 1 after ACKs */
+	// CUBIC 计算出 目标的 W(t) 后，会在一个 RTT 内增长到 W(t) 的, 即按照 cnt 来增长
+	u32	cnt;		/* increase cwnd by 1 after ACKs */ // 每收到一个 ack 需要增加多少 cwnd, 表示 百分比。需要增加的量是 1 / cnt。即每被 ack 了cnt 的数据，cwnd 就增长1.
 	u32	last_max_cwnd;	/* last maximum snd_cwnd */
 	u32	last_cwnd;	/* the last snd_cwnd */
 	u32	last_time;	/* time when updated last_cwnd */
-	u32	bic_origin_point;/* origin point of bic function */
-	u32	bic_K;		/* time to origin point
+	u32	bic_origin_point;/* origin point of bic function */	// 就是 W_{max}
+	u32	bic_K;		/* time to origin point			// 就是 K
 				   from the beginning of the current epoch */
 	u32	delay_min;	/* min delay (usec) */
 	u32	epoch_start;	/* beginning of an epoch */
 	u32	ack_cnt;	/* number of acks */
-	u32	tcp_cwnd;	/* estimated tcp cwnd */
+	u32	tcp_cwnd;	/* estimated tcp cwnd */ // 评估的标准 tcp 的窗口
 	u16	unused;
 	u8	sample_cnt;	/* number of samples to decide curr_rtt */
 	u8	found;		/* the exit point is found? */
@@ -217,19 +222,79 @@ static u32 cubic_root(u64 a)
 
 /*
  * Compute congestion window to use.
+ *
+ * W(T) = C(T-K)^3 + W_{max}
+ *
+ * @cwnd: 当前 tcp_sock 中记录的 cwnd，也就是需要更新的 cwnd
+ * @acked: 当前正在处理的这个 ack 报文 ack/sack 了多少数据
+ *
+ * 关于 cubic 窗口增长函数的说明:
+ *
+ * # 原始定义
+ *  - W(T) = C(T - K)^3 + W_{max}
+ *       - T:          是真实物理时间，单位是 s
+ *       - W_{max}:    是发生快速重传前的 cwnd 值
+ *       - C:          是常数, 默认 0.4
+ *       - \beta:      是乘性减少因子，即发生快速重传的时候，cwnd 应该更新为之前的 (1 - \beta)W_{max}		__重点__
+ *		- 此处记做 W_{min}
+ *       - K = sqrt[3]{\beta * W_{max} / C}
+ *          - 该函数起点为 (0, (1-\beta)W_{max})
+ *          - 中心对称点为 (K, W_{max})
+ *          - 注意：K 表示的是从开始 cubic 算法到 cwnd 到达 W_{max} 的时间，即之前的 max cwnd。而 cwnd 表示了 bdp。所以 bdp 越大，K 越大。那么一旦发生重传想要重新到达 W_{max} 的时间就越久。
+ *
+ *
+ * # 注意，当快速恢复结束的时候，第一次进入该函数，执行拥塞避免的时候, 传入的 cwnd 就是运行 prr 算法得到的 cwnd 其值就应该是 (1 - \beta) W_{max}, 将其记做 W_{min}
+ *
+ *
+ * # 在此基础上考虑该函数的计算:
+ * - cube_factor = 2^40 / 410 // 决定了 C
+ * - bic_K = sqrt[3]{ cube_factor * (W_{max} - W_{min}) }
+ * - bic_t = T * 1024					// 即真实的物理时间(T s) * 1024
+ * - delta = (410 * (bic_t - bic_K)^3) / 2^40
+ *   
+ * - bic_target = delta + W_{max}			// 就是 W(T) , 注意，代码里做了正负的处理
+ *
+ * W(T) = bic_target
+ *      = delta + W_{max}
+ *      = ((410 * (bic_t - bic_K)^3) / 2^40) + W_{max}
+ *      = ((410 * (1024 * T - bic_K)^3) / 2^40) + W_{max}
+ *      = (sqrt[3]{410 / 1024} * T - sqrt[3]{W_{max} - W_{min}})^3 + W_{max}
+ *      ~= (0.737 T - sqrt[3]{W_{max} - (1-\beta)W_{max}})^3 + W_{max}
+ *      = (0.737T - sqrt[3]{\beta * W_{max}}) + W_{max}
+ *      = 0.4(T - sqrt[3]{\beta * W{max} / 0.4)
+ *      = C(T - sqrt[3]{\beta * W{max} / C)			// 令 C = 0.4
+ *      = W(T)							// W(t) 的原始定义
+ *
+ * 故 K 也可以写作 sqrt[3]{(W_{max} - W_{min}) / C} = sqrt[3]{(last_cwnd - cwnd) / C}
+ *
  */
-static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked)
+
+/* 第一次进入这里的时候，是 prr 算法结束，已经完成 快速恢复了
+ *     - 理解这里的 cwnd 就是 (1 - \beta) W_{max}
+ *
+ * - C = 0.4 = 410 / 1024
+ * - K = sqrt[3]((last_cwnd - cwnd) / 0.4) = sqrt[3](\beta * last_cwnd)	// 而 \beta 具体是多少，则是取决于 prr 算法在快速恢复结束后，将 cwnd 减少了多少, refer to: tcp_init_cwnd_reduction() 里 ssthresh 的更新, prr 结束的时候，cwnd 会到达 ssthresh 了
+ *
+ * tcp_init_cwnd_reduction() 又调用的是 bictcp_recalc_ssthresh, 可以看到 \beta 是 1 - 717 / 1024 = 0.3
+ *
+ * 综上：linux 默认情况下
+ *
+ * 
+ * W(T) = C(T-K)^3 + W_{max} = 0.4(T - sqrt[3]{0.3 * W_{max} / 0.4})^3 + W_{max}
+ */
+
+static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked) // __极其重要__
 {
 	u32 delta, bic_target, max_cnt;
 	u64 offs, t;
 
 	ca->ack_cnt += acked;	/* count the number of ACKed packets */
 
-	if (ca->last_cwnd == cwnd &&
-	    (s32)(tcp_jiffies32 - ca->last_time) <= HZ / 32)
+	if (ca->last_cwnd == cwnd && // 收到的 ack 都还没有让 cwnd 增长1
+	    (s32)(tcp_jiffies32 - ca->last_time) <= HZ / 32) // 距离上一次更新小于 1/32s(31ms), 且 cwnd 没有变化
 		return;
 
-	/* The CUBIC function can update ca->cnt at most once per jiffy.
+	/* The CUBIC function can update ca->cnt at most once per jiffy.	// 一个 jiffies 最多更新一次
 	 * On all cwnd reduction events, ca->epoch_start is set to 0,
 	 * which will force a recalculation of ca->cnt.
 	 */
@@ -239,20 +304,24 @@ static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked)
 	ca->last_cwnd = cwnd;
 	ca->last_time = tcp_jiffies32;
 
-	if (ca->epoch_start == 0) {
+	if (ca->epoch_start == 0) { // 经历了一次 窗口减小事件后，第一次进入 拥塞避免。即 prr 算法刚结束，完成快速恢复
 		ca->epoch_start = tcp_jiffies32;	/* record beginning */
 		ca->ack_cnt = acked;			/* start counting */
-		ca->tcp_cwnd = cwnd;			/* syn with cubic */
+		ca->tcp_cwnd = cwnd;			/* syn with cubic */ // 这里的 cwnd 应该是 prr 算法结束时更新的，应该就是 ssthresh
 
 		if (ca->last_max_cwnd <= cwnd) {
 			ca->bic_K = 0;
-			ca->bic_origin_point = cwnd;
-		} else {
+			ca->bic_origin_point = cwnd; // 原点，即 W_{max}, 这种情况下，直接将 cwnd 作为 W_{max} 进入窗口探测阶段
+		} else { // 常态是这里
 			/* Compute new K based on
 			 * (wmax-cwnd) * (srtt>>3 / HZ) / c * 2^(3*bictcp_HZ)
+			 *
+			 *
+			 * - K 值表示 三次曲线的起点 W(0) 增长到 W_{max} 需要的时间
+			 * - K 值需要根据第一次进入 cubic 时的 cwnd 来计算。这个 cwnd 是 prr 算法结束时更新的。
 			 */
 			ca->bic_K = cubic_root(cube_factor
-					       * (ca->last_max_cwnd - cwnd));
+					       * (ca->last_max_cwnd - cwnd)); // 计算 K 值
 			ca->bic_origin_point = ca->last_max_cwnd;
 		}
 	}
@@ -264,7 +333,7 @@ static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked)
 	 * and without the support of division of 64bit numbers
 	 * (so all divisions are done by using 32 bit)
 	 *  also NOTE the unit of those veriables
-	 *	  time  = (t - K) / 2^bictcp_HZ
+	 *	  time  = (t - K) / 2^bictcp_HZ				// 这里的 除法是为了防止溢出 // W(t) = C(t-K)^3 + W_{max}
 	 *	  c = bic_scale >> 10
 	 * rtt  = (srtt >> 3) / HZ
 	 * !!! The following code does not have overflow problems,
@@ -275,7 +344,7 @@ static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked)
 	t += usecs_to_jiffies(ca->delay_min);
 	/* change the unit from HZ to bictcp_HZ */
 	t <<= BICTCP_HZ;
-	do_div(t, HZ);
+	do_div(t, HZ); // t 表示的是 HZ 数目，不过将 t 从 HZ 转换为了 bictcp_HZ (1/1024 s), 这里的 t 的值 = 物理时间(s) * 1024
 
 	if (t < ca->bic_K)		/* t - K */
 		offs = ca->bic_K - t;
@@ -283,17 +352,23 @@ static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked)
 		offs = t - ca->bic_K;
 
 	/* c/rtt * (t-K)^3 */
-	delta = (cube_rtt_scale * offs * offs * offs) >> (10+3*BICTCP_HZ);
+	// W(t) = C(t-K)^3 + W_{max}
+	delta = (cube_rtt_scale * offs * offs * offs) >> (10+3*BICTCP_HZ);	// 这里修正为正数了
 	if (t < ca->bic_K)                            /* below origin*/
-		bic_target = ca->bic_origin_point - delta;
+		bic_target = ca->bic_origin_point - delta;			// bic_target 就是 W(t)
 	else                                          /* above origin*/
 		bic_target = ca->bic_origin_point + delta;
 
+	/* bic_target 就是 W(t), 得到了 W(t) 就是希望在当前的 cwnd 内的报文都接收到的时候，cwnd 可以增长到 bic_target
+	 * 所以需要计算每被 ack 一个 seg 的时候，cwnd 能够增长多少。
+	 *
+	 * 每收一个 ack cwnd 应该增长 (bic_target - cwnd) / cwnd 即  (1 / ca->cnt)
+	 * */
 	/* cubic function - calc bictcp_cnt*/
 	if (bic_target > cwnd) {
-		ca->cnt = cwnd / (bic_target - cwnd);
+		ca->cnt = cwnd / (bic_target - cwnd);			// 这里是关键，ca->cnt 就是后续用来计算 cwnd 的关键
 	} else {
-		ca->cnt = 100 * cwnd;              /* very small increment*/
+		ca->cnt = 100 * cwnd;              /* very small increment*/	// 表示每个 ack 增加 1 / (100 * cwnd)。即每 ack 一个 cwnd 的数据量会增长 1%。因为此时 cwnd 已经超过了 cubic 的target 了，保持最小的增长来探测链路
 	}
 
 	/*
@@ -303,18 +378,18 @@ static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked)
 	if (ca->last_max_cwnd == 0 && ca->cnt > 20)
 		ca->cnt = 20;	/* increase cwnd 5% per RTT */
 
-tcp_friendliness:
+tcp_friendliness: // 按照 标准 tcp 的方式来计算 cwnd, 如果窗口特别小的话，CUBIC 相对于 标准tcp 性能太差，这里要修正
 	/* TCP Friendly */
 	if (tcp_friendliness) {
 		u32 scale = beta_scale;
 
-		delta = (cwnd * scale) >> 3;
-		while (ca->ack_cnt > delta) {		/* update tcp cwnd */
+		delta = (cwnd * scale) >> 3; // 窗口太小的时候，cubic 相对于标准 tcp 比较吃亏，所以要修正
+		while (ca->ack_cnt > delta) {		/* update tcp cwnd */ // 计算出一个 tcp_cwnd 来表示标准 tcp 的 cwnd
 			ca->ack_cnt -= delta;
 			ca->tcp_cwnd++;
 		}
 
-		if (ca->tcp_cwnd > cwnd) {	/* if bic is slower than tcp */
+		if (ca->tcp_cwnd > cwnd) {	/* if bic is slower than tcp */ // 那就用 标准 tcp 的方式来修正
 			delta = ca->tcp_cwnd - cwnd;
 			max_cnt = cwnd / delta;
 			if (ca->cnt > max_cnt)
@@ -328,6 +403,12 @@ tcp_friendliness:
 	ca->cnt = max(ca->cnt, 2U);
 }
 
+/* @acked: 这一次收到的 ack 报文，acked 或 sacked 的数目
+ * @ack: 这个报文 ack 的序号
+ * */
+
+// 执行时机: cwnd > ssthresh
+//一旦发生重传，那么 CUBIC 算法立即结束，执行 prr 算法/或 slowstart。当复 cwnd > ssthresh 后又会开始 cubic
 static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -340,11 +421,11 @@ static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		if (hystart && after(ack, ca->end_seq))
 			bictcp_hystart_reset(sk);
 		acked = tcp_slow_start(tp, acked);
-		if (!acked)
+		if (!acked) // 如果是完全在慢启动阶段，这里返回值是0，就直接退出了
 			return;
 	}
 	bictcp_update(ca, tp->snd_cwnd, acked);
-	tcp_cong_avoid_ai(tp, ca->cnt, acked);
+	tcp_cong_avoid_ai(tp, ca->cnt, acked); // 利用 ca->cnt, acked 来更新 cwnd
 }
 
 static u32 bictcp_recalc_ssthresh(struct sock *sk)
@@ -520,7 +601,7 @@ static int __init cubictcp_register(void)
 	/* 1/c * 2^2*bictcp_HZ * srtt */
 	cube_factor = 1ull << (10+3*BICTCP_HZ); /* 2^40 */
 
-	/* divide by bic_scale and by constant Srtt (100ms) */
+	/* divide by bic_scale and by constant Srtt (100ms) */ // (1/10 s)
 	do_div(cube_factor, bic_scale * 10);
 
 	return tcp_register_congestion_control(&cubictcp);
