@@ -94,15 +94,15 @@ struct bictcp {
 	u32	bic_origin_point;/* origin point of bic function */	// 就是 W_{max}
 	u32	bic_K;		/* time to origin point			// 就是 K
 				   from the beginning of the current epoch */
-	u32	delay_min;	/* min delay (usec) */
+	u32	delay_min;	/* min delay (usec) */	// 最小的 RTT 采样值
 	u32	epoch_start;	/* beginning of an epoch */
 	u32	ack_cnt;	/* number of acks */
 	u32	tcp_cwnd;	/* estimated tcp cwnd */ // 评估的标准 tcp 的窗口
 	u16	unused;
-	u8	sample_cnt;	/* number of samples to decide curr_rtt */
-	u8	found;		/* the exit point is found? */
-	u32	round_start;	/* beginning of each round */
-	u32	end_seq;	/* end_seq of the round */
+	u8	sample_cnt;	/* number of samples to decide curr_rtt */ // 用于采样 RTT 的样本数量
+	u8	found;		/* the exit point is found? */ // 即 hystart 的 safe exit point，即找到了一个合适的 ssthresh 了
+	u32	round_start;	/* beginning of each round */ // 一个 rtt round 的开始
+	u32	end_seq;	/* end_seq of the round */	// 一个 rtt round 结束时的 seq
 	u32	last_ack;	/* last time when the ACK spacing is close */
 	u32	curr_rtt;	/* the minimum rtt of current round */
 };
@@ -127,6 +127,7 @@ static inline u32 bictcp_clock_us(const struct sock *sk)
 	return tcp_sk(sk)->tcp_mstamp;
 }
 
+// 每个 rtt round 开始的时候会执行的
 static inline void bictcp_hystart_reset(struct sock *sk)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -409,6 +410,8 @@ tcp_friendliness: // 按照 标准 tcp 的方式来计算 cwnd, 如果窗口特�
 
 // 执行时机: cwnd > ssthresh
 //一旦发生重传，那么 CUBIC 算法立即结束，执行 prr 算法/或 slowstart。当复 cwnd > ssthresh 后又会开始 cubic
+// 
+// 注意：这个函数比仅仅实现了拥塞避免，也实现了 hystart 的 slow start 算法
 static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -473,30 +476,31 @@ static u32 hystart_ack_delay(struct sock *sk)
 		     div64_ul((u64)GSO_MAX_SIZE * 4 * USEC_PER_SEC, rate));
 }
 
+// hystart 算法仅仅是用来寻找 ssthresh 的，cwnd 的更新其不参与
 static void hystart_update(struct sock *sk, u32 delay)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct bictcp *ca = inet_csk_ca(sk);
 	u32 threshold;
 
-	if (hystart_detect & HYSTART_ACK_TRAIN) {
+	if (hystart_detect & HYSTART_ACK_TRAIN) { // hystart 算法退出只要满足两个条件之一就可以了, 这里是第一个
 		u32 now = bictcp_clock_us(sk);
 
 		/* first detection parameter - ack-train detection */
 		if ((s32)(now - ca->last_ack) <= hystart_ack_delta_us) {
 			ca->last_ack = now;
 
-			threshold = ca->delay_min + hystart_ack_delay(sk);
+			threshold = ca->delay_min + hystart_ack_delay(sk);	// 就是最小的 RTT_{min} + 一个 对于 TSO/GRO 的修正值
 
 			/* Hystart ack train triggers if we get ack past
 			 * ca->delay_min/2.
 			 * Pacing might have delayed packets up to RTT/2
-			 * during slow start.
+			 * during slow start. // 如果开启了 pacing 机制，即不进入下面的 if。其会导致 dealy_min 增长 RTT/2, 所以 threshold 也要增长 RTT/2。即不进入下面的 if 语句
 			 */
-			if (sk->sk_pacing_status == SK_PACING_NONE)
+			if (sk->sk_pacing_status == SK_PACING_NONE) // 常态, 原始论文里就是需要除以 2 的。
 				threshold >>= 1;
 
-			if ((s32)(now - ca->round_start) > threshold) {
+			if ((s32)(now - ca->round_start) > threshold) {	// 这一轮中，和第一个包之间的 T 已经超过 threshold 了，可以退出了
 				ca->found = 1;
 				pr_debug("hystart_ack_train (%u > %u) delay_min %u (+ ack_delay %u) cwnd %u\n",
 					 now - ca->round_start, threshold,
@@ -511,14 +515,14 @@ static void hystart_update(struct sock *sk, u32 delay)
 		}
 	}
 
-	if (hystart_detect & HYSTART_DELAY) {
+	if (hystart_detect & HYSTART_DELAY) { // hystart 算法退出只要满足两个条件之一就可以了, 这里是第二个
 		/* obtain the minimum delay of more than sampling packets */
 		if (ca->curr_rtt > delay)
 			ca->curr_rtt = delay;
 		if (ca->sample_cnt < HYSTART_MIN_SAMPLES) {
-			ca->sample_cnt++;
+			ca->sample_cnt++;	// 用于采样 RTT 的样本数量
 		} else {
-			if (ca->curr_rtt > ca->delay_min +
+			if (ca->curr_rtt > ca->delay_min +		// 当前采样的 rtt 太大了，说明链路开始拥塞，退出了
 			    HYSTART_DELAY_THRESH(ca->delay_min >> 3)) {
 				ca->found = 1;
 				NET_INC_STATS(sock_net(sk),
@@ -555,7 +559,7 @@ static void bictcp_acked(struct sock *sk, const struct ack_sample *sample)
 		ca->delay_min = delay;
 
 	/* hystart triggers when cwnd is larger than some threshold */
-	if (!ca->found && tcp_in_slow_start(tp) && hystart &&
+	if (!ca->found && tcp_in_slow_start(tp) && hystart &&	// 还没有找到 ssthresh && 还在慢启动阶段 && 开启了 hystart  && cwnd 要足够大才会启动 hystart 算法, 因为 hystart 算法要采样一些数据，所以拥塞窗口至少要有 16 确保有足够的数据包提供信息
 	    tp->snd_cwnd >= hystart_low_window)
 		hystart_update(sk, delay);
 }
