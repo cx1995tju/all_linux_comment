@@ -946,8 +946,8 @@ __u32 tcp_init_cwnd(const struct tcp_sock *tp, const struct dst_entry *dst)
 
 struct tcp_sacktag_state {
 	/* Timestamps for earliest and latest never-retransmitted segment
-	 * that was SACKed. RTO needs the earliest RTT to stay conservative,
-	 * but congestion control should still get an accurate delay signal.
+	 * that was SACKed. RTO needs the earliest RTT to stay conservative,		// 即 RTO 尽量大一点, 所以用最早的 timestamp
+	 * but congestion control should still get an accurate delay signal.		// RTT 需要更精确一点, 所以用最晚的 timestamp
 	 */
 	u64	first_sackt;
 	u64	last_sackt;
@@ -2249,11 +2249,11 @@ void tcp_enter_loss(struct sock *sk)
 	    (icsk->icsk_ca_state == TCP_CA_Loss && !icsk->icsk_retransmits)) {
 		tp->prior_ssthresh = tcp_current_ssthresh(sk);
 		tp->prior_cwnd = tp->snd_cwnd;
-		tp->snd_ssthresh = icsk->icsk_ca_ops->ssthresh(sk);
+		tp->snd_ssthresh = icsk->icsk_ca_ops->ssthresh(sk); // timeout 的时候 ssthresh 没有归0，而是减少了 \beta * cwnd
 		tcp_ca_event(sk, CA_EVENT_LOSS);
 		tcp_init_undo(tp);
 	}
-	tp->snd_cwnd	   = tcp_packets_in_flight(tp) + 1;
+	tp->snd_cwnd	   = tcp_packets_in_flight(tp) + 1; // 没有归0，而是减少为 inflight + 1
 	tp->snd_cwnd_cnt   = 0;
 	tp->snd_cwnd_stamp = tcp_jiffies32;
 
@@ -3156,7 +3156,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 
 		tcp_identify_packet_loss(sk, ack_flag);	// 对 skb 做 lost 标记
 		if (!tcp_time_to_recover(sk, flag)) {
-			tcp_try_to_open(sk, flag);
+			tcp_try_to_open(sk, flag);	// 这里尝试退出 Loss 状态了
 			return;
 		}
 
@@ -3197,19 +3197,24 @@ static void tcp_update_rtt_min(struct sock *sk, u32 rtt_us, const int flag)
 			   rtt_us ? : jiffies_to_usecs(1));
 }
 
+/* @seq_rtt_us: 用于设置 rto 的rtt，在计算时会保守估计，让其尽量偏大。通过 ack 信息对报文的确认来估计的
+ * @sack_rtt_us: 用于设置 rto 的 rtt，通过 sack 信息对报文的确认来估计的
+ * @ca_rtt_us: 用于拥塞 控制的 rtt，在计算时会尽量精确
+ *
+ * */
 static bool tcp_ack_update_rtt(struct sock *sk, const int flag,
 			       long seq_rtt_us, long sack_rtt_us,
 			       long ca_rtt_us, struct rate_sample *rs)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
 
-	/* Prefer RTT measured from ACK's timing to TS-ECR. This is because
+	/* Prefer RTT measured from ACK's timing to TS-ECR. This is because // 优先选择基于 ack 的测量
 	 * broken middle-boxes or peers may corrupt TS-ECR fields. But
 	 * Karn's algorithm forbids taking RTT if some retransmitted data
 	 * is acked (RFC6298).
 	 */
-	if (seq_rtt_us < 0)
-		seq_rtt_us = sack_rtt_us;
+	if (seq_rtt_us < 0)	// < 0 说明当前正在处理的 ack 报文是对重传报文的 ack, refer to: tcp_clean_rtx_queue
+		seq_rtt_us = sack_rtt_us; // 那么我们使用 sack 中记录的 rtt 信息，更精确。根据 Karn's 算法，在计算 rtt 的时候，不考虑对重传报文的 ack 的
 
 	/* RTTM Rule: A TSecr value received in a segment is used to
 	 * update the averaged RTT measurement only if the segment
@@ -3217,6 +3222,8 @@ static bool tcp_ack_update_rtt(struct sock *sk, const int flag,
 	 * left edge of the send window.
 	 * See draft-ietf-tcplw-high-performance-00, section 3.3.
 	 */
+	// 注意前面设置过一次 seq_rtt_us，这里如果还是 < 0。说明当前处理的 ack 是针对重传报文的确认，同时没有 sack 信息，即无法基于 sack 确认的报文来提取 RTT 信息
+	// 这时候，没办法只能使用时间戳来计算 rtt 了
 	if (seq_rtt_us < 0 && tp->rx_opt.saw_tstamp && tp->rx_opt.rcv_tsecr &&
 	    flag & FLAG_ACKED) {
 		u32 delta = tcp_time_stamp(tp) - tp->rx_opt.rcv_tsecr;
@@ -3353,7 +3360,7 @@ static int tcp_clean_rtx_queue(struct sock *sk, u32 prior_fack,
 			       struct tcp_sacktag_state *sack, bool ece_ack)
 {
 	const struct inet_connection_sock *icsk = inet_csk(sk);
-	u64 first_ackt, last_ackt;
+	u64 first_ackt, last_ackt; // 一个 ack 可能确认多个报文的，这里记录下其确认的报文的最早发送时间和最晚发送时间
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 prior_sacked = tp->sacked_out;
 	u32 reord = tp->snd_nxt; /* lowest acked un-retx un-sacked seq */
@@ -3393,8 +3400,8 @@ static int tcp_clean_rtx_queue(struct sock *sk, u32 prior_fack,
 			if (sacked & TCPCB_SACKED_RETRANS)
 				tp->retrans_out -= acked_pcount;
 			flag |= FLAG_RETRANS_DATA_ACKED;
-		} else if (!(sacked & TCPCB_SACKED_ACKED)) {
-			last_ackt = tcp_skb_timestamp_us(skb);
+		} else if (!(sacked & TCPCB_SACKED_ACKED)) { // 就是没有携带 sack 的 ack。
+			last_ackt = tcp_skb_timestamp_us(skb); // 这个 ack 确认的报文的发送时间
 			WARN_ON_ONCE(last_ackt == 0);
 			if (!first_ackt)
 				first_ackt = last_ackt;
@@ -3462,7 +3469,7 @@ static int tcp_clean_rtx_queue(struct sock *sk, u32 prior_fack,
 	}
 
 	if (likely(first_ackt) && !(flag & FLAG_RETRANS_DATA_ACKED)) {
-		seq_rtt_us = tcp_stamp_us_delta(tp->tcp_mstamp, first_ackt);
+		seq_rtt_us = tcp_stamp_us_delta(tp->tcp_mstamp, first_ackt); // 通过 ack 信息计算的 rtt
 		ca_rtt_us = tcp_stamp_us_delta(tp->tcp_mstamp, last_ackt);
 
 		if (pkts_acked == 1 && last_in_flight < tp->mss_cache &&
@@ -3477,7 +3484,7 @@ static int tcp_clean_rtx_queue(struct sock *sk, u32 prior_fack,
 		}
 	}
 	if (sack->first_sackt) {
-		sack_rtt_us = tcp_stamp_us_delta(tp->tcp_mstamp, sack->first_sackt);
+		sack_rtt_us = tcp_stamp_us_delta(tp->tcp_mstamp, sack->first_sackt);	// 通过 sack 信息计算的 rtt，当然前提是有 sack 块
 		ca_rtt_us = tcp_stamp_us_delta(tp->tcp_mstamp, sack->last_sackt);
 	}
 	rtt_update = tcp_ack_update_rtt(sk, flag, seq_rtt_us, sack_rtt_us,
@@ -3604,6 +3611,8 @@ static inline bool tcp_may_raise_cwnd(const struct sock *sk, const int flag)
  * It's called toward the end of processing an ACK with precise rate
  * information. All transmission or retransmission are delayed afterwards.
  */
+
+// 核心就是更新 cwnd
 static void tcp_cong_control(struct sock *sk, u32 ack, u32 acked_sacked,
 			     int flag, const struct rate_sample *rs)
 {
@@ -3614,10 +3623,10 @@ static void tcp_cong_control(struct sock *sk, u32 ack, u32 acked_sacked,
 		return;
 	}
 
-	if (tcp_in_cwnd_reduction(sk)) { // 说明是在 快速恢复阶段，需要运行 prr 算法，缓慢减少 cwnd
+	if (tcp_in_cwnd_reduction(sk)) { // 说明是在 快速恢复阶段，需要运行 __prr 算法__ ，缓慢减少 cwnd
 		/* Reduce cwnd if state mandates */
 		tcp_cwnd_reduction(sk, acked_sacked, flag); // 快速恢复算法入口, 更新 cwnd
-	} else if (tcp_may_raise_cwnd(sk, flag)) { // 这一次的数据包可以触发 cwnd 的增长, 那么就是慢启动或者拥塞避免阶段
+	} else if (tcp_may_raise_cwnd(sk, flag)) { // 这一次的数据包可以触发 cwnd 的增长, 那么就是 __慢启动__ 或者 __拥塞避免阶段__
 		/* Advance cwnd if state allows */
 		tcp_cong_avoid(sk, ack, acked_sacked); // 拥塞避免或者慢启动入口
 	}
@@ -6090,7 +6099,7 @@ step5:
 	/* step 7: process the segment text */
 	tcp_data_queue(sk, skb);
 
-	tcp_data_snd_check(sk);
+	tcp_data_snd_check(sk);	// 在接收路径尝试发残留的数据
 	tcp_ack_snd_check(sk);
 	return;
 

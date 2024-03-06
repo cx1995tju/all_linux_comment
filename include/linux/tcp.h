@@ -217,7 +217,7 @@ struct tcp_sock {
 	// rack 记录了最近被 ack 或者 sack 的数据包信息
 	// RFC8985
 	struct tcp_rack {
-		u64 mstamp; /* (Re)sent time of the skb */  // 这个包发送的时间
+		u64 mstamp; /* (Re)sent time of the skb */  // 这个包发送的时间, 也代表着当前 连接的 now 时间
 		u32 rtt_us;  /* Associated RTT */
 		u32 end_seq; /* Ending TCP sequence of the skb */
 		u32 last_delivered; /* tp->delivered at last reo_wnd adj */

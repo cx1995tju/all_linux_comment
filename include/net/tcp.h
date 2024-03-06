@@ -1226,7 +1226,7 @@ static inline bool tcp_in_initial_slowstart(const struct tcp_sock *tp)
 // 当前处于快速恢复阶段
 static inline bool tcp_in_cwnd_reduction(const struct sock *sk)
 {
-	return (TCPF_CA_CWR | TCPF_CA_Recovery) &
+	return (TCPF_CA_CWR | TCPF_CA_Recovery) &	// 注意：LOSS 状态不进入这里
 	       (1 << inet_csk(sk)->icsk_ca_state);
 }
 
