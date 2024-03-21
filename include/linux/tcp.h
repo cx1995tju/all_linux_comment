@@ -252,7 +252,7 @@ struct tcp_sock {
 		syn_fastopen_exp:1,/* SYN includes Fast Open exp. option */
 		syn_fastopen_ch:1, /* Active TFO re-enabling probe */
 		syn_data_acked:1,/* data in SYN is acked by SYN-ACK */
-		is_cwnd_limited:1;/* forward progress limited by snd_cwnd? */
+		is_cwnd_limited:1;/* forward progress limited by snd_cwnd? */ // send 窗口有限的话，cwnd 就不会更新了？ 等于0的时候，表示当前连接不是 cwnd 限制的。就不会 raise cwnd。refer to: tcp_is_cwnd_limited()
 	u32	tlp_high_seq;	/* snd_nxt at the time of TLP */
 
 	u32	tcp_tx_delay;	/* delay (in usec) added to TX packets */

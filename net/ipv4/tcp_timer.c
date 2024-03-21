@@ -298,7 +298,7 @@ void tcp_delack_timer_handler(struct sock *sk)
 			/* Delayed ACK missed: leave pingpong mode and
 			 * deflate ATO.
 			 */
-			inet_csk_exit_pingpong_mode(sk);
+			inet_csk_exit_pingpong_mode(sk);	// 退出 delay ack 模式，可能开始 quick ack 模式。说明这条连接不是交互式的，因为 ack 没有通过数据包携带出去。而是等待了 delay ack 超时才发送。所以退出 pingpong 模式。 触发了这个 timer 可能对 TCP 连接造成比较严重的影响咯。因为这个timer 至少都是 40ms 的。
 			icsk->icsk_ack.ato      = TCP_ATO_MIN;
 		}
 		tcp_mstamp_refresh(tcp_sk(sk));

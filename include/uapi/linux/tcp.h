@@ -219,7 +219,7 @@ struct tcp_info {
 	__u8	tcpi_backoff;
 	__u8	tcpi_options;
 	__u8	tcpi_snd_wscale : 4, tcpi_rcv_wscale : 4;
-	__u8	tcpi_delivery_rate_app_limited:1, tcpi_fastopen_client_fail:2;
+	__u8	tcpi_delivery_rate_app_limited:1, tcpi_fastopen_client_fail:2; // tcp_rate_check_app_limited() tcp_rate_gen()。注意可能同时存在 send—Q有很多数据，然后 又有 app-limited 的情况。因为 kernel 拥塞导致数据发不出去，进而导致应用填充到内核的数据也很少，所以也就没有超过 snd_window，故导致出现了 app_limited 的信息
 
 	__u32	tcpi_rto;
 	__u32	tcpi_ato;

@@ -163,6 +163,25 @@ enum
 };
 
 /* linux mib definitions */
+	
+/* Tcp: */
+/* RetransSegs */
+/* InErrs								// 【严重事件】, 异常报文 */
+/* InCsumErrorss							// 【严重事件】, 异常报文 */
+
+/* TcpExt: */
+/* TCPSACKReneging							// 【严重事件】，sack 食言, 接收端可能有些问题 */
+/* TCPFullUndo + TCPPartialUndo + TCPDSACKUndo + TCPLossUndo	// 【严重事件】，可疑重传，可能是 RTT 波动导致的 */
+/* TCPLostRetransmit						// 【严重事件】，重传包丢了 */
+/* TCPTimeouts							// 【严重事件】，timeout */
+/* TCPSpuriousRTOs							// 【严重事件】可疑 RTO */
+/* TCPRetransFail							// 【严重事件】重传失败 */
+/* TCPAutoCorking */
+
+/* TCPDeliveredCE								// 异常，ECE */
+/* TCPDSACKOldSent + TCPDSACKOfoSent + TCPDSACKRecv + TCPDSACKOfoRecv	// 可疑重传 */
+/* TCPSACKDiscard + TCPDSACKIgnoredOld + TCPDSACKIgnoredNoUndo		// 异常 dsack */
+
 // /proc/net/netstat
 enum
 {
@@ -182,41 +201,41 @@ enum
 	LINUX_MIB_TIMEWAITKILLED,		/* TimeWaitKilled */
 	LINUX_MIB_PAWSACTIVEREJECTED,		/* PAWSActiveRejected */
 	LINUX_MIB_PAWSESTABREJECTED,		/* PAWSEstabRejected */
-	LINUX_MIB_DELAYEDACKS,			/* DelayedACKs */
+	LINUX_MIB_DELAYEDACKS,			/* DelayedACKs */	// 触发了 delay ack 的 timer。如果不是交互式应用的话。这个问题比较严重。delay ack 理想的触发应该是两个 full-size pkt 触发 ack 被发送
 	LINUX_MIB_DELAYEDACKLOCKED,		/* DelayedACKLocked */
 	LINUX_MIB_DELAYEDACKLOST,		/* DelayedACKLost */
 	LINUX_MIB_LISTENOVERFLOWS,		/* ListenOverflows */
 	LINUX_MIB_LISTENDROPS,			/* ListenDrops */
-	LINUX_MIB_TCPHPHITS,			/* TCPHPHits */
+	LINUX_MIB_TCPHPHITS,			/* TCPHPHits */ // 带有某些 flag 的
 	LINUX_MIB_TCPPUREACKS,			/* TCPPureAcks */
 	LINUX_MIB_TCPHPACKS,			/* TCPHPAcks */ // tcp_ack() , 让 tcp 窗口右移的 ack
 	LINUX_MIB_TCPRENORECOVERY,		/* TCPRenoRecovery */
 	LINUX_MIB_TCPSACKRECOVERY,		/* TCPSackRecovery */
-	LINUX_MIB_TCPSACKRENEGING,		/* TCPSACKReneging */
-	LINUX_MIB_TCPSACKREORDER,		/* TCPSACKReorder */
+	LINUX_MIB_TCPSACKRENEGING,		/* TCPSACKReneging */ // 严重事件，sack 食言
+	LINUX_MIB_TCPSACKREORDER,		/* TCPSACKReorder */ // 几个reorder, 一般都是丢包导致的 reorder
 	LINUX_MIB_TCPRENOREORDER,		/* TCPRenoReorder */
 	LINUX_MIB_TCPTSREORDER,			/* TCPTSReorder */
-	LINUX_MIB_TCPFULLUNDO,			/* TCPFullUndo */
+	LINUX_MIB_TCPFULLUNDO,			/* TCPFullUndo */	// 在不同状态下发生了 UNDO, 可疑重传
 	LINUX_MIB_TCPPARTIALUNDO,		/* TCPPartialUndo */
 	LINUX_MIB_TCPDSACKUNDO,			/* TCPDSACKUndo */
 	LINUX_MIB_TCPLOSSUNDO,			/* TCPLossUndo */
-	LINUX_MIB_TCPLOSTRETRANSMIT,		/* TCPLostRetransmit */
-	LINUX_MIB_TCPRENOFAILURES,		/* TCPRenoFailures */
+	LINUX_MIB_TCPLOSTRETRANSMIT,		/* TCPLostRetransmit */	// 严重事件，重传包都丢了
+	LINUX_MIB_TCPRENOFAILURES,		/* TCPRenoFailures */ // 不同状态下 发生了 timeout
 	LINUX_MIB_TCPSACKFAILURES,		/* TCPSackFailures */
 	LINUX_MIB_TCPLOSSFAILURES,		/* TCPLossFailures */
 	LINUX_MIB_TCPFASTRETRANS,		/* TCPFastRetrans */
 	LINUX_MIB_TCPSLOWSTARTRETRANS,		/* TCPSlowStartRetrans */
-	LINUX_MIB_TCPTIMEOUTS,			/* TCPTimeouts */
-	LINUX_MIB_TCPLOSSPROBES,		/* TCPLossProbes */
-	LINUX_MIB_TCPLOSSPROBERECOVERY,		/* TCPLossProbeRecovery */
-	LINUX_MIB_TCPRENORECOVERYFAIL,		/* TCPRenoRecoveryFail */
+	LINUX_MIB_TCPTIMEOUTS,			/* TCPTimeouts */		// 严重事件，timeout
+	LINUX_MIB_TCPLOSSPROBES,		/* TCPLossProbes */  // 发送了 tlp (tail loss probe)
+	LINUX_MIB_TCPLOSSPROBERECOVERY,		/* TCPLossProbeRecovery */ // tlp 机制发挥了作用
+	LINUX_MIB_TCPRENORECOVERYFAIL,		/* TCPRenoRecoveryFail */ // 不同状态下，发生了 timeout
 	LINUX_MIB_TCPSACKRECOVERYFAIL,		/* TCPSackRecoveryFail */
 	LINUX_MIB_TCPRCVCOLLAPSED,		/* TCPRcvCollapsed */
-	LINUX_MIB_TCPDSACKOLDSENT,		/* TCPDSACKOldSent */
+	LINUX_MIB_TCPDSACKOLDSENT,		/* TCPDSACKOldSent */ // 连接交互中有出现 dsack，说明有可疑重传
 	LINUX_MIB_TCPDSACKOFOSENT,		/* TCPDSACKOfoSent */
 	LINUX_MIB_TCPDSACKRECV,			/* TCPDSACKRecv */ // %tcp_check_dsack()
 	LINUX_MIB_TCPDSACKOFORECV,		/* TCPDSACKOfoRecv */ // %tcp_check_dsack()
-	LINUX_MIB_TCPABORTONDATA,		/* TCPAbortOnData */
+	LINUX_MIB_TCPABORTONDATA,		/* TCPAbortOnData */ // 异常
 	LINUX_MIB_TCPABORTONCLOSE,		/* TCPAbortOnClose */
 	LINUX_MIB_TCPABORTONMEMORY,		/* TCPAbortOnMemory */
 	LINUX_MIB_TCPABORTONTIMEOUT,		/* TCPAbortOnTimeout */
@@ -224,7 +243,7 @@ enum
 	LINUX_MIB_TCPABORTFAILED,		/* TCPAbortFailed */
 	LINUX_MIB_TCPMEMORYPRESSURES,		/* TCPMemoryPressures */
 	LINUX_MIB_TCPMEMORYPRESSURESCHRONO,	/* TCPMemoryPressuresChrono */
-	LINUX_MIB_TCPSACKDISCARD,		/* TCPSACKDiscard */
+	LINUX_MIB_TCPSACKDISCARD,		/* TCPSACKDiscard */ // 异常事件，非法的 sack 块
 	LINUX_MIB_TCPDSACKIGNOREDOLD,		/* TCPSACKIgnoredOld */
 	LINUX_MIB_TCPDSACKIGNOREDNOUNDO,	/* TCPSACKIgnoredNoUndo */ 
 	LINUX_MIB_TCPSPURIOUSRTOS,		/* TCPSpuriousRTOs */

@@ -315,7 +315,7 @@ static bool tcp_in_quickack_mode(struct sock *sk)
 	const struct dst_entry *dst = __sk_dst_get(sk);
 
 	return (dst && dst_metric(dst, RTAX_QUICKACK)) ||
-		(icsk->icsk_ack.quick && !inet_csk_in_pingpong_mode(sk));
+		(icsk->icsk_ack.quick && !inet_csk_in_pingpong_mode(sk));	// 在 quick 模式，而且不在 pingpong 模式
 }
 
 static void tcp_ecn_queue_cwr(struct tcp_sock *tp)
@@ -1947,7 +1947,7 @@ tcp_sacktag_write_queue(struct sock *sk, const struct sk_buff *ack_skb,
 			int mib_idx;
 
 			if (dup_sack) { // invalid sack 块里包含的 dack
-				if (!tp->undo_marker) // 说明当前不是快速恢复阶段, 而不是恢复阶段却收到了 dsack，这是比较奇怪的。因为 dsack 肯定是已经发生了重传了
+				if (!tp->undo_marker) // 说明当前不是快速恢复阶段, 而不是恢复阶段却收到了 dsack，这是比较奇怪的。因为 dsack 肯定是已经发生了重传了。但是我都没有重传过。
 					mib_idx = LINUX_MIB_TCPDSACKIGNOREDNOUNDO;
 				else
 					mib_idx = LINUX_MIB_TCPDSACKIGNOREDOLD;

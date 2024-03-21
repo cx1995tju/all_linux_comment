@@ -173,7 +173,7 @@ static void tcp_event_data_sent(struct tcp_sock *tp,
 	 * increase pingpong count.
 	 */
 	if (before(tp->lsndtime, icsk->icsk_ack.lrcvtime) &&
-	    (u32)(now - icsk->icsk_ack.lrcvtime) < icsk->icsk_ack.ato)
+	    (u32)(now - icsk->icsk_ack.lrcvtime) < icsk->icsk_ack.ato) // 说明我在接收到数据后不久就发了数据。说明我们可能是 pingpong 模式
 		inet_csk_inc_pingpong_cnt(sk);
 
 	tp->lsndtime = now;
@@ -2717,9 +2717,9 @@ repair:
 	else
 		tcp_chrono_stop(sk, TCP_CHRONO_RWND_LIMITED);
 
-	is_cwnd_limited |= (tcp_packets_in_flight(tp) >= tp->snd_cwnd);
+	is_cwnd_limited |= (tcp_packets_in_flight(tp) >= tp->snd_cwnd);	// 当 in_flght < snd_cwnd 的时候，表明发送出去的数据量少？所以还轮不到 cwnd 来限制。
 	if (likely(sent_pkts || is_cwnd_limited))
-		tcp_cwnd_validate(sk, is_cwnd_limited);
+		tcp_cwnd_validate(sk, is_cwnd_limited); // 如果需要 cwnd 来限制，那么就要 cwv 校验一下
 
 	if (likely(sent_pkts)) {
 		if (tcp_in_cwnd_reduction(sk))

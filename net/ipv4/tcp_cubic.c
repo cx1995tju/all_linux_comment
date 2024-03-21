@@ -39,7 +39,7 @@
 #define HYSTART_DELAY		0x2
 
 /* Number of delay samples for detecting the increase of delay */
-#define HYSTART_MIN_SAMPLES	8
+#define HYSTART_MIN_SAMPLES	8	// 只会使用每一轮开始的几个 报文计算的 rtt
 #define HYSTART_DELAY_MIN	(4000U)	/* 4 ms */
 #define HYSTART_DELAY_MAX	(16000U)	/* 16 ms */
 #define HYSTART_DELAY_THRESH(x)	clamp(x, HYSTART_DELAY_MIN, HYSTART_DELAY_MAX)
@@ -94,7 +94,7 @@ struct bictcp {
 	u32	bic_origin_point;/* origin point of bic function */	// 就是 W_{max}
 	u32	bic_K;		/* time to origin point			// 就是 K
 				   from the beginning of the current epoch */
-	u32	delay_min;	/* min delay (usec) */	// 最小的 RTT 采样值
+	u32	delay_min;	/* min delay (usec) */	// 该连接最小的 RTT 采样值, 在连接开始以及进入 Loss 的时候会重置的
 	u32	epoch_start;	/* beginning of an epoch */
 	u32	ack_cnt;	/* number of acks */	// 在此期间被 ack 的数目
 	u32	tcp_cwnd;	/* estimated tcp cwnd */ // 评估的标准 tcp 的窗口
@@ -104,7 +104,7 @@ struct bictcp {
 	u32	round_start;	/* beginning of each round */ // 一个 rtt round 的开始
 	u32	end_seq;	/* end_seq of the round */	// 一个 rtt round 结束时的 seq
 	u32	last_ack;	/* last time when the ACK spacing is close */
-	u32	curr_rtt;	/* the minimum rtt of current round */
+	u32	curr_rtt;	/* the minimum rtt of current round */ // 这一轮的最小 rtt
 };
 
 static inline void bictcp_reset(struct bictcp *ca)
@@ -422,7 +422,7 @@ static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		return;
 
 	if (tcp_in_slow_start(tp)) {
-		if (hystart && after(ack, ca->end_seq))
+		if (hystart && after(ack, ca->end_seq)) // 表示 慢启动阶段 开启了一个新的 RTT round
 			bictcp_hystart_reset(sk);
 		acked = tcp_slow_start(tp, acked);
 		if (!acked) // 如果是完全在慢启动阶段，这里返回值是0，就直接退出了
@@ -517,14 +517,14 @@ static void hystart_update(struct sock *sk, u32 delay)
 		}
 	}
 
-	if (hystart_detect & HYSTART_DELAY) { // hystart 算法退出只要满足两个条件之一就可以了, 这里是第二个
+	if (hystart_detect & HYSTART_DELAY) { // hystart 算法退出只要满足两个条件之一就可以了, 这里是第二个。这里和 原始论文差别较大
 		/* obtain the minimum delay of more than sampling packets */
 		if (ca->curr_rtt > delay)
-			ca->curr_rtt = delay;
-		if (ca->sample_cnt < HYSTART_MIN_SAMPLES) {
-			ca->sample_cnt++;	// 用于采样 RTT 的样本数量
-		} else {
-			if (ca->curr_rtt > ca->delay_min +		// 当前采样的 rtt 太大了，说明链路开始拥塞，退出了
+			ca->curr_rtt = delay;	// 这一轮采样的 最小 rtt
+		if (ca->sample_cnt < HYSTART_MIN_SAMPLES) { // 计算这一轮 curr_rtt 采样了多少次, 超过 HYSTART_MIN_SAPLES 后就可以将其与 delay_min 比较，来判断是否退出了
+			ca->sample_cnt++;
+		} else { // delay_min 是链路上总的最小的 rtt
+			if (ca->curr_rtt > ca->delay_min +		// 这一轮采样的最小 rtt 比整个连接的最小 rtt 要大不少，那么就退出了。慢启动阶段 RTT 会持续上升，这里不是很容易满足么？ 注意：这里加了一个 offset，这个 offset 至少是 4ms。换句话说，delay 至少增大了 4ms采集从这条路径退出
 			    HYSTART_DELAY_THRESH(ca->delay_min >> 3)) {
 				ca->found = 1;
 				NET_INC_STATS(sock_net(sk),
@@ -549,6 +549,7 @@ static void bictcp_acked(struct sock *sk, const struct ack_sample *sample)
 		return;
 
 	/* Discard delay samples right after fast recovery */
+	// 至少 1HZ 才会进来一次的
 	if (ca->epoch_start && (s32)(tcp_jiffies32 - ca->epoch_start) < HZ)
 		return;
 
@@ -557,7 +558,7 @@ static void bictcp_acked(struct sock *sk, const struct ack_sample *sample)
 		delay = 1;
 
 	/* first time call or link delay decreases */
-	if (ca->delay_min == 0 || ca->delay_min > delay)
+	if (ca->delay_min == 0 || ca->delay_min > delay)	// 这条链接上的最小的 rtt
 		ca->delay_min = delay;
 
 	/* hystart triggers when cwnd is larger than some threshold */
