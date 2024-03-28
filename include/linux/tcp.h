@@ -183,7 +183,7 @@ struct tcp_sock {
 	u32	data_segs_out;	/* RFC4898 tcpEStatsPerfDataSegsOut
 				 * total number of data segments sent.
 				 */
-	u64	bytes_sent;	/* RFC4898 tcpEStatsPerfHCDataOctetsOut
+	u64	bytes_sent;	/* RFC4898 tcpEStatsPerfHCDataOctetsOut // 含重传
 				 * total number of data bytes sent.
 				 */
 	u64	bytes_acked;	/* RFC4898 tcpEStatsAppHCThruOctetsAcked // 总数
@@ -211,7 +211,7 @@ struct tcp_sock {
 	u32	mss_cache;	/* Cached effective mss, not including SACKS, 用这个 */ // refer to: tcp_sync_mss
 
 	u32	window_clamp;	/* Maximal window to advertise		*/
-	u32	rcv_ssthresh;	/* Current window clamp			*/
+	u32	rcv_ssthresh;	/* Current window clamp			*/ // 己方通告的窗口大小
 
 	/* Information of the most recently (s)acked skb */
 	// rack 记录了最近被 ack 或者 sack 的数据包信息
@@ -252,7 +252,7 @@ struct tcp_sock {
 		syn_fastopen_exp:1,/* SYN includes Fast Open exp. option */
 		syn_fastopen_ch:1, /* Active TFO re-enabling probe */
 		syn_data_acked:1,/* data in SYN is acked by SYN-ACK */
-		is_cwnd_limited:1;/* forward progress limited by snd_cwnd? */ // send 窗口有限的话，cwnd 就不会更新了？ 等于0的时候，表示当前连接不是 cwnd 限制的。就不会 raise cwnd。refer to: tcp_is_cwnd_limited()
+		is_cwnd_limited:1;/* forward progress limited by snd_cwnd? */ // send 窗口有限的话，cwnd 就不会更新了？ 等于0的时候，表示当前连接不是 cwnd 限制的。就不会 raise cwnd。refer to: tcp_is_cwnd_limited() tcp_write_xmit()
 	u32	tlp_high_seq;	/* snd_nxt at the time of TLP */
 
 	u32	tcp_tx_delay;	/* delay (in usec) added to TX packets */

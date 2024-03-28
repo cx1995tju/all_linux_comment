@@ -188,7 +188,7 @@ void tcp_rate_check_app_limited(struct sock *sk)
 	    tp->write_seq - tp->snd_nxt < tp->mss_cache &&
 	    /* Nothing in sending host's qdisc queues or NIC tx queue. */
 	    sk_wmem_alloc_get(sk) < SKB_TRUESIZE(1) &&
-	    /* We are not limited by CWND. */
+	    /* We are not limited by CWND. */	// 说明当处于 app limited 的时候，肯定没有被 cwnd limited
 	    tcp_packets_in_flight(tp) < tp->snd_cwnd &&
 	    /* All lost packets have been retransmitted. */
 	    tp->lost_out <= tp->retrans_out)

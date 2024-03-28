@@ -240,7 +240,7 @@ struct tcp_info {
 
 	/* Metrics. */
 	__u32	tcpi_pmtu;
-	__u32	tcpi_rcv_ssthresh;
+	__u32	tcpi_rcv_ssthresh; // 自己这边的 recv 窗口最大值, 注意和 rwnd_limited 区分
 	__u32	tcpi_rtt;
 	__u32	tcpi_rttvar;
 	__u32	tcpi_snd_ssthresh;
@@ -249,7 +249,7 @@ struct tcp_info {
 	__u32	tcpi_reordering;
 
 	__u32	tcpi_rcv_rtt;
-	__u32	tcpi_rcv_space;
+	__u32	tcpi_rcv_space; // 自己这边的 rcv space, 注意和 rwnd_limited 区分
 
 	__u32	tcpi_total_retrans;
 
@@ -268,7 +268,7 @@ struct tcp_info {
 	__u64   tcpi_delivery_rate;
 
 	__u64	tcpi_busy_time;      /* Time (usec) busy sending data */
-	__u64	tcpi_rwnd_limited;   /* Time (usec) limited by receive window */
+	__u64	tcpi_rwnd_limited;   /* Time (usec) limited by receive window */ // 对应的是自己的发送窗口，即对端的接收窗口。注意和：rcv_ssthresh / rcv_space 区分
 	__u64	tcpi_sndbuf_limited; /* Time (usec) limited by send buffer */
 
 	__u32	tcpi_delivered;

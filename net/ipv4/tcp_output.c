@@ -2718,7 +2718,7 @@ repair:
 		tcp_chrono_stop(sk, TCP_CHRONO_RWND_LIMITED);
 
 	is_cwnd_limited |= (tcp_packets_in_flight(tp) >= tp->snd_cwnd);	// 当 in_flght < snd_cwnd 的时候，表明发送出去的数据量少？所以还轮不到 cwnd 来限制。
-	if (likely(sent_pkts || is_cwnd_limited))
+	if (likely(sent_pkts || is_cwnd_limited)) // 如果需要 send pkt 也要来校验一下
 		tcp_cwnd_validate(sk, is_cwnd_limited); // 如果需要 cwnd 来限制，那么就要 cwv 校验一下
 
 	if (likely(sent_pkts)) {
