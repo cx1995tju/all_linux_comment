@@ -3777,7 +3777,7 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 	if (unlikely(test_bit(__QDISC_STATE_DEACTIVATED, &q->state))) {
 		__qdisc_drop(skb, &to_free);
 		rc = NET_XMIT_DROP;
-	} else if ((q->flags & TCQ_F_CAN_BYPASS) && !qdisc_qlen(q) &&
+	} else if ((q->flags & TCQ_F_CAN_BYPASS) && !qdisc_qlen(q) && // 对于当前报文可以 bypass 且 qlen 为 0 的时候就不会入队出队了。没有必要啦。反正不管怎样，先进先出也好还是别的策略，都是这个报文的。
 		   qdisc_run_begin(q)) {
 		/*
 		 * This is a work-conserving queue; there are no old skbs
