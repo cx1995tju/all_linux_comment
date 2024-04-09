@@ -54,7 +54,7 @@ static int br_pass_frame_up(struct sk_buff *skb)
 	}
 
 	indev = skb->dev;
-	skb->dev = brdev;
+	skb->dev = brdev;	// 这里替换了 skb 的 dev 了
 	skb = br_handle_vlan(br, NULL, vg, skb);
 	if (!skb)
 		return NET_RX_DROP;
