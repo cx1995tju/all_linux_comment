@@ -1510,7 +1510,7 @@ static bool tcp_shifted_skb(struct sock *sk, struct sk_buff *prev,
 	if (skb == tp->lost_skb_hint)
 		tp->lost_cnt_hint += pcount;
 
-	TCP_SKB_CB(prev)->end_seq += shifted; // 不需要 copy 过去？？？
+	TCP_SKB_CB(prev)->end_seq += shifted; // 不需要 copy 数据过去？？？ 
 	TCP_SKB_CB(skb)->seq += shifted; // 不需要真的 copy 数据？
 
 	tcp_skb_pcount_add(prev, pcount);
@@ -1532,7 +1532,7 @@ static bool tcp_shifted_skb(struct sock *sk, struct sk_buff *prev,
 	/* Difference in this won't matter, both ACKed by the same cumul. ACK */
 	TCP_SKB_CB(prev)->sacked |= (TCP_SKB_CB(skb)->sacked & TCPCB_EVER_RETRANS);
 
-	if (skb->len > 0) {
+	if (skb->len > 0) { // 说明 skb 还没有被吃光
 		BUG_ON(!tcp_skb_pcount(skb));
 		NET_INC_STATS(sock_net(sk), LINUX_MIB_SACKSHIFTED);
 		return false;
