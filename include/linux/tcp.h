@@ -200,7 +200,7 @@ struct tcp_sock {
 	u32	last_oow_ack_time;  /* timestamp of last out-of-window ACK */
 	u32	compressed_ack_rcv_nxt;
 
-	u32	tsoffset;	/* timestamp offset */
+	u32	tsoffset;	/* timestamp offset */ // 安全问题，加一个 offset
 
 	struct list_head tsq_node; /* anchor in tsq_tasklet.head list */
 	struct list_head tsorted_sent_queue; /* time-sorted sent but un-SACKed skbs */
@@ -256,11 +256,11 @@ struct tcp_sock {
 	u32	tlp_high_seq;	/* snd_nxt at the time of TLP */
 
 	u32	tcp_tx_delay;	/* delay (in usec) added to TX packets */
-	u64	tcp_wstamp_ns;	/* departure time for next sent data packet */
-	u64	tcp_clock_cache; /* cache last tcp_clock_ns() (see tcp_mstamp_refresh()) */
+	u64	tcp_wstamp_ns;	/* departure time for next sent data packet */	// 发送 skb 的时候，用这个作为 skb 发送的时间。报文头部最终的时间戳也是用这个产生的
+	u64	tcp_clock_cache; /* cache last tcp_clock_ns() (see tcp_mstamp_refresh()) */ // 这个 tcp 连接的绝对时钟, 在各个链路上回去 refresh 的。 tcp_mstamp_refresh()。时钟单位是 ns
 
 /* RTT measurement */
-	u64	tcp_mstamp;	/* most recent packet received/sent */
+	u64	tcp_mstamp;	/* most recent packet received/sent */	// 单位是 us
 	u32	srtt_us;	/* smoothed round trip time << 3 in usecs  */ // 采样的 rtt 值 向左移动了 3b。向右移动 3b才是 us
 	u32	mdev_us;	/* medium deviation	rtt 的平均偏差 */
 	u32	mdev_max_us;	/* maximal mdev for the last rtt period rtt 测量过程中的最大 mdev */

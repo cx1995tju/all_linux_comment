@@ -38,7 +38,7 @@ s32 tcp_rack_skb_timeout(struct tcp_sock *tp, struct sk_buff *skb, u32 reo_wnd)
 	// 这里的 tcp_mstamp() 就是 RFC8985 里面的 now
 	// 最近 sack 的 rtt_us + reo_wnd
 	return tp->rack.rtt_us + reo_wnd -
-	       tcp_stamp_us_delta(tp->tcp_mstamp, tcp_skb_timestamp_us(skb));
+	       tcp_stamp_us_delta(tp->tcp_mstamp, tcp_skb_timestamp_us(skb)); // now - skb 发送时间，就是这个 skb 来回的时间
 }
 
 /* RACK loss detection (IETF draft draft-ietf-tcpm-rack-01):
@@ -61,6 +61,10 @@ s32 tcp_rack_skb_timeout(struct tcp_sock *tp, struct sk_buff *skb, u32 reo_wnd)
  * or tcp_time_to_recover()'s "Trick#1: the loss is proven" code path will
  * make us enter the CA_Recovery state.
  */
+
+// rack 机制不区分普通报文和重传报文，都是一样处理。两种报文的时间戳是不一样的
+// 一旦一个报文被重传了，就从 tsorted_sent_queue 移除
+// 但是重传报文在重传的时候又会被挂载上去，但这次挂载是挂到最后面了
 static void tcp_rack_detect_loss(struct sock *sk, u32 *reo_timeout)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -88,12 +92,12 @@ static void tcp_rack_detect_loss(struct sock *sk, u32 *reo_timeout)
 		 * the recent RTT plus the reordering window.
 		 */
 		remaining = tcp_rack_skb_timeout(tp, skb, reo_wnd);
-		if (remaining <= 0) { // 说明已经有报文被认为 lost 了，直接去标记，然后在 tcp_skb() 里重传吧
+		if (remaining <= 0) { // 说明已经当前这个报文已经被认为 lost 了，直接去标记，然后在 tcp_skb() 里重传吧
 			tcp_mark_skb_lost(sk, skb);
-			list_del_init(&skb->tcp_tsorted_anchor);
+			list_del_init(&skb->tcp_tsorted_anchor);	// 标记为 lost 后就移除了。等重传的时候，重传报文又会被挂载上去
 		} else { // 说明当前还没有报文被认为 lost 了。但是在 *reo_timeout 时间后有可能有报文被标记为 lost，所以返回 timeout，用于后续启动 timer 来处理这个可能的 lost 事件。当然 timer 可能不会启动，因为在源源不断的 tcp_ack() 中被 reset 了
 			/* Record maximum wait time */ // 为什么是 max ？？？ 为了减少 timer，然后一批处理这些报文？？？ 这些报文首先都是肯定 sent_before 当前的 sack 块的
-			*reo_timeout = max_t(u32, *reo_timeout, remaining);
+			*reo_timeout = max_t(u32, *reo_timeout, remaining); // 得到一个最大的 timeout，返回回去？？？
 		}
 	}
 }
@@ -110,7 +114,7 @@ void tcp_rack_mark_lost(struct sock *sk)
 	/* Reset the advanced flag to avoid unnecessary queue scanning */
 	tp->rack.advanced = 0;
 	tcp_rack_detect_loss(sk, &timeout);
-	if (timeout) {
+	if (timeout) { // 源源不断的收到 ack 报文，就不停的 被 reset
 		timeout = usecs_to_jiffies(timeout) + TCP_TIMEOUT_MIN;
 		inet_csk_reset_xmit_timer(sk, ICSK_TIME_REO_TIMEOUT,
 					  timeout, inet_csk(sk)->icsk_rto);

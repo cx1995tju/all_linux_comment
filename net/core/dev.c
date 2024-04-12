@@ -2254,7 +2254,7 @@ static inline int deliver_skb(struct sk_buff *skb,
 	if (unlikely(skb_orphan_frags_rx(skb, GFP_ATOMIC)))
 		return -ENOMEM;
 	refcount_inc(&skb->users);
-	return pt_prev->func(skb, skb->dev, pt_prev, orig_dev);	// %arp_rcv
+	return pt_prev->func(skb, skb->dev, pt_prev, orig_dev);	// %arp_rcv(), packet_rcv()
 }
 
 static inline void deliver_ptype_list_skb(struct sk_buff *skb,

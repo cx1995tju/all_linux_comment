@@ -742,7 +742,7 @@ struct sk_buff {
 
 	union {
 		ktime_t		tstamp;
-		u64		skb_mstamp_ns; /* earliest departure time */ // 记录一个时间，用于后续设置重传定时器
+		u64		skb_mstamp_ns; /* earliest departure time */ // skb 发送出去的时间
 	};
 	/*
 	 * This is the control buffer. It is free to use for every
@@ -757,7 +757,7 @@ struct sk_buff {
 			unsigned long	_skb_refdst;
 			void		(*destructor)(struct sk_buff *skb);
 		};
-		struct list_head	tcp_tsorted_anchor;
+		struct list_head	tcp_tsorted_anchor; // 发送的时候挂到这个 list 上，重传的时候移除掉, 或者 被 sacked 后移除掉, clean_rtx_queue 的时候也会移除, shifted_skb 的时候也会移除
 	};
 
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)

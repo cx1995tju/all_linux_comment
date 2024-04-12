@@ -1071,8 +1071,8 @@ void tcp_mark_skb_lost(struct sock *sk, struct sk_buff *skb)
 		return;
 
 	tcp_verify_retransmit_hint(tp, skb);
-	if (sacked & TCPCB_LOST) {
-		if (sacked & TCPCB_SACKED_RETRANS) {
+	if (sacked & TCPCB_LOST) {	// 已经 lost 了
+		if (sacked & TCPCB_SACKED_RETRANS) { // 而且 retrans 过, 说明 retrans 报文又 lost 了
 			/* Account for retransmits that are lost again */
 			TCP_SKB_CB(skb)->sacked &= ~TCPCB_SACKED_RETRANS;
 			tp->retrans_out -= tcp_skb_pcount(skb);
@@ -1153,11 +1153,11 @@ static void tcp_count_delivered(struct tcp_sock *tp, u32 delivered,
  * it means that the receiver is rather inconsistent with itself reporting		
  * SACK reneging when it should advance SND.UNA. Such SACK block this is		
  * perfectly valid, however, in light of RFC2018 which explicitly states		
- * that "SACK block MUST reflect the newest segment.  Even if the newest                // case 1: head skb	
+ * that "SACK block MUST reflect the newest segment.  Even if the newest                // case 1: head skb	 __HERE IT IS__
  * segment is going to be discarded ...", not that it looks very clever                 //	只有 sack reneging 的情况下，sack block 才会包括 snd.una。因为 RFC2018 规定了
  * in case of head skb. Due to potentional receiver driven attacks, we                  //	"SACK block MUST reflect the newest segment. Even if the newest * segment is going to be discarded ..."
  * choose to avoid immediate execution of a walk in write queue due to                  //	如果 receiver 发神经(inconsistent)，每次收到了 snd.una 序号的报文，就把它丢掉，然后回复 SACK 块, 就会持续出现这种情况。
- * reneging and __defer head skb's loss recovery__ to standard loss recovery		//	__HERE IT IS__
+ * reneging and __defer head skb's loss recovery__ to standard loss recovery		//	因为这个原因，在 sack block 表示其标记了 snd.una 这个范围的时候，我们不能当真的。即一个 sack block 的 start_seq 是 snd.una 的话，我们认为其非法
  * procedure that will eventually trigger (nothing forbids us doing this).
  *
  * Implements also blockage to start_seq wrap-around. Problem lies in the
@@ -1226,7 +1226,7 @@ static bool tcp_is_sackblock_valid(struct tcp_sock *tp, bool is_dsack,
 		return false;
 
 	/* In outstanding window? ...This is valid exit for D-SACKs too.
-	 * start_seq == snd_una is non-sensical (see comments above)
+	 * start_seq == snd_una is non-sensical (see comments above) // 如果 start_seq == snd_una, 我们不认为是合法的，见前文 comments。如果其不是 dsack 的话，其在下一个 if 语句会立即返回 false 的
 	 */
 	if (after(start_seq, tp->snd_una))
 		return true;
@@ -1481,6 +1481,9 @@ static u8 tcp_sacktag_one(struct sock *sk,
 /* Shift newly-SACKed bytes from this skb to the immediately previous
  * already-SACKed sk_buff. Mark the newly-SACKed bytes as such.
  */
+
+// 将 skb 的左半部分移动到 prev 里, 而且这左半部分是被 sacked 过的
+// 右边部分没有被 sacked
 static bool tcp_shifted_skb(struct sock *sk, struct sk_buff *prev,
 			    struct sk_buff *skb,
 			    struct tcp_sacktag_state *state,
@@ -1507,8 +1510,8 @@ static bool tcp_shifted_skb(struct sock *sk, struct sk_buff *prev,
 	if (skb == tp->lost_skb_hint)
 		tp->lost_cnt_hint += pcount;
 
-	TCP_SKB_CB(prev)->end_seq += shifted;
-	TCP_SKB_CB(skb)->seq += shifted;
+	TCP_SKB_CB(prev)->end_seq += shifted; // 不需要 copy 过去？？？
+	TCP_SKB_CB(skb)->seq += shifted; // 不需要真的 copy 数据？
 
 	tcp_skb_pcount_add(prev, pcount);
 	WARN_ON_ONCE(tcp_skb_pcount(skb) < pcount);
@@ -1642,7 +1645,7 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 	if (!prev)
 		goto fallback;
 
-	if ((TCP_SKB_CB(prev)->sacked & TCPCB_TAGBITS) != TCPCB_SACKED_ACKED)						// prev 被 sack 了, 但是还没有重传或者 lost 了
+	if ((TCP_SKB_CB(prev)->sacked & TCPCB_TAGBITS) != TCPCB_SACKED_ACKED)						// prev 被 sack 了, 而且被重传过或者 Lost 了，那么 skb 不往里面 merge，否则skb merge 到 prev 里
 		goto fallback;
 
 	if (!tcp_skb_can_collapse(prev, skb))
@@ -3086,7 +3089,7 @@ static void tcp_identify_packet_loss(struct sock *sk, int *ack_flag)
 		u32 prior_retrans = tp->retrans_out;
 
 		tcp_rack_mark_lost(sk);
-		if (prior_retrans > tp->retrans_out)
+		if (prior_retrans > tp->retrans_out)	// refer to: tcp_mark_skb_lost()
 			*ack_flag |= FLAG_LOST_RETRANS;
 	}
 }

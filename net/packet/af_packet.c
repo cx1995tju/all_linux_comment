@@ -2014,7 +2014,7 @@ static unsigned int run_filter(struct sk_buff *skb,
 	rcu_read_lock();
 	filter = rcu_dereference(sk->sk_filter);
 	if (filter != NULL)
-		res = bpf_prog_run_clear_cb(filter->prog, skb);
+		res = bpf_prog_run_clear_cb(filter->prog, skb);	// tcp dump 抓包的地方
 	rcu_read_unlock();
 
 	return res;
