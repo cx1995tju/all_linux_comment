@@ -1546,7 +1546,7 @@ int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
 	int nlen;
 	u8 flags;
 
-	if (WARN_ON(len > skb->len))
+	if (WARN_ON(len > skb->len)) // 异常报文
 		return -EINVAL;
 
 	nsize = skb_headlen(skb) - len;

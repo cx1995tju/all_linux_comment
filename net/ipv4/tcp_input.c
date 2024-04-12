@@ -1318,17 +1318,18 @@ static bool tcp_check_dsack(struct sock *sk, const struct sk_buff *ack_skb,
  * FIXME: this could be merged to shift decision code
  *
  *
- * 注意：这里会将 skb 切片来处理的。因为 tso 情况下 sack 和 tcp fragment 不是完全对应的
- *
- * - 首先判断 skb 是不是 fully 在 sack block 里, 如果是，return > 0
- * - 否则尝试将 tso 的 skb 在 重传丢列上拆成两部分，第一部分是 mss 大小，然后判断 第一部分的 segment 是不是 fully in sack block
- *	- 第二部分由于挂在重传队列上，下一次迭代会被处理的
- *
- *
- * return > 0 说明 fully 在里面
+ * return > 0 说明 fully 在里面, 这里可能是拆分了 skb 咯，拆分后的 skb fully 在范围内
  * return == 0, 说明不是 fully 里面
- * return < 0, 出错了
+ * return < 0, 出错了, 是说 skb 只有左边很少(mss)一部分在 sack block 里
  *
+ *
+ * 判断 skb 是不是 fully 在 [start_seq, end_seq] 内:
+ * - 如果是，那么返回 1
+ * - 如果 fully 不在，那么返回 0
+ * - 如果左半部分在，那么会将 skb 左半部分拆下来，然后返回1。但是这个左半部分至少要有 1 个 mss 的长度，否则返回错误
+ * - 如果右半部分在，那么会将 skb 拆成两部分，因为左半部分不在，所以返回 0.
+ *
+ * - 如果拆分失败了，返回错误。
  */
 static int tcp_match_skb_to_sack(struct sock *sk, struct sk_buff *skb,
 				  u32 start_seq, u32 end_seq)
@@ -1338,19 +1339,26 @@ static int tcp_match_skb_to_sack(struct sock *sk, struct sk_buff *skb,
 	unsigned int pkt_len;
 	unsigned int mss;
 
-	in_sack = !after(start_seq, TCP_SKB_CB(skb)->seq) &&
+	in_sack = !after(start_seq, TCP_SKB_CB(skb)->seq) &&		// in_sack == 1 表示 skb fulle 在 start_seq / end_seq 范围
 		  !before(end_seq, TCP_SKB_CB(skb)->end_seq);
 
+	// 如果这个 skb 是大报文，是好几个 segment 组成的，会尝试拆分 skb，让其 fully in [start_seq, end_seq]
 	if (tcp_skb_pcount(skb) > 1 && !in_sack &&
-	    after(TCP_SKB_CB(skb)->end_seq, start_seq)) {
+	    after(TCP_SKB_CB(skb)->end_seq, start_seq)) { // start_seq < skb->end_seq, 说明可能部分在范围内，或者整个 skb 都在范围右边
 		mss = tcp_skb_mss(skb);
-		in_sack = !after(start_seq, TCP_SKB_CB(skb)->seq);
+		in_sack = !after(start_seq, TCP_SKB_CB(skb)->seq); // 说明 skb 左半部分可能在 sack block 内
 
-		if (!in_sack) {
+		// 后续可能将 skb 划分为左右两部分
+		// 其中左边部分的长度会和 mss 对齐的:
+		//	- 如果左边不在 sack block 内，那么就向上对齐
+		//	- 如果左边在 sack block 内，那么就向下对齐
+		//
+		// 这种逻辑是因为，尽量让 sack block 表达的信息和 mss 对齐，这样比较好处理。选择这种对齐方式，无非就是可能多重传几个 byte，但是不会漏的。
+		if (!in_sack) { // skb 左边不在范围内
 			pkt_len = start_seq - TCP_SKB_CB(skb)->seq;
 			if (pkt_len < mss)
 				pkt_len = mss;
-		} else {
+		} else { // skb 左边在范围内
 			pkt_len = end_seq - TCP_SKB_CB(skb)->seq;
 			if (pkt_len < mss)
 				return -EINVAL;
@@ -1359,17 +1367,22 @@ static int tcp_match_skb_to_sack(struct sock *sk, struct sk_buff *skb,
 		/* Round if necessary so that SACKs cover only full MSSes
 		 * and/or the remaining small portion (if present)
 		 */
+		// pkt_len skb 左边部分的大小：不在界限内或者在界限内的大小。
 		if (pkt_len > mss) {
-			unsigned int new_len = (pkt_len / mss) * mss;
-			if (!in_sack && new_len < pkt_len)
+			unsigned int new_len = (pkt_len / mss) * mss;	// 向下取整
+			if (!in_sack && new_len < pkt_len)	// 如果不在界限内 + 一个 mss，也就是向上取整数
 				new_len += mss;
 			pkt_len = new_len;
 		}
 
-		if (pkt_len >= skb->len && !in_sack)
+		if (pkt_len >= skb->len && !in_sack) // 说明整个 skb 都不在 sack block 内
 			return 0;
 
-		// 这里会从 skb 里拆一个 seg 下来。skb里剩余的那部分也挂在重传队列上，在下一次迭代的时候会处理的
+		// 将 skb 左半部分拆下来，然后根据前面判断的左半部分在不在 sack block 内，返回结果
+		// 注意右半部分，还是挂在重传队列的，下一次迭代又会处理的。
+		// 失败的原因:
+		// - 内存不够		// 主要原因
+		// - 非法报文 (pkt_len > skb->len。 pkt_len 比 skb->len 长了，那就无法拆了)
 		err = tcp_fragment(sk, TCP_FRAG_IN_RTX_QUEUE, skb,
 				   pkt_len, mss, GFP_ATOMIC);
 		if (err < 0)
@@ -1381,6 +1394,7 @@ static int tcp_match_skb_to_sack(struct sock *sk, struct sk_buff *skb,
 
 /* Mark the given newly-SACKed range as such, adjusting counters and hints. */
 // skb 的标记就是这个函数完成的, 返回值就是 skb 的标记
+// 调用这个函数的时候，说明 skb 已经 fully in [satrt_seq, end_seq]
 static u8 tcp_sacktag_one(struct sock *sk,
 			  struct tcp_sacktag_state *state, u8 sacked,
 			  u32 start_seq, u32 end_seq,
@@ -1403,10 +1417,10 @@ static u8 tcp_sacktag_one(struct sock *sk,
 	if (!after(end_seq, tp->snd_una))
 		return sacked;
 
-	if (!(sacked & TCPCB_SACKED_ACKED)) { // 之前没有被 sack 过
+	if (!(sacked & TCPCB_SACKED_ACKED)) { // 之前没有被 sack 过, 也就是第一次被 sack
 		tcp_rack_advance(tp, sacked, end_seq, xmit_time);
 
-		if (sacked & TCPCB_SACKED_RETRANS) {	// 之前 retrans 过
+		if (sacked & TCPCB_SACKED_RETRANS) {	// 之前 retrans 过, 现在被 sack 了，说明 retrans 成功了
 			/* If the segment is not tagged as lost,
 			 * we do not clear RETRANS, believing
 			 * that retransmission is still in flight.
@@ -1416,7 +1430,8 @@ static u8 tcp_sacktag_one(struct sock *sk,
 				tp->lost_out -= pcount;
 				tp->retrans_out -= pcount;
 			}
-		} else { // 之前没有 sack 过
+			// 什么时候会出现 retrans 过，但是没有被标记为 lost 呢？
+		} else { // 之前没有 retrans 过
 			if (!(sacked & TCPCB_RETRANS)) { // 之前没有 retrans 过
 				/* New sack for not retransmitted frame,
 				 * which was in hole. It is reordering.
@@ -1433,7 +1448,7 @@ static u8 tcp_sacktag_one(struct sock *sk,
 				state->last_sackt = xmit_time;
 			}
 
-			if (sacked & TCPCB_LOST) {
+			if (sacked & TCPCB_LOST) {	// 说明被标记为 lost 但是还没有 retrans 过，所以现在可以取消 lost 了，因为被 sack 了
 				sacked &= ~TCPCB_LOST;
 				tp->lost_out -= pcount;
 			}
@@ -1597,6 +1612,9 @@ int tcp_skb_shift(struct sk_buff *to, struct sk_buff *from,
  * - 前面的不在 sack block 里就塞到 prev 里
  *
  */
+
+// 同：tcp_match_skb_to_sack 里的判断逻辑类似
+// 尝试把当前的 skb 和前面的多个合并到一起，前提当然是他们标记要一样咯。
 static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 					  struct tcp_sacktag_state *state,
 					  u32 start_seq, u32 end_seq,
@@ -1610,7 +1628,7 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 	int in_sack;
 
 	/* Normally R but no L won't result in plain S */
-	if (!dup_sack &&
+	if (!dup_sack &&												// 当前 skb 比较正常
 	    (TCP_SKB_CB(skb)->sacked & (TCPCB_LOST|TCPCB_SACKED_RETRANS)) == TCPCB_SACKED_RETRANS)
 		goto fallback;
 	if (!skb_can_shift(skb)) // 这个 skb 结构无法折叠
@@ -1620,11 +1638,11 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 		goto fallback;
 
 	/* Can only happen with delayed DSACK + discard craziness */
-	prev = skb_rb_prev(skb);
+	prev = skb_rb_prev(skb);											// 有 prev
 	if (!prev)
 		goto fallback;
 
-	if ((TCP_SKB_CB(prev)->sacked & TCPCB_TAGBITS) != TCPCB_SACKED_ACKED)
+	if ((TCP_SKB_CB(prev)->sacked & TCPCB_TAGBITS) != TCPCB_SACKED_ACKED)						// prev 被 sack 了, 但是还没有重传或者 lost 了
 		goto fallback;
 
 	if (!tcp_skb_can_collapse(prev, skb))
@@ -1633,7 +1651,7 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 	in_sack = !after(start_seq, TCP_SKB_CB(skb)->seq) &&
 		  !before(end_seq, TCP_SKB_CB(skb)->end_seq);
 
-	if (in_sack) {	// 完全在 sack 块里
+	if (in_sack) {
 		len = skb->len;
 		pcount = tcp_skb_pcount(skb);
 		mss = tcp_skb_seglen(skb);
@@ -1643,14 +1661,14 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 		 */
 		if (mss != tcp_skb_seglen(prev))
 			goto fallback;
-	} else { // 完全不在，或者部分在 sack 里
+	} else { 
 		if (!after(TCP_SKB_CB(skb)->end_seq, start_seq)) // skb 完全在 sack 前面		skb 完全在 sack 后面这个 case 是不会调用进来的
 			goto noop;
 		/* CHECKME: This is non-MSS split case only?, this will
 		 * cause skipped skbs due to advancing loop btw, original
 		 * has that feature too
 		 */
-		if (tcp_skb_pcount(skb) <= 1)		// skb 不是 tso 报文, 但是发生了部分在 sack 块里的情况, 说明在链路发生了意想不到的拆分，这里就不处理了
+		if (tcp_skb_pcount(skb) <= 1)
 			goto noop;
 
 		// skb 部分在 sack 里，这要分成两种
@@ -1670,7 +1688,6 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 			goto fallback;
 		}
 
-		// skb 前半部分在 sack block 里
 		len = end_seq - TCP_SKB_CB(skb)->seq;	// skb 前面的 len 长度在里面
 		BUG_ON(len < 0);
 		BUG_ON(len > skb->len);
@@ -1689,7 +1706,7 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 
 		if (len == mss) {
 			pcount = 1;
-		} else if (len < mss) {
+		} else if (len < mss) {	// 应该从这里退出
 			goto noop;
 		} else {
 			pcount = len / mss;
@@ -1741,23 +1758,9 @@ fallback:
 // @state, 处理流程中保存的 ctx
 // @dup_sack_in: 当前的这个 sack 块是不是 dsack
 //
+// skb 传入进来的时候是起点，返回的时候被赋值了是当前处理的终点，也就是下一次的起点，表示当前重传队列上处理到哪个 skb 了
 //
-// sack 块和 skb 之间的关系
-// - 非 tso 常见，skb 要么在 sack block 里，要么不在，不存在部分在
-// - tso 场景，划分一个报文的时候，只可能是尾部有一点剩余，前面的部分肯定都是 mss 长度
-//
-// 后续讨论，使用下述符号标记 skb 和 sack 的左右边界
-// skb: [seq, end_seq)
-// sack; [left, right)
-//
-// 标记哪些报文被 sack 了，由于某些未知的原因，在 tso 场景下存在一些 零碎的(不足 MSS) 的报文，可能虽然被 sack 了，但是没有打上 sacked 标记
-// 这样，影响也不大，无非是重传的时候多重传一点咯。
-// 对于零碎的报文，原则是宁愿少标记 SACK，也不能多标记 SACKED。
-// 少标记的后果，无非是每个 hole 最多会多传输 MSS - 1 Bytes 的数据而已
-//
-// 所以在这个函数里都是对 fully insack 的报文才会做标记的。 skb 经过聚合，拆分后，如果还是不能 fully in sack 的话，那么就直接不标记了 SACKED 了，后面对这个 skb 直接做重传。
-//
-// skb 传入进来的时候是NULL，返回的时候被赋值了，表示当前重传队列上处理到哪个 skb 了
+// 在标记 skb 的过程中可能会拆分和合并 skb 的。在这个过程中会尽量保证重传队列前面的，也就是已经处理的 skb 是 mss 对齐的
 static struct sk_buff *tcp_sacktag_walk(struct sk_buff *skb, struct sock *sk,
 					struct tcp_sack_block *next_dup,
 					struct tcp_sacktag_state *state,
@@ -1772,16 +1775,16 @@ static struct sk_buff *tcp_sacktag_walk(struct sk_buff *skb, struct sock *sk,
 		bool dup_sack = dup_sack_in;
 
 		/* queue is in-order => we can short-circuit the walk early */
-		// right <= seq.	说明这个 skb 已经比 sack block 大了，后面的肯定更大了，所以不需要处理 直接 break 了
+		// end_seq <= skb->seq.	说明这个 skb 已经比 sack block 大了，后面的肯定更大了，所以不需要处理 直接 break 了
 		if (!before(TCP_SKB_CB(skb)->seq, end_seq))
 			break;
 
-		if (next_dup  &&
+		if (next_dup  && // dsack 也处理了, 这里只是在处理 skb 和 dsack next dsack，
 		    before(TCP_SKB_CB(skb)->seq, next_dup->end_seq)) { // skb->seq < end_seq < dup->end_seq
 			in_sack = tcp_match_skb_to_sack(sk, skb,	// skb 可能在 dup sack 里, 这里检查其是否 fully 在 next_dup 里
 							next_dup->start_seq,
 							next_dup->end_seq);
-			if (in_sack > 0)	// 说明 fully 在 next_dup sackblock 里面
+			if (in_sack > 0)	// 说明 skb fully 在 next_dup sackblock 里面, 虽然在里面可能拆分了 skb
 				dup_sack = true;
 		}
 
@@ -1789,18 +1792,19 @@ static struct sk_buff *tcp_sacktag_walk(struct sk_buff *skb, struct sock *sk,
 		 * shifting can eat and free both this skb and the next,
 		 * so not even _safe variant of the loop is enough.
 		 */
-		if (in_sack <= 0) { // 不是 fully 在 dup 里, 现在看看 skb 与 [start_seq, end_seq) 的关系
+		if (in_sack <= 0) { // 不是 fully 在 dup 里, 常态在这里。
+				    // 这里如果能将 skb 合并到 prev 里，也就不需要对齐做标记了，因为 prev 已经标记了
 			tmp = tcp_shift_skb_data(sk, skb, state,	// 在 match skb 之前，根据 sack 块信息，对重传队列的 skb 做一些调整
 						 start_seq, end_seq, dup_sack);
 			if (tmp) {
-				if (tmp != skb) { // 发生了折叠而且折叠后的 skb 是当前 skb 的 prev，所以这里将 skb 设置为 tmp 后，重新进入循环
+				if (tmp != skb) { // 常态在这里，说明 skb 和 其 prev 折叠到一起了，如果可以折叠到一起，说明 skb 和 prev 一起被标记了。
 					skb = tmp;
 					continue;
 				}
 
-				in_sack = 0; // why???
+				in_sack = 0; // 说明 skb 无法和 prev 折叠到一起, 而且已经处理了 skb，skb 不在 sack block 内
 			} else {		// 无法折叠, 直接处理 skb 了
-				in_sack = tcp_match_skb_to_sack(sk, skb,
+				in_sack = tcp_match_skb_to_sack(sk, skb, // 这里才是在处理 skb 和当前的 sack block 的, 前面是 dup sack 的处理
 								start_seq,
 								end_seq);
 			}
@@ -1809,7 +1813,8 @@ static struct sk_buff *tcp_sacktag_walk(struct sk_buff *skb, struct sock *sk,
 		if (unlikely(in_sack < 0)) // 出错了，就不处理 这个 sack block 了
 			break;
 
-		if (in_sack) {	// 完全在 sack 里，所以需要做标记。如果 skb 只有部分在的话，这里就不会处理了
+		if (in_sack) {	// 完全在 sack 里，所以需要做标记。如果 skb 只有部分在的话，这里就不会处理了			__HERE IT IS__
+				// 经过对 skb 的拆分，合并后，这时候的 skb 已经 fully in sack block 了
 			TCP_SKB_CB(skb)->sacked =
 				tcp_sacktag_one(sk,
 						state,
@@ -1852,15 +1857,14 @@ static struct sk_buff *tcp_sacktag_bsearch(struct sock *sk, u32 seq)
 	return NULL;
 }
 
-// skb 是处理的起点
-// 跳过 [skb->seq, skip_to_seq) 范围的数据
+// skb 是处理的起点, 传入的时候是 NULL
 static struct sk_buff *tcp_sacktag_skip(struct sk_buff *skb, struct sock *sk,
 					u32 skip_to_seq)
 {
 	if (skb && after(TCP_SKB_CB(skb)->seq, skip_to_seq))
 		return skb;
 
-	// skb->seq <= skip_to_seq, 那么 [skb->seq, skip_to_seq) 这个范围需要被 skip 掉
+	// 二分搜索，找到 skip_to_seq 所在的 skb，从这里开始处理
 	return tcp_sacktag_bsearch(sk, skip_to_seq);
 }
 
@@ -2027,6 +2031,7 @@ tcp_sacktag_write_queue(struct sock *sk, const struct sk_buff *ack_skb,
 			cache++;
 
 		/* Can skip some work by looking recv_sack_cache? */
+		// 主要是标记 sack block 覆盖的 skb
 		if (tcp_sack_cache_ok(tp, cache) && !dup_sack && // start_seq < cache->end_seq && cache->start_seq < end_seq ,说明 cache 和 当前的这个 sack block 肯定有重叠。有四种情况:
 		    after(end_seq, cache->start_seq)) {
 // 下述 case 中 start_seq / end_seq 都是可以相等的，但是没有特别标注
@@ -2061,6 +2066,8 @@ tcp_sacktag_write_queue(struct sock *sk, const struct sk_buff *ack_skb,
 //
 			/* Head todo? */
 			if (before(start_seq, cache->start_seq)) {	  // case 2 or case 4  (注意：两个 end_seq 可以相等)
+				skb = tcp_sacktag_skip(skb, sk, start_seq);
+				// 主要是对 在 sack block 的 skb 做标记处理
 				skb = tcp_sacktag_walk(skb, sk, next_dup,	// [start_seq, cache->start_seq) 这部分数据是新的，被 sack 确认了的。而 [cache_start, cache_end) 这部分数据在上一次已经处理过了
 						       state,
 						       start_seq,
