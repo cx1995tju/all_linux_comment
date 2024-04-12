@@ -1261,7 +1261,7 @@ or its flags may be modified, but it may not be resized.
 
 Memory for the region is taken starting at the address denoted by the
 field userspace_addr, which must point at user addressable memory for
-the entire memory slot size.  Any object may back this memory, including
+the entire memory slot size.  Any object may back this memory, including        // 即这段 user addr 需要真的对应有内容(可以是内存，可以是文件)
 anonymous memory, ordinary files, and hugetlbfs.
 
 It is recommended that the lower 21 bits of guest_phys_addr and userspace_addr
@@ -1703,11 +1703,11 @@ No flags are specified so far, the corresponding field must be set to zero.
 ::
 
   struct kvm_irq_routing_entry {
-	__u32 gsi;
+	__u32 gsi;      // 表示了 GSI 号
 	__u32 type;
 	__u32 flags;
 	__u32 pad;
-	union {
+	union { // 表达了中断引脚的信息, 当然 msi 是没有引脚的
 		struct kvm_irq_routing_irqchip irqchip;
 		struct kvm_irq_routing_msi msi;
 		struct kvm_irq_routing_s390_adapter adapter;
@@ -1734,8 +1734,8 @@ flags:
 ::
 
   struct kvm_irq_routing_irqchip {
-	__u32 irqchip;
-	__u32 pin;
+	__u32 irqchip;  // 哪个中断芯片
+	__u32 pin;      // 哪个引脚
   };
 
   struct kvm_irq_routing_msi {
@@ -1913,7 +1913,7 @@ work anyway.
 ::
 
   struct kvm_dirty_tlb {
-	__u64 bitmap;
+	__u64 bitmap; // 一个指向数组的 user 地址，
 	__u32 num_dirty;
   };
 

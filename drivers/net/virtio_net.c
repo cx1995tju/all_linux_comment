@@ -2758,7 +2758,7 @@ static int virtnet_find_vqs(struct virtnet_info *vi)
 
 	/* Allocate/initialize parameters for send/receive virtqueues */
 	for (i = 0; i < vi->max_queue_pairs; i++) {
-		callbacks[rxq2vq(i)] = skb_recv_done;
+		callbacks[rxq2vq(i)] = skb_recv_done;	// virtio-pci 层中断触发后，就是调用这个 callback
 		callbacks[txq2vq(i)] = skb_xmit_done;
 		sprintf(vi->rq[i].name, "input.%d", i);
 		sprintf(vi->sq[i].name, "output.%d", i);

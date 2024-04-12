@@ -2258,6 +2258,7 @@ static __init int cpu_has_kvm_support(void)
 
 static __init int vmx_disabled_by_bios(void)
 {
+	 // 这个 bit  bios 可以设置的。bios 里开关 vmx 就是设置这个 bit, refer to: intel sdm vol3 intro vmx
 	return !boot_cpu_has(X86_FEATURE_MSR_IA32_FEAT_CTL) ||
 	       !boot_cpu_has(X86_FEATURE_VMX);
 }

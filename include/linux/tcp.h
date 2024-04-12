@@ -81,7 +81,7 @@ struct tcp_sack_block {
 struct tcp_options_received {
 /*	PAWS/RTTM data	*/
 	int	ts_recent_stamp;/* Time we stored ts_recent (for aging) */ // 什么时候记录 ts_recent 的
-	u32	ts_recent;	/* Time stamp to echo next		*/ // 等下要 echo 对方的 timestamp
+	u32	ts_recent;	/* Time stamp to echo next		*/ // 等下要 echo 对方的 timestamp, tcp_ack()，表示最近收到的让窗口右移的包
 	u32	rcv_tsval;	/* Time stamp value             	*/
 	u32	rcv_tsecr;	/* Time stamp echo reply        	*/
 	u16 	saw_tstamp : 1,	/* Saw TIMESTAMP on last packet		*/
@@ -214,7 +214,7 @@ struct tcp_sock {
 	u32	rcv_ssthresh;	/* Current window clamp			*/ // 己方通告的窗口大小
 
 	/* Information of the most recently (s)acked skb */
-	// rack 记录了最近被 ack 或者 sack 的数据包信息
+	// rack 记录了最近被 ack 或者 sack 的数据包信息 (即最新被确认的数据包信息)
 	// RFC8985
 	struct tcp_rack {
 		u64 mstamp; /* (Re)sent time of the skb */  // 这个包发送的时间, 也代表着当前 连接的 now 时间
@@ -329,7 +329,7 @@ struct tcp_sock {
 	struct tcp_sack_block duplicate_sack[1]; /* D-SACK block */
 	struct tcp_sack_block selective_acks[4]; /* The SACKS themselves*/
 
-	struct tcp_sack_block recv_sack_cache[4]; // 先用后面的空间, 但是前面的 seq 会小些, dsack 不保存在这里
+	struct tcp_sack_block recv_sack_cache[4]; // 先用后面的空间, 但是前面的 seq 会小些, dsack 不保存在这里。换句话说，是从后往前用的, 但是保存的 sack 块信息，还是前面的小，后面的大
 
 	struct sk_buff *highest_sack;   /* skb just after the highest
 					 * skb with SACKed bit set
@@ -342,10 +342,10 @@ struct tcp_sock {
 	u32	prior_ssthresh; /* ssthresh saved at recovery start	基于下拥塞发生时的 ssthresh，在拥塞撤销的时候，可以用这个值来恢复 ssthresh */
 	u32	high_seq;	/* snd_nxt at onset of congestion	就是 recovery point */
 
-	u32	retrans_stamp;	/* Timestamp of the last retransmit,	// 上一次重传的时间戳, 重传结束或者还没有重传的时候，这个值就是 0。
+	u32	retrans_stamp;	/* Timestamp of the last retransmit,	// 这里的注释有问题，这个 retrans_stamp 应该是 first retransmit, refer to: tcp_retransmit_skb()
 				 * also used in SYN-SENT to remember stamp of
 				 * the first SYN. */
-	u32	undo_marker;	/* snd_una upon a new recovery episode. */
+	u32	undo_marker;	/* snd_una upon a new recovery episode. */ // 不是 恢复点，是出现重传的时候的 snd_una。也就是说，后续如果要 undo 的话，要从这里开始消除影响
 	int	undo_retrans;	/* number of undoable retransmissions. __这里的注释有误导__ */ // 初始值是 retrans_out，即重传的报文数目，当其值减小到 0 的时候，表示需要 undo 了。比如在DSACK 场景，检测到了一个 dup_seg 的时候，这个值就--。当其减为0了。说明之前做的重传都是 dup的，即都是没有必要的，所以就可以 undo 了。 refer to: %tcp_check_dsack()
 	u64	bytes_retrans;	/* RFC4898 tcpEStatsPerfOctetsRetrans
 				 * Total data bytes retransmitted

@@ -435,7 +435,7 @@ struct sock {
 	unsigned long		sk_tsq_flags;
 	union {
 		struct sk_buff	*sk_send_head;
-		struct rb_root	tcp_rtx_queue;
+		struct rb_root	tcp_rtx_queue; // 发送新数据的时候，会把 skb 插进来: tcp_event_new_data_sent
 	};
 	struct sk_buff		*sk_tx_skb_cache;
 	struct sk_buff_head	sk_write_queue;

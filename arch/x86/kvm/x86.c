@@ -110,6 +110,8 @@ static void __kvm_set_rflags(struct kvm_vcpu *vcpu, unsigned long rflags);
 static void store_regs(struct kvm_vcpu *vcpu);
 static int sync_regs(struct kvm_vcpu *vcpu);
 
+// 刚开始这个结构体的成员是全 0 ，模块加载，初始化完成后，被赋值为 vmx_x86_ops
+// 所以通过判断这个结构体里的成员是否为0，可以知道模块是不是被加载过了
 struct kvm_x86_ops kvm_x86_ops __read_mostly;
 EXPORT_SYMBOL_GPL(kvm_x86_ops);
 

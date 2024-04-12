@@ -3787,7 +3787,7 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 
 		qdisc_bstats_update(q, skb);
 
-		if (sch_direct_xmit(skb, q, dev, txq, root_lock, true)) {
+		if (sch_direct_xmit(skb, q, dev, txq, root_lock, true)) {	// 走 bypass 路径的话，这里就算丢包了，也不会直接反馈到上层协议栈了。 rc 都是 NET_XMIT_SUCCESS 了
 			if (unlikely(contended)) {
 				spin_unlock(&q->busylock);
 				contended = false;

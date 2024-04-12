@@ -848,7 +848,11 @@ struct tcp_skb_cb {
 	};
 	__u8		tcp_flags;	/* TCP header flags. (tcp[13])	*/
 
-	// 在解析参数的时候，sacked 会被设置为 sack 选项在tcp头部的 offset，refer to: tcp_sacktag_write_queue()
+	// 在解析参数的时候，sacked 会被设置为 sack 选项在tcp头部的 offset，refer to: tcp_parse_options
+	// 然后在后续深度处理 ack 报文(tcp_ack(0)的时候，sacked 才会用来保存 下述 flag, 用来标记报文状态。
+	// 也就是说:
+	// 对于 ingress 方向的报文，sacked 仅仅用来表达是否存在 sack block
+	// 对于 重传队列的 egress 方向报文，sacked 会保存下述 flag，用来表达重传队列上的报文状态
 	__u8		sacked;		/* State flags for SACK.	如果为0表示没有 SACKED */
 #define TCPCB_SACKED_ACKED	0x01	/* SKB ACK'd by a SACK block	*/
 #define TCPCB_SACKED_RETRANS	0x02	/* SKB retransmitted		*/

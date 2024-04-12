@@ -264,29 +264,29 @@ struct kvm_hyperv_exit {
 /* for KVM_RUN, returned by mmap(vcpu_fd, offset=0) */
 struct kvm_run {
 	/* in */
-	__u8 request_interrupt_window;
-	__u8 immediate_exit;
+	__u8 request_interrupt_window; // qemu 希望 kvm_run 返回，因为 qemu 想要注入中断
+	__u8 immediate_exit; // qemu 希望 kvm_run 马上返回, 可以避免用信号，让 kvm_run 返回 qemu
 	__u8 padding1[6];
 
 	/* out */
-	__u32 exit_reason;
-	__u8 ready_for_interrupt_injection;
+	__u32 exit_reason; // kvm 告诉 qemu 退出理由
+	__u8 ready_for_interrupt_injection; // 如果 qemu 要求注入中断，kvm 准备好了，就会设置这个 field
 	__u8 if_flag;
 	__u16 flags;
 
 	/* in (pre_kvm_run), out (post_kvm_run) */
 	__u64 cr8;
-	__u64 apic_base;
+	__u64 apic_base; // apic_base msr, refe to intel SDM APIC (IA32_APIC_BASE) 表示 lapic 的一些状态信息。用于 vapic 使用
 
 #ifdef __KVM_S390
 	/* the processor status word for s390 */
 	__u64 psw_mask; /* psw upper half */
 	__u64 psw_addr; /* psw lower half */
 #endif
-	union {
+	union { // 针对各种退出理由提供详细的信息
 		/* KVM_EXIT_UNKNOWN */
 		struct {
-			__u64 hardware_exit_reason;
+			__u64 hardware_exit_reason; // 当退出理由是 UNKNOWN 的时候，这里可以提供 arch-specific 的信息
 		} hw;
 		/* KVM_EXIT_FAIL_ENTRY */
 		struct {
@@ -482,10 +482,10 @@ struct kvm_coalesced_mmio_ring {
 /* for KVM_TRANSLATE */
 struct kvm_translation {
 	/* in */
-	__u64 linear_address;
+	__u64 linear_address; // GVA
 
 	/* out */
-	__u64 physical_address;
+	__u64 physical_address;	// GPA
 	__u8  valid;
 	__u8  writeable;
 	__u8  usermode;
