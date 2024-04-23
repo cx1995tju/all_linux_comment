@@ -3152,6 +3152,7 @@ static void tcp_retrans_try_collapse(struct sock *sk, struct sk_buff *to,
  * state updates are done by the caller.  Returns non-zero if an
  * error occurred which prevented the send.
  */
+// 这里可能拆分 skb 的
 int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);

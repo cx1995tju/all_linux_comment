@@ -2799,7 +2799,7 @@ static void tcp_init_cwnd_reduction(struct sock *sk)
 void tcp_cwnd_reduction(struct sock *sk, int newly_acked_sacked, int flag)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
-	int sndcnt = 0; // 即当前的 ack 报文可以让 cwnd 临时增大多少？用于快速恢复阶段临时扩大窗口, 即 snd_cwnd = in-flight + sndcnt。
+	int sndcnt = 0; // 即当前的 ack 报文可以让 cwnd 临时增大多少(可以是负数)？用于快速恢复阶段临时扩大窗口, 即 snd_cwnd = in-flight + sndcnt。
 	int delta = tp->snd_ssthresh - tcp_packets_in_flight(tp);	// refer to: tcp_init_cwnd_reduction(), 分情况做不同处理, snd_ssthresh 是在里面更新的, 快速恢复结束时，cwnd 应该平稳的到达 ssthresh 这个值
 
 	// 这个ack没有确认任何包，prr 也不运行
@@ -2812,12 +2812,13 @@ void tcp_cwnd_reduction(struct sock *sk, int newly_acked_sacked, int flag)
 		/*
 		 * sndcnt = [snd_ssthresh * prr_delivered / prior_cwnd] - prr_out
 		 * prr_out = [snd_ssthresh * (prr_delivered - newly_acked_sacked) / prior_cwnd] // prr_out 就是之前的 sndcnt 的总和
-		 * sndcnt - prr_out = [snd_ssthresh * newly_acked_sacked / prior_cwnd]
-		 *                  = (1 - \beta) * newly_acked_sacked
-		 *                  snd_ssthresh / prior_cwnd 就是乘法减少系数 (1 - \beta)
+		 * 故:
+		 * sndcnt = [snd_ssthresh * newly_acked_sacked / prior_cwnd]
+		 *        = (1 - \beta) * newly_acked_sacked
+		 *        snd_ssthresh / prior_cwnd 就是乘法减少系数 (1 - \beta)
 		 *
-		 *                  注意后续 snd_cwnd = in_flight + sndcnt, 由于当前这个 ack 包确认了 newly_acked_sacked 个数据，即 in_flight 减少了 newly_acked_sacked， snd_cwnd 就是减少了:
-		 *                  -newly_acked_sacked + sndcnt = \beta * newly_acked_sacked
+		 *        注意后续 snd_cwnd = in_flight + sndcnt, 由于当前这个 ack 包确认了 newly_acked_sacked 个数据，即 in_flight 减少了 newly_acked_sacked， snd_cwnd 就是减少了:
+		 *		-newly_acked_sacked + sndcnt = \beta * newly_acked_sacked
 		 *
 		 * prr 的目标就是, 在 prior_cwnd 里未确认的数据都被确认的时候，能够将 cwnd 减少到 snd_ssthresh, 所以每个 prior_cwnd 里的数据被确认的时候，就应该将 snd_cwnd 减少 \beta
 		 */
