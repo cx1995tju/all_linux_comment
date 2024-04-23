@@ -734,7 +734,7 @@ void __weak kvm_arch_pre_destroy_vm(struct kvm *kvm)
 {
 }
 
-static struct kvm *kvm_create_vm(unsigned long type) // type is 0
+static struct kvm *kvm_create_vm(unsigned long type) // x86 这里的 type is 0
 {
 	struct kvm *kvm = kvm_arch_alloc_vm();
 	int r = -ENOMEM;
@@ -745,7 +745,7 @@ static struct kvm *kvm_create_vm(unsigned long type) // type is 0
 
 	spin_lock_init(&kvm->mmu_lock);
 	mmgrab(current->mm); // 因为 vm 的内存就是 qemu 进程的虚拟内存。后续相关的 kthread 可能会操作的，所以 mm 需要引用计数++
-	kvm->mm = current->mm;
+	kvm->mm = current->mm;	// 还会使用这个 mm 来识别是不是创建 vm 的进程来操作 vm
 	kvm_eventfd_init(kvm); // 为后续的 eventfd 机制做准备
 	mutex_init(&kvm->lock);
 	mutex_init(&kvm->irq_lock);
@@ -760,7 +760,7 @@ static struct kvm *kvm_create_vm(unsigned long type) // type is 0
 		goto out_err_no_irq_srcu;
 
 	refcount_set(&kvm->users_count, 1);
-	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) {
+	for (i = 0; i < KVM_ADDRESS_SPACE_NUM; i++) { // 为什么默认分配了 2 个 slot ？？？
 		struct kvm_memslots *slots = kvm_alloc_memslots(); // 内存虚拟化相关
 
 		if (!slots)
@@ -770,7 +770,7 @@ static struct kvm *kvm_create_vm(unsigned long type) // type is 0
 		rcu_assign_pointer(kvm->memslots[i], slots);
 	}
 
-	for (i = 0; i < KVM_NR_BUSES; i++) {
+	for (i = 0; i < KVM_NR_BUSES; i++) { // 默认分配了 4 条 bus
 		rcu_assign_pointer(kvm->buses[i],
 			kzalloc(sizeof(struct kvm_io_bus), GFP_KERNEL_ACCOUNT)); // 设备模拟相关
 		if (!kvm->buses[i])

@@ -524,7 +524,7 @@ void tcp_retransmit_timer(struct sock *sk)
 	tcp_enter_loss(sk);
 
 	icsk->icsk_retransmits++;
-	if (tcp_retransmit_skb(sk, tcp_rtx_queue_head(sk), 1) > 0) {
+	if (tcp_retransmit_skb(sk, tcp_rtx_queue_head(sk), 1) > 0) {		// 这里只重传了一个报文，没有重传窗口内所有丢失的报文，是为了运行 frto 算法。在后续接收到这个重传报文的 ack 的时候 tcp_ack()->tcp_xmit_recovery() 会将所有标记为 Lost 的报文重传的
 		/* Retransmission failed because of local congestion,
 		 * Let senders fight for local resources conservatively.
 		 */

@@ -309,7 +309,7 @@ bool sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 
 	if (likely(skb)) {
 		HARD_TX_LOCK(dev, txq, smp_processor_id());
-		if (!netif_xmit_frozen_or_stopped(txq))
+		if (!netif_xmit_frozen_or_stopped(txq)) // 这里如果 frozen 或者 stopped skb 谁来释放
 			skb = dev_hard_start_xmit(skb, dev, txq, &ret);
 
 		HARD_TX_UNLOCK(dev, txq);
@@ -328,7 +328,7 @@ bool sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 			net_warn_ratelimited("BUG %s code %d qlen %d\n",
 					     dev->name, ret, q->q.qlen);
 
-		dev_requeue_skb(skb, q);
+		dev_requeue_skb(skb, q);	// 就不 bypasss tc 了，而是又送回 qdisc 里
 		return false;
 	}
 

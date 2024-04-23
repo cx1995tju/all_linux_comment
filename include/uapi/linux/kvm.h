@@ -262,6 +262,7 @@ struct kvm_hyperv_exit {
 #define KVM_INTERNAL_ERROR_UNEXPECTED_EXIT_REASON	4
 
 /* for KVM_RUN, returned by mmap(vcpu_fd, offset=0) */
+// 这块空间，会以 share memory 的方式直接和 qemu 交互的
 struct kvm_run {
 	/* in */
 	__u8 request_interrupt_window; // qemu 希望 kvm_run 返回，因为 qemu 想要注入中断

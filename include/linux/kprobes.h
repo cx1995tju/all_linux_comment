@@ -67,7 +67,7 @@ struct kprobe {
 	unsigned long nmissed;
 
 	/* location of the probe point */
-	kprobe_opcode_t *addr;
+	kprobe_opcode_t *addr;	// 即可以提供 addr/也可以提供 symbol 来插入 kprobe, 但是不能同时提供
 
 	/* Allow user to indicate symbol name of the probe point */
 	const char *symbol_name;

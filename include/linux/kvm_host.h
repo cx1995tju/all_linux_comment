@@ -451,7 +451,7 @@ struct kvm_memslots {
 struct kvm { // per vm 的结构
 	spinlock_t mmu_lock;
 	struct mutex slots_lock;
-	struct mm_struct *mm; /* userspace tied to this vm */
+	struct mm_struct *mm; /* userspace tied to this vm */ // 会使用这个 mm 来识别是不是创建 vm 的进程来操作 vm
 	struct kvm_memslots __rcu *memslots[KVM_ADDRESS_SPACE_NUM];
 	struct kvm_vcpu *vcpus[KVM_MAX_VCPUS];
 

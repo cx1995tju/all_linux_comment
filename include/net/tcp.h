@@ -1894,7 +1894,7 @@ static inline void tcp_push_pending_frames(struct sock *sk)
  */
 static inline u32 tcp_highest_sack_seq(struct tcp_sock *tp)
 {
-	if (!tp->sacked_out)	// 当前没有 sack 块信息
+	if (!tp->sacked_out)	// 当前没有收到 sack 块信息
 		return tp->snd_una;
 
 	if (tp->highest_sack == NULL)	// 最大的 SACKed 后面紧挨着的那个 skb(即发送方发送了的)。当然如果还没有发送，这里就是 NULL 了

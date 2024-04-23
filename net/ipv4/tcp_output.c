@@ -935,7 +935,7 @@ static unsigned int tcp_established_options(struct sock *sk, struct sk_buff *skb
 
 	if (likely(tp->rx_opt.tstamp_ok)) {
 		opts->options |= OPTION_TS;
-		opts->tsval = skb ? tcp_skb_timestamp(skb) + tp->tsoffset : 0; // 时钟粒度是 1 ms
+		opts->tsval = skb ? tcp_skb_timestamp(skb) + tp->tsoffset : 0; // 报文里的 timestamp 粒度是 1/TCP_TS_HZ sec(默认 是 1 ms)
 		opts->tsecr = tp->rx_opt.ts_recent;
 		size += TCPOLEN_TSTAMP_ALIGNED;
 	}
@@ -1219,6 +1219,7 @@ static void tcp_update_skb_after_send(struct sock *sk, struct sk_buff *skb,
 			tp->tcp_wstamp_ns += len_ns;
 		}
 	}
+	// 这里可以看出，在 rack 机制中一个报文一旦被重传，就会被移动到 tsort 的末尾了
 	list_move_tail(&skb->tcp_tsorted_anchor, &tp->tsorted_sent_queue);
 }
 
@@ -1533,7 +1534,7 @@ static void tcp_insert_write_queue_after(struct sk_buff *skb,
  * packet to the list.  This won't be called frequently, I hope.
  * Remember, these are still headerless SKBs at this point.
  *
- * 将 重传队列上的 一个 skb 拆成两个
+ * 将 重传队列上的 一个 skb 拆成两个。注意拆分的时候，是分配一个新的 skb 的，其要插入到重传队列的中间，还要插入到 tsorted_queue 的中间
  */
 int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
 		 struct sk_buff *skb, u32 len,
@@ -2503,12 +2504,13 @@ static bool tcp_small_queue_check(struct sock *sk, const struct sk_buff *skb,
 {
 	unsigned long limit;
 
+	// 下限是 2 个报文大小
 	limit = max_t(unsigned long,
 		      2 * skb->truesize,
 		      sk->sk_pacing_rate >> READ_ONCE(sk->sk_pacing_shift));
 	if (sk->sk_pacing_status == SK_PACING_NONE)
 		limit = min_t(unsigned long, limit,
-			      sock_net(sk)->ipv4.sysctl_tcp_limit_output_bytes);
+			      sock_net(sk)->ipv4.sysctl_tcp_limit_output_bytes);	// 上限是这个值
 	limit <<= factor;
 
 	if (static_branch_unlikely(&tcp_tx_delay_enabled) &&
@@ -2703,7 +2705,7 @@ repair:
 		/* Advance the send_head.  This one is sent out.
 		 * This call will increment packets_out.
 		 */
-		tcp_event_new_data_sent(sk, skb);
+		tcp_event_new_data_sent(sk, skb); // 重传报文不走这条路，不需要再次插入的
 
 		tcp_minshall_update(tp, mss_now, skb);
 		sent_pkts += tcp_skb_pcount(skb);
@@ -3197,7 +3199,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 		return -EAGAIN;
 
 	len = cur_mss * segs;
-	if (skb->len > len) {
+	if (skb->len > len) {	// ????????????????
 		if (tcp_fragment(sk, TCP_FRAG_IN_RTX_QUEUE, skb, len,
 				 cur_mss, GFP_ATOMIC))
 			return -ENOMEM; /* We'll try again later. */
@@ -3325,7 +3327,7 @@ void tcp_xmit_retransmit_queue(struct sock *sk)
 		if (!hole)
 			tp->retransmit_skb_hint = skb;
 
-		segs = tp->snd_cwnd - tcp_packets_in_flight(tp); // 重传的时候也要受 cwnd 限制呀。遵循数据包守恒原理，确认丢了一个，才能发一个
+		segs = tp->snd_cwnd - tcp_packets_in_flight(tp); // 重传的时候也要受 cwnd 限制呀。遵循数据包守恒原理，确认丢了一个，才能发一个。标记为 lost 的时候，in_flight 会减少。所以 segs 就会增大
 		if (segs <= 0)
 			break;
 		sacked = TCP_SKB_CB(skb)->sacked;

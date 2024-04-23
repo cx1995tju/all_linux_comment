@@ -1245,10 +1245,10 @@ yet and must be cleared on entry.
 This ioctl allows the user to create, modify or delete a guest physical
 memory slot.  Bits 0-15 of "slot" specify the slot id and this value
 should be less than the maximum number of user memory slots supported per
-VM.  The maximum allowed slots can be queried using KVM_CAP_NR_MEMSLOTS.
+VM.  The maximum allowed slots can be queried using KVM_CAP_NR_MEMSLOTS.        // 可以简单的理解为最多支持几块内存
 Slots may not overlap in guest physical address space.
 
-If KVM_CAP_MULTI_ADDRESS_SPACE is available, bits 16-31 of "slot"
+If KVM_CAP_MULTI_ADDRESS_SPACE is available, bits 16-31 of "slot"               // KVM_CAP_MULTI_ADDRESS_SPACE 是否支持多个 address space
 specifies the address space which is being modified.  They must be
 less than the value that KVM_CHECK_EXTENSION returns for the
 KVM_CAP_MULTI_ADDRESS_SPACE capability.  Slots in separate address spaces

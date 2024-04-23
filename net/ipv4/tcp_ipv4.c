@@ -2049,7 +2049,7 @@ process:
 
 	sk_incoming_cpu_update(sk);
 
-	bh_lock_sock_nested(sk);
+	bh_lock_sock_nested(sk);	// 这里对 sock 加锁了
 	tcp_segs_in(tcp_sk(sk), skb);
 	ret = 0;
 	if (!sock_owned_by_user(sk)) {

@@ -1072,7 +1072,7 @@ void tcp_mark_skb_lost(struct sock *sk, struct sk_buff *skb)
 
 	tcp_verify_retransmit_hint(tp, skb);
 	if (sacked & TCPCB_LOST) {	// 已经 lost 了
-		if (sacked & TCPCB_SACKED_RETRANS) { // 而且 retrans 过, 说明 retrans 报文又 lost 了
+		if (sacked & TCPCB_SACKED_RETRANS) { // 而且 retrans 过, 说明 retrans 报文又 lost 了。不同机制判断重传报文的 lost 是不一样的(newreno, sack, rack)
 			/* Account for retransmits that are lost again */
 			TCP_SKB_CB(skb)->sacked &= ~TCPCB_SACKED_RETRANS;
 			tp->retrans_out -= tcp_skb_pcount(skb);
@@ -1153,7 +1153,7 @@ static void tcp_count_delivered(struct tcp_sock *tp, u32 delivered,
  * it means that the receiver is rather inconsistent with itself reporting		
  * SACK reneging when it should advance SND.UNA. Such SACK block this is		
  * perfectly valid, however, in light of RFC2018 which explicitly states		
- * that "SACK block MUST reflect the newest segment.  Even if the newest                // case 1: head skb	 __HERE IT IS__
+ * that "SACK block MUST reflect the newest segment.  Even if the newest                // case 1: sack block 如果覆盖了 head skb, 认为是不可信的	 __HERE IT IS__
  * segment is going to be discarded ...", not that it looks very clever                 //	只有 sack reneging 的情况下，sack block 才会包括 snd.una。因为 RFC2018 规定了
  * in case of head skb. Due to potentional receiver driven attacks, we                  //	"SACK block MUST reflect the newest segment. Even if the newest * segment is going to be discarded ..."
  * choose to avoid immediate execution of a walk in write queue due to                  //	如果 receiver 发神经(inconsistent)，每次收到了 snd.una 序号的报文，就把它丢掉，然后回复 SACK 块, 就会持续出现这种情况。
@@ -1393,13 +1393,13 @@ static int tcp_match_skb_to_sack(struct sock *sk, struct sk_buff *skb,
 }
 
 /* Mark the given newly-SACKed range as such, adjusting counters and hints. */
-// skb 的标记就是这个函数完成的, 返回值就是 skb 的标记
-// 调用这个函数的时候，说明 skb 已经 fully in [satrt_seq, end_seq]
+// 调用这个函数的时候，说明 [start_seq, end_seq] 这个范围已经 fully in [satrt_seq, end_seq]
+// 根据这个范围来标记，将标记的信息保存在 state 里。sacked 表示 [start_seq, end_seq] 这个范围的数据当前已有的 flag
 static u8 tcp_sacktag_one(struct sock *sk,
 			  struct tcp_sacktag_state *state, u8 sacked,
 			  u32 start_seq, u32 end_seq,
 			  int dup_sack, int pcount,
-			  u64 xmit_time)
+			  u64 xmit_time) // xmit_time 单位是 us
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
@@ -1511,7 +1511,7 @@ static bool tcp_shifted_skb(struct sock *sk, struct sk_buff *prev,
 		tp->lost_cnt_hint += pcount;
 
 	TCP_SKB_CB(prev)->end_seq += shifted; // 不需要 copy 数据过去？？？ 
-	TCP_SKB_CB(skb)->seq += shifted; // 不需要真的 copy 数据？
+	TCP_SKB_CB(skb)->seq += shifted; // 不需要真的 copy 数据？ 在 tcp_skb_shift 里已经 copy 了
 
 	tcp_skb_pcount_add(prev, pcount);
 	WARN_ON_ONCE(tcp_skb_pcount(skb) < pcount);
@@ -1530,6 +1530,8 @@ static bool tcp_shifted_skb(struct sock *sk, struct sk_buff *prev,
 		TCP_SKB_CB(skb)->tcp_gso_size = 0;
 
 	/* Difference in this won't matter, both ACKed by the same cumul. ACK */
+	// skb ever_retrans 过，为什么把整个 prev 标记为 ever_retrans
+	// 只要有一部分 retrans 过，整体就相当于 retrans 过？就不能用来采样 rtt ？？？
 	TCP_SKB_CB(prev)->sacked |= (TCP_SKB_CB(skb)->sacked & TCPCB_EVER_RETRANS);
 
 	if (skb->len > 0) { // 说明 skb 还没有被吃光
@@ -1645,6 +1647,7 @@ static struct sk_buff *tcp_shift_skb_data(struct sock *sk, struct sk_buff *skb,
 	if (!prev)
 		goto fallback;
 
+	// 只有 prev 也被 sacked 了才会尝试 merge 的，而且 prev 没有被 lost 或者 retran 过
 	if ((TCP_SKB_CB(prev)->sacked & TCPCB_TAGBITS) != TCPCB_SACKED_ACKED)						// prev 被 sack 了, 而且被重传过或者 Lost 了，那么 skb 不往里面 merge，否则skb merge 到 prev 里
 		goto fallback;
 
@@ -1800,14 +1803,15 @@ static struct sk_buff *tcp_sacktag_walk(struct sk_buff *skb, struct sock *sk,
 			tmp = tcp_shift_skb_data(sk, skb, state,	// 在 match skb 之前，根据 sack 块信息，对重传队列的 skb 做一些调整
 						 start_seq, end_seq, dup_sack);
 			if (tmp) {
-				if (tmp != skb) { // 常态在这里，说明 skb 和 其 prev 折叠到一起了，如果可以折叠到一起，说明 skb 和 prev 一起被标记了。
+				if (tmp != skb) { // 说明 skb 和 其 prev 折叠到一起了，如果可以折叠到一起，说明 skb 和 prev 一起被标记了。
 					skb = tmp;
 					continue;
 				}
 
+				// 说明啥都没干，skb 怎么进去的还是怎么出来的？ 但是里面做了判断的，说明 skb 不在 sack block 内
 				in_sack = 0; // 说明 skb 无法和 prev 折叠到一起, 而且已经处理了 skb，skb 不在 sack block 内
-			} else {		// 无法折叠, 直接处理 skb 了
-				in_sack = tcp_match_skb_to_sack(sk, skb, // 这里才是在处理 skb 和当前的 sack block 的, 前面是 dup sack 的处理
+			} else {		// 无法折叠, skb 可能部分在 sack block 内，去这里面处理
+				in_sack = tcp_match_skb_to_sack(sk, skb, // 这里才是在处理 skb 和当前的 sack block 的, 前面是 dup sack 的处理。这里面可能拆分 skb 的
 								start_seq,
 								end_seq);
 			}
@@ -2268,10 +2272,10 @@ static void tcp_timeout_mark_lost(struct sock *sk)
 	skb_rbtree_walk_from(skb) {
 		if (is_reneg)						// 当然如果发生了 sack reneg的话，那么 sack 信息就无意义了
 			TCP_SKB_CB(skb)->sacked &= ~TCPCB_SACKED_ACKED;
-		else if (tcp_is_rack(sk) && skb != head &&			// 一般都是这里，有 rack 了
+		else if (tcp_is_rack(sk) && skb != head &&			// 一般都是这里，现在都有 rack 了
 			 tcp_rack_skb_timeout(tp, skb, 0) > 0)
 			continue; /* Don't mark recently sent ones lost yet */
-		tcp_mark_skb_lost(sk, skb);
+		tcp_mark_skb_lost(sk, skb);	// 这里面如果 skb 被 sacked 过，那么就不会标记为 Lost 了。
 	}
 	tcp_verify_left_out(tp);
 	tcp_clear_all_retrans_hints(tp);
@@ -2500,6 +2504,7 @@ static void tcp_mark_head_lost(struct sock *sk, int packets, int mark_head)
 		cnt = 0;
 	}
 
+	// 遍历队列，从前往后标记咯。标记的量足够了，就退出
 	skb_rbtree_walk_from(skb) {
 		/* TODO: do this better */
 		/* this is not the most efficient way to do this... */
@@ -2509,7 +2514,7 @@ static void tcp_mark_head_lost(struct sock *sk, int packets, int mark_head)
 		if (after(TCP_SKB_CB(skb)->end_seq, loss_high))
 			break;
 
-		if (TCP_SKB_CB(skb)->sacked & TCPCB_SACKED_ACKED)
+		if (TCP_SKB_CB(skb)->sacked & TCPCB_SACKED_ACKED) // skb 都被 ack 了, 后面还要标记为 Lost ？？？ 不过这里虽然标记了，但是在 tcp_xmit_retransmit_queue() 重传的时候是不会重传的
 			cnt += tcp_skb_pcount(skb);
 
 		if (cnt > packets)
@@ -2531,10 +2536,13 @@ static void tcp_update_scoreboard(struct sock *sk, int fast_rexmit)
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	if (tcp_is_sack(tp)) {
-		int sacked_upto = tp->sacked_out - tp->reordering;
+		// linux 的实现下，默认启用了 fack 机制。即 highest_[s]ack 之前的都认为 丢包了
+		// 所以这里最多可以标记 sacked_upto 个 segment lost。就算这个 segment 被 sack 了，也会标记为 lost 的
+		// 不过在重传的时候，是没有重传那些被标记为 lost|sacked 的报文的
+		int sacked_upto = tp->sacked_out - tp->reordering; // 表示最多可以标记 sacked_upto 个 segmnet 为 lost 了
 		if (sacked_upto >= 0)
 			tcp_mark_head_lost(sk, sacked_upto, 0);
-		else if (fast_rexmit)
+		else if (fast_rexmit)	// 计算 sacked_upto 小于 0，但是只要是在快速重传阶段，都要至少尝试标记一个 packet 为 lost 的
 			tcp_mark_head_lost(sk, 1, 1);
 	}
 }
@@ -3224,7 +3232,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 	}
 
 	if (!tcp_is_rack(sk) && do_lost) // 现在默认都是 rack 了，不通过 scoreboard 来标记了
-		tcp_update_scoreboard(sk, fast_rexmit);
+		tcp_update_scoreboard(sk, fast_rexmit); // 传统的 sasck 记分板算法
 	*rexmit = REXMIT_LOST;
 }
 
@@ -3904,11 +3912,12 @@ static void tcp_xmit_recovery(struct sock *sk, int rexmit)
 		return;
 
 	if (unlikely(rexmit == REXMIT_NEW)) {
+		// f-rto 启动的时候，有可能是 REXMIT_NEW 的
 		__tcp_push_pending_frames(sk, tcp_current_mss(sk),
 					  TCP_NAGLE_OFF);
 		if (after(tp->snd_nxt, tp->high_seq))
 			return;
-		tp->frto = 0;
+		tp->frto = 0;	// 如果没有新数据可以发，那么
 	}
 	tcp_xmit_retransmit_queue(sk);
 }

@@ -742,7 +742,7 @@ struct sk_buff {
 
 	union {
 		ktime_t		tstamp;
-		u64		skb_mstamp_ns; /* earliest departure time */ // skb 发送出去的时间
+		u64		skb_mstamp_ns; /* earliest departure time */ // skb 发送出去的时间, 单位是 ns，但是报文里真正填的时间戳粒度是 ms，而且有一个偏移的。
 	};
 	/*
 	 * This is the control buffer. It is free to use for every

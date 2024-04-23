@@ -342,7 +342,7 @@ struct napi_struct {
 	struct net_device	*dev;
 	struct gro_list		gro_hash[GRO_HASH_BUCKETS];
 	struct sk_buff		*skb;
-	struct list_head	rx_list; /* Pending GRO_NORMAL skbs */
+	struct list_head	rx_list; /* Pending GRO_NORMAL skbs */ // skb 挂载到这里
 	int			rx_count; /* length of rx_list */
 	struct hrtimer		timer;
 	struct list_head	dev_list;
@@ -3221,7 +3221,7 @@ struct softnet_data {
 #endif
 	unsigned int		dropped;
 	struct sk_buff_head	input_pkt_queue;
-	struct napi_struct	backlog;
+	struct napi_struct	backlog;	// 非 napi 形式的接收的时候，会使用这个 backlog napi_struct
 
 };
 

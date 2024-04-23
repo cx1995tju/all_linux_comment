@@ -29,6 +29,7 @@ static u32 tcp_rack_reo_wnd(const struct sock *sk)
 	 * Upon receiving DSACKs, linearly increase the window up to the
 	 * smoothed RTT.
 	 */
+	// 最大不会超过 srtt 的, 注意这里 >> 3 才是实际的 srtt_us 值
 	return min((tcp_min_rtt(tp) >> 2) * tp->rack.reo_wnd_steps,
 		   tp->srtt_us >> 3);
 }
@@ -83,6 +84,10 @@ static void tcp_rack_detect_loss(struct sock *sk, u32 *reo_timeout)
 		    !(scb->sacked & TCPCB_SACKED_RETRANS))
 			continue;
 
+		// tp->rack 标记的这个报文比 skb 这个报文要后发送?
+		//	- 要么其时间戳靠后
+		//	- 要么时间戳一致，其序号靠后
+		// 因为 tp->rack 记录的最近发送的报文
 		if (!tcp_rack_sent_after(tp->rack.mstamp,
 					 tcp_skb_timestamp_us(skb),
 					 tp->rack.end_seq, scb->end_seq))
@@ -162,7 +167,8 @@ void tcp_rack_reo_timeout(struct sock *sk)
 	u32 timeout, prior_inflight;
 
 	prior_inflight = tcp_packets_in_flight(tp);
-	tcp_rack_detect_loss(sk, &timeout); // 再尝试标记一下
+	// rack timer 超时，需要来标记 Lost 了
+	tcp_rack_detect_loss(sk, &timeout);
 	if (prior_inflight != tcp_packets_in_flight(tp)) { // 不等，说明标记了一些 loss 的报文
 		if (inet_csk(sk)->icsk_ca_state != TCP_CA_Recovery) { // 所以要进入 快速恢复 阶段，运行 prr 算法
 			tcp_enter_recovery(sk, false);
@@ -239,6 +245,6 @@ void tcp_newreno_mark_lost(struct sock *sk, bool snd_una_advanced)
 			tcp_fragment(sk, TCP_FRAG_IN_RTX_QUEUE, skb,
 				     mss, mss, GFP_ATOMIC);
 
-		tcp_mark_skb_lost(sk, skb);
+		tcp_mark_skb_lost(sk, skb);	// new reno 场景下，一次最多只会标记一个的
 	}
 }

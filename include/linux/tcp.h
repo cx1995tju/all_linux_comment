@@ -81,7 +81,7 @@ struct tcp_sack_block {
 struct tcp_options_received {
 /*	PAWS/RTTM data	*/
 	int	ts_recent_stamp;/* Time we stored ts_recent (for aging) */ // 什么时候记录 ts_recent 的
-	u32	ts_recent;	/* Time stamp to echo next		*/ // 等下要 echo 对方的 timestamp, tcp_ack()，表示最近收到的让窗口右移的包
+	u32	ts_recent;	/* Time stamp to echo next		*/ // 等下要 echo 对方的 timestamp, tcp_ack()，表示最近收到的让窗口右移的包。换句话说，如果是 delay ack，那么 echo 的就是后一个报文的 timestamp。下一个要发出的报文用这个值来 echo。
 	u32	rcv_tsval;	/* Time stamp value             	*/
 	u32	rcv_tsecr;	/* Time stamp echo reply        	*/
 	u16 	saw_tstamp : 1,	/* Saw TIMESTAMP on last packet		*/
@@ -203,7 +203,7 @@ struct tcp_sock {
 	u32	tsoffset;	/* timestamp offset */ // 安全问题，加一个 offset
 
 	struct list_head tsq_node; /* anchor in tsq_tasklet.head list */
-	struct list_head tsorted_sent_queue; /* time-sorted sent but un-SACKed skbs */
+	struct list_head tsorted_sent_queue; /* time-sorted sent but un-SACKed skbs */	// 不管是重传的还是普通的报文都要挂载上来的。
 
 	u32	snd_wl1;	/* Sequence for window update 记录更新发送窗口的那个ack包的自身的序号，如果后续接收到的ack端大于snd_wl1，就需要更新窗口见tcp_may_update_window */ // 也就是说这个序号让窗口左(或)边界右移了
 	u32	snd_wnd;	/* The window we expect to receive 对端给的窗口大小信息 */
@@ -214,11 +214,11 @@ struct tcp_sock {
 	u32	rcv_ssthresh;	/* Current window clamp			*/ // 己方通告的窗口大小
 
 	/* Information of the most recently (s)acked skb */
-	// rack 记录了最近被 ack 或者 sack 的数据包信息 (即最新被确认的数据包信息)
+	// rack 记录了最近被 sack 的数据包信息 (即最新被确认的数据包信息)
 	// RFC8985
 	struct tcp_rack {
-		u64 mstamp; /* (Re)sent time of the skb */  // 这个包发送的时间, 也代表着当前 连接的 now 时间
-		u32 rtt_us;  /* Associated RTT */
+		u64 mstamp; /* (Re)sent time of the skb */  // (注意，rack 记录的是被 sack 的包信息)这个包发送的时间, 也代表着当前 连接的 now 时间(refer to: RFC8985), 注意报文里的时间戳粒度是 ms，这里的单位是 us 哦
+		u32 rtt_us;  /* Associated RTT */	// 最近的一次 rtt 采样，很容易受到 rtt 波动影响呀。
 		u32 end_seq; /* Ending TCP sequence of the skb */
 		u32 last_delivered; /* tp->delivered at last reo_wnd adj */
 		u8 reo_wnd_steps;   /* Allowed reordering window */	// 基本单位是 min_RTT / 4	refer to: tcp_rack_reo_wnd
@@ -312,7 +312,7 @@ struct tcp_sock {
 	u32	notsent_lowat;	/* TCP_NOTSENT_LOWAT */
 	u32	pushed_seq;	/* Last pushed seq, required to talk to windows */
 	u32	lost_out;	/* Lost packets */ // 丢包数目，重传包丢的话，这个值不会++  refer to: %tcp_mark_skb_lost()
-	u32	sacked_out;	/* SACK'd packets	(被 sack 的数据包个数), 当然一次tcp连接波动处理结束后(即接收方 ACK 号已经超过了 sack 号，且已经没有接收到 sack 了)，这个值会被reset 为 0 的。*/
+	u32	sacked_out;	/* SACK'd packets	(被 sack 的数据包个数), 当然一次tcp连接波动处理结束后(即接收方 ACK 号已经超过了 sack 号，且已经没有接收到 sack 了)，这个值会被reset 为 0 的。*/ // 这个信息表达了链路当前乱序的情况
 
 	struct hrtimer	pacing_timer;
 	struct hrtimer	compressed_ack_timer;
