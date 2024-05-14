@@ -1219,7 +1219,19 @@ static void tcp_update_skb_after_send(struct sock *sk, struct sk_buff *skb,
 			tp->tcp_wstamp_ns += len_ns;
 		}
 	}
-	// 这里可以看出，在 rack 机制中一个报文一旦被重传，就会被移动到 tsort 的末尾了
+	// 这里可以看出，在 rack 机制中一个报文一旦被重传，就会被移动到 tsort 的末尾了, 即 tsorted_sent_queue 前面的一个位置
+	// 这里有个 corener case:
+	// 重传一个大的报文 skb, __tcp_retransmit_skb() -> tcp_fragment() 这里会将一个 skb 拆成两部分 skb,buff。并且建立了两者的 tcp_tsorted_anchor 的连接关系 skb<->buff
+	// 另外值得注意的是，既然 skb 会被重传，那么说明其被标记为了 lost。 tcp_rack_detect_loss() 这里标记的时候将 skb 从 tsorted_sent_queue 中拆除了。所以此时 skb 被拆分后的 skb <-> buff list 实际是孤悬的。
+	// 只有 skb 和 buff 都被真正的重传了，其才会被重新挂载到 tcp_sent_queue 中。 tcp_update_skb_after_send()
+	// 基于上述逻辑，这里有一个 bad corner case。在重传的时候 skb 之所以被拆分为两部分，是因为 cwnd 不足。所以当前的重传稚嫩将前一部分的 skb 发送出去。buff 的重传要等到之后 cwnd 有空间了才可以。
+	// 但是考虑如果在下次重传之前触发了 tcp_try_undo_partial() 导致 rtx_queue 上的所有 skb 的 lost 标记都被清除了。包含这里的 buff。而这里的 buff 其实没有被重传。那么就只能等待 200ms 的 RTO 了。
+	//
+	//
+	// 注1: cwnd 不足的原因???  refer to: tcp_rack_reo_timeout() -> tcp_cwnd_reduction()
+	// 注2: undo 的原因？？？ :
+	//	- 重传报文被 ack 了
+	//	- 收到了原始报文的 ack，表明重传是伪重传
 	list_move_tail(&skb->tcp_tsorted_anchor, &tp->tsorted_sent_queue);
 }
 
@@ -1260,7 +1272,7 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	tp = tcp_sk(sk);
 	prior_wstamp = tp->tcp_wstamp_ns;
 	tp->tcp_wstamp_ns = max(tp->tcp_wstamp_ns, tp->tcp_clock_cache);
-	skb->skb_mstamp_ns = tp->tcp_wstamp_ns;
+	skb->skb_mstamp_ns = tp->tcp_wstamp_ns;	// 更新了时间戳
 	if (clone_it) {
 		TCP_SKB_CB(skb)->tx.in_flight = TCP_SKB_CB(skb)->end_seq
 			- tp->snd_una;
@@ -1310,6 +1322,10 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	 * TODO: Ideally, in-flight pure ACK packets should not matter here.
 	 * One way to get this would be to set skb->truesize = 2 on them.
 	 */
+	// 问：这个 ooo_okay 到底确保了哪个阶段是 order 的？
+	// 答：取决于 driver 里的配置。因为这里的 ooo_okay 依赖于 sk_wmem_alloc_get()。所以问题的关键就是 wmeme_alloc 什么时候减少。就可能出现 ooo_okay
+	//     如果在 driver 回收 txq 的 skb 的时候才减少，那么就确保了硬件层以上都是 order 的。如果在 driver 送入 硬件 txq 之后就减少。那么只能保证 driver 层及之上是有序的。
+	//     因为对于 multi queue 的 网卡，送到 driver 虽然是有序的。但是由于 mq 的存在，硬件搬运后，可能就是无序的了。
 	skb->ooo_okay = sk_wmem_alloc_get(sk) < SKB_TRUESIZE(1);
 
 	/* If we had to use memory reserve to allocate this skb,
@@ -1415,7 +1431,7 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 		err = net_xmit_eval(err);
 	}
 	if (!err && oskb) {
-		tcp_update_skb_after_send(sk, oskb, prior_wstamp);
+		tcp_update_skb_after_send(sk, oskb, prior_wstamp); // __HERE__
 		tcp_rate_skb_sent(sk, oskb);
 	}
 	return err;
@@ -1535,6 +1551,8 @@ static void tcp_insert_write_queue_after(struct sk_buff *skb,
  * Remember, these are still headerless SKBs at this point.
  *
  * 将 重传队列上的 一个 skb 拆成两个。注意拆分的时候，是分配一个新的 skb 的，其要插入到重传队列的中间，还要插入到 tsorted_queue 的中间
+ *
+ * 将 skb 拆成两部分: skb + buff
  */
 int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
 		 struct sk_buff *skb, u32 len,
@@ -1592,10 +1610,10 @@ int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
 	flags = TCP_SKB_CB(skb)->tcp_flags;
 	TCP_SKB_CB(skb)->tcp_flags = flags & ~(TCPHDR_FIN | TCPHDR_PSH);
 	TCP_SKB_CB(buff)->tcp_flags = flags;
-	TCP_SKB_CB(buff)->sacked = TCP_SKB_CB(skb)->sacked;
+	TCP_SKB_CB(buff)->sacked = TCP_SKB_CB(skb)->sacked;	// sacked 复制了
 	tcp_skb_fragment_eor(skb, buff);
 
-	skb_split(skb, buff, len);
+	skb_split(skb, buff, len);	// 将 skb 根据 len 长度拆成了两部分了
 
 	buff->ip_summed = CHECKSUM_PARTIAL;
 
@@ -1624,9 +1642,9 @@ int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
 
 	/* Link BUFF into the send queue. */
 	__skb_header_release(buff);
-	tcp_insert_write_queue_after(skb, buff, sk, tcp_queue);
-	if (tcp_queue == TCP_FRAG_IN_RTX_QUEUE)
-		list_add(&buff->tcp_tsorted_anchor, &skb->tcp_tsorted_anchor);
+	tcp_insert_write_queue_after(skb, buff, sk, tcp_queue);	// buff 需要插入到 rtx queue 里
+	if (tcp_queue == TCP_FRAG_IN_RTX_QUEUE) // ... -> skb -> buff -> ...  建立了下述联系
+		list_add(&buff->tcp_tsorted_anchor, &skb->tcp_tsorted_anchor);	// 注意在 tcp_rack_detect_loss 里将 skb 已经从 tcp_sock 的 tsorted 上面移除了。所以这里仅仅是建立了 buff 和 skb 这两个 skb 的关系。然后在 tcp_update_skb_after_send 将 skb 放到了 tcp_scok tsorted_sent_queue 的末尾。就会导致 buff 没有被重传，然后孤悬了。即没有在 tp->tsorted_sent_queue 了。如果此时发生了 undo_partial 事件。那么就导致所有 skb 都被取消 lost 标记了(含 buff)。而 buff 由于不在 tsorted 上。所以其永远得不到 LOST 标记了。除非 RTO timeout
 
 	return 0;
 }
@@ -2826,7 +2844,7 @@ void tcp_send_loss_probe(struct sock *sk)
 			goto probe_sent;
 		goto rearm_timer;
 	}
-	skb = skb_rb_last(&sk->tcp_rtx_queue);
+	skb = skb_rb_last(&sk->tcp_rtx_queue);	// 重传了重传队列上的最后一个。
 	if (unlikely(!skb)) {
 		WARN_ONCE(tp->packets_out,
 			  "invalid inflight: %u state %u cwnd %u mss %d\n",
@@ -2843,7 +2861,7 @@ void tcp_send_loss_probe(struct sock *sk)
 		goto rearm_timer;
 
 	if ((pcount > 1) && (skb->len > (pcount - 1) * mss)) {
-		if (unlikely(tcp_fragment(sk, TCP_FRAG_IN_RTX_QUEUE, skb,
+		if (unlikely(t这一个发送出去了, cp_fragment(sk, TCP_FRAG_IN_RTX_QUEUE, skb,
 					  (pcount - 1) * mss, mss,
 					  GFP_ATOMIC)))
 			goto rearm_timer;
@@ -3200,8 +3218,8 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 		return -EAGAIN;
 
 	len = cur_mss * segs;
-	if (skb->len > len) {	// ????????????????
-		if (tcp_fragment(sk, TCP_FRAG_IN_RTX_QUEUE, skb, len,
+	if (skb->len > len) {	// ???????????????? 窗口不足发送一个 skb，那么需要拆分 skb
+		if (tcp_fragment(sk, TCP_FRAG_IN_RTX_QUEUE, skb, len,	// 拆分了 skb 的
 				 cur_mss, GFP_ATOMIC))
 			return -ENOMEM; /* We'll try again later. */
 	} else {
@@ -3252,7 +3270,7 @@ int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs)
 			tcp_rate_skb_sent(sk, skb);
 		}
 	} else {
-		err = tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);
+		err = tcp_transmit_skb(sk, skb, 1, GFP_ATOMIC);	// clone_it 是 1
 	}
 
 	/* To avoid taking spuriously low RTT samples based on a timestamp
@@ -3340,7 +3358,7 @@ void tcp_xmit_retransmit_queue(struct sock *sk)
 		if (tp->retrans_out >= tp->lost_out) { // 重传的量已经超过 lost 的量了。 根据数据包守恒原理，不要发了。除非又 lost 了
 			break;
 		} else if (!(sacked & TCPCB_LOST)) { // 这个 skb 没有标记为 lost
-			if (!hole && !(sacked & (TCPCB_SACKED_RETRANS|TCPCB_SACKED_ACKED)))
+			if (!hole && !(sacked & (TCPCB_SACKED_RETRANS|TCPCB_SACKED_ACKED)))	// 没有重传过
 				hole = skb;
 			continue;
 
@@ -3352,7 +3370,7 @@ void tcp_xmit_retransmit_queue(struct sock *sk)
 		}
 
 		// skb 被标记为 lost 了, 但是被重传或者被 SACKED 过, 就 continue
-		if (sacked & (TCPCB_SACKED_ACKED|TCPCB_SACKED_RETRANS))
+		if (sacked & (TCPCB_SACKED_ACKED|TCPCB_SACKED_RETRANS))	// 标记为 lost 且没有重传过，才会被重传
 			continue;
 
 		if (tcp_small_queue_check(sk, skb, 1))

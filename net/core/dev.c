@@ -3785,7 +3785,7 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 		 * xmit the skb directly.
 		 */
 
-		qdisc_bstats_update(q, skb);
+		qdisc_bstats_update(q, skb);	// 虽然 bypass 了 qdisc，但是统计还是要算上的
 
 		if (sch_direct_xmit(skb, q, dev, txq, root_lock, true)) {	// 走 bypass 路径的话，这里就算丢包了，也不会直接反馈到上层协议栈了。 rc 都是 NET_XMIT_SUCCESS 了
 			if (unlikely(contended)) {

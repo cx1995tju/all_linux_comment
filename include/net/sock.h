@@ -263,7 +263,7 @@ struct bpf_local_storage;
   *	@sk_policy: flow policy
   *	@sk_rx_skb_cache: cache copy of recently accessed RX skb
   *	@sk_receive_queue: incoming packets
-  *	@sk_wmem_alloc: transmit queue bytes committed
+  *	@sk_wmem_alloc: transmit queue bytes committed	// 提交到 driver 里的数据量。对于 tcp 来说在 __tcp_transmit_skb() 的时候加加，在 driver 里释放 skb(或者 skb_orphan()->tcp_wfree()) 的时候 减减。 注意：在 driver 里取决于配置。可能在回收 tx desc 的时候释放，也可能送入到 txq 就释放了。 refer to: virtio_net.c。
   *	@sk_tsq_flags: TCP Small Queues flags
   *	@sk_write_queue: Packet sending queue
   *	@sk_omem_alloc: "o" is "option" or "other"

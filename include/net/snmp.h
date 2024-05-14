@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  *
- *		SNMP MIB entries for the IP subsystem.
+ *		SNMP MIB entries for the IP subsystem. // MIB: management information base
  *		
  *		Alan Cox <gw4pts@gw4pts.ampr.org>
  *

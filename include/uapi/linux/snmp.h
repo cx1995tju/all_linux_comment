@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
- * Definitions for MIBs
+ * Definitions for MIBs // MIB: management information base
  *
  * Author: Hideaki YOSHIFUJI <yoshfuji@linux-ipv6.org>
  */
@@ -68,7 +68,7 @@ enum
 enum
 {
 	ICMP_MIB_NUM = 0,
-	ICMP_MIB_INMSGS,			/* InMsgs */
+	ICMP_MIB_INMSGS,			/* InMsgs */	// refer to: net/icmp.h
 	ICMP_MIB_INERRORS,			/* InErrors */
 	ICMP_MIB_INDESTUNREACHS,		/* InDestUnreachs */
 	ICMP_MIB_INTIMEEXCDS,			/* InTimeExcds */

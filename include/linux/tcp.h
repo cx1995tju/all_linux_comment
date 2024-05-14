@@ -203,7 +203,7 @@ struct tcp_sock {
 	u32	tsoffset;	/* timestamp offset */ // 安全问题，加一个 offset
 
 	struct list_head tsq_node; /* anchor in tsq_tasklet.head list */
-	struct list_head tsorted_sent_queue; /* time-sorted sent but un-SACKed skbs */	// 不管是重传的还是普通的报文都要挂载上来的。
+	struct list_head tsorted_sent_queue; /* time-sorted sent but un-SACKed skbs */	// 不管是重传的还是普通的报文都要挂载上来的。这个 list_head 会是整个链上的最后(也是第一)一个节点 // 双向循环 list
 
 	u32	snd_wl1;	/* Sequence for window update 记录更新发送窗口的那个ack包的自身的序号，如果后续接收到的ack端大于snd_wl1，就需要更新窗口见tcp_may_update_window */ // 也就是说这个序号让窗口左(或)边界右移了
 	u32	snd_wnd;	/* The window we expect to receive 对端给的窗口大小信息 */
@@ -269,21 +269,21 @@ struct tcp_sock {
 	struct  minmax rtt_min;
 
 	u32	packets_out;	/* Packets which are "in flight" SND.nxt - SND.una */ // refer to: tcp_packets_in_flight()
-	u32	retrans_out;	/* Retransmitted packets out		*/
+	u32	retrans_out;	/* Retransmitted packets out		*/ // 重传的时候增长，如果重传报文被 sack 了就会减少
 	u32	max_packets_out;  /* max packets_out in last window */
 	u32	max_packets_seq;  /* right edge of max_packets_out flight */
 
 	u16	urg_data;	/* Saved octet of OOB data and control flags */
 	u8	ecn_flags;	/* ECN status bits.			*/
 	u8	keepalive_probes; /* num of allowed keep alive probes	*/
-	u32	reordering;	/* Packet reordering metric.	dupack thresh, 表达对链路乱序的容忍度 */
+	u32	reordering;	/* Packet reordering metric.	dupack thresh, 表达对链路乱序的容忍度 */	// 只会增长不会减少(记录的是一个链路最大的乱序程度)？？？ 动态更新 tcp_check_sack_reordering(),  使用该参数: tcp_time_to_recover()
 	u32	reord_seen;	/* number of data packet reordering events */
 	u32	snd_up;		/* Urgent pointer		*/
 
 /*
  *      Options received (usually on last packet, some only on SYN packets).
  */
-	struct tcp_options_received rx_opt; // 最新接收到的选项值
+	struct tcp_options_received rx_opt; // 最新接收到的选项值，即从最新收到的报文里提取的信息
 
 /*
  *	Slow start and congestion control (see also Nagle, and Karn & Partridge)
@@ -346,7 +346,7 @@ struct tcp_sock {
 				 * also used in SYN-SENT to remember stamp of
 				 * the first SYN. */
 	u32	undo_marker;	/* snd_una upon a new recovery episode. */ // 不是 恢复点，是出现重传的时候的 snd_una。也就是说，后续如果要 undo 的话，要从这里开始消除影响
-	int	undo_retrans;	/* number of undoable retransmissions. __这里的注释有误导__ */ // 初始值是 retrans_out，即重传的报文数目，当其值减小到 0 的时候，表示需要 undo 了。比如在DSACK 场景，检测到了一个 dup_seg 的时候，这个值就--。当其减为0了。说明之前做的重传都是 dup的，即都是没有必要的，所以就可以 undo 了。 refer to: %tcp_check_dsack()
+	int	undo_retrans;	/* number of undoable retransmissions. __这里的注释有误导__ */ // 初始值是 retrans_out，即重传的报文数目，当其值减小到 0 的时候，表示需要 undo 了。比如在DSACK 场景，检测到了一个 dup_seg 的时候，这个值就--。当其减为0了。说明之前做的重传都是 dup的，即都是没有必要的，所以就可以 undo 了。 refer to: %tcp_check_dsack() %tcp_may_undo()
 	u64	bytes_retrans;	/* RFC4898 tcpEStatsPerfOctetsRetrans
 				 * Total data bytes retransmitted
 				 */

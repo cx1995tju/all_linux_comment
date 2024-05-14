@@ -109,7 +109,7 @@ int sysctl_tcp_max_orphans __read_mostly = NR_FILE;
 
 #define FLAG_ACKED		(FLAG_DATA_ACKED|FLAG_SYN_ACKED)
 #define FLAG_NOT_DUP		(FLAG_DATA|FLAG_WIN_UPDATE|FLAG_ACKED)
-#define FLAG_CA_ALERT		(FLAG_DATA_SACKED|FLAG_ECE|FLAG_DSACKING_ACK)
+#define FLAG_CA_ALERT		(FLAG_DATA_SACKED|FLAG_ECE|FLAG_DSACKING_ACK)	// 收到了 SACKED / ECE / DSACK 等
 #define FLAG_FORWARD_PROGRESS	(FLAG_ACKED|FLAG_DATA_SACKED)
 
 #define TCP_REMNANT (TCP_FLAG_FIN|TCP_FLAG_URG|TCP_FLAG_SYN|TCP_FLAG_PSH)
@@ -1000,7 +1000,10 @@ static u32 tcp_dsack_seen(struct tcp_sock *tp, u32 start_seq,
  * some lower never-retransmitted sequence ("low_seq"). The maximum reordering
  * distance is approximated in full-mss packet distance ("reordering").
  */
-static void tcp_check_sack_reordering(struct sock *sk, const u32 low_seq,
+// scoreboard 算法依赖于 reordering 来重传，在高速网络中，稍微疑点乱序就会导致 fack - low_seq 特别大
+// 进而导致 reordering 特别大，导致后续的重传不够积极
+// 所以现在引入了 rack 算法，不依赖于 reordering 了，解决了这个问题
+static void tcp_check_sack_reordering(struct sock *sk, const u32 low_seq,	// low_seq 是被 ack 了的
 				      const int ts)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -1011,7 +1014,7 @@ static void tcp_check_sack_reordering(struct sock *sk, const u32 low_seq,
 	if (!before(low_seq, fack))
 		return;
 
-	metric = fack - low_seq;
+	metric = fack - low_seq;	// 当前连接上的乱序程度
 	if ((metric > tp->reordering * mss) && mss) {
 #if FASTRETRANS_DEBUG > 1
 		pr_debug("Disorder%d %d %u f%u s%u rr%d\n",
@@ -1021,7 +1024,8 @@ static void tcp_check_sack_reordering(struct sock *sk, const u32 low_seq,
 			 tp->sacked_out,
 			 tp->undo_marker ? tp->undo_retrans : 0);
 #endif
-		tp->reordering = min_t(u32, (metric + mss - 1) / mss,
+		// reordering 只会增长不会减少？？？
+		tp->reordering = min_t(u32, (metric + mss - 1) / mss,	// 向上取整咯
 				       sock_net(sk)->ipv4.sysctl_tcp_max_reordering);
 	}
 
@@ -2269,7 +2273,7 @@ static void tcp_timeout_mark_lost(struct sock *sk)
 	}
 
 	skb = head;
-	skb_rbtree_walk_from(skb) {
+	skb_rbtree_walk_from(skb) { // RTO 是一个非常严重的事件，需要尝试对所有的 skb 标记 lost
 		if (is_reneg)						// 当然如果发生了 sack reneg的话，那么 sack 信息就无意义了
 			TCP_SKB_CB(skb)->sacked &= ~TCPCB_SACKED_ACKED;
 		else if (tcp_is_rack(sk) && skb != head &&			// 一般都是这里，现在都有 rack 了
@@ -2568,8 +2572,7 @@ static bool tcp_skb_spurious_retrans(const struct tcp_sock *tp,
 /* Nothing was retransmitted or returned timestamp is less
  * than timestamp of the first retransmission.
  */
-// 有 retrans_stamp
-// 而且还没有收到重传报文的 ack, 即最新收到的报文带回来的 time echo < retrans_stamp
+// ack 报文 echo 回来的时间戳 小于我最小的重传报文的时间戳。现在被 ack 的这个报文仅仅是 delay 了
 static inline bool tcp_packet_delayed(const struct tcp_sock *tp)
 {
 	return tp->retrans_stamp &&	// 处于重传阶段
@@ -2643,8 +2646,8 @@ static void tcp_undo_cwnd_reduction(struct sock *sk, bool unmark_loss)
 	if (unmark_loss) {
 		struct sk_buff *skb;
 
-		skb_rbtree_walk(skb, &sk->tcp_rtx_queue) {
-			TCP_SKB_CB(skb)->sacked &= ~TCPCB_LOST;
+		skb_rbtree_walk(skb, &sk->tcp_rtx_queue) {	// 取消所有的 lost 标记
+			TCP_SKB_CB(skb)->sacked &= ~TCPCB_LOST; // undo 的时候会取消已经标记的 lost 的
 		}
 		tp->lost_out = 0;
 		tcp_clear_all_retrans_hints(tp);
@@ -2653,10 +2656,10 @@ static void tcp_undo_cwnd_reduction(struct sock *sk, bool unmark_loss)
 	if (tp->prior_ssthresh) {
 		const struct inet_connection_sock *icsk = inet_csk(sk);
 
-		tp->snd_cwnd = icsk->icsk_ca_ops->undo_cwnd(sk);
+		tp->snd_cwnd = icsk->icsk_ca_ops->undo_cwnd(sk); // 拥塞算法特定的 undo 操作。需要撤销 cwnd 的影响
 
 		if (tp->prior_ssthresh > tp->snd_ssthresh) {
-			tp->snd_ssthresh = tp->prior_ssthresh;
+			tp->snd_ssthresh = tp->prior_ssthresh;	// 恢复 ssthresh 了
 			tcp_ecn_withdraw_cwr(tp);
 		}
 	}
@@ -2833,11 +2836,11 @@ void tcp_cwnd_reduction(struct sock *sk, int newly_acked_sacked, int flag)
 		sndcnt = min_t(int, delta, max_t(int, tp->prr_delivered - tp->prr_out,
 				     newly_acked_sacked) + 1);
 	} else { // in-flight <= ssthresh, 此时遵循数据包守恒原理，ack 了几个包，我们的 sndcnt 就增大多少。当然最大不能超过 ssthresh，因为 ssthresh 是我们对链路容量的评估
-		sndcnt = min(delta, newly_acked_sacked);
+		sndcnt = min(delta, newly_acked_sacked); 
 	}
 	/* Force a fast retransmit upon entering fast recovery */
 	sndcnt = max(sndcnt, (tp->prr_out ? 0 : 1)); // prr_out 为0时，表示时刚发生多次 dupack, 刚进入 recovery 状态，所以要强制做一次快速重传，即一定要 cwnd 比 in-flight 大一点
-	// cwnd 的减少不是通过 sndcnt 变成负数来实现的。而是 sndcnt 设置为 0 来实现的。即收到一个 ack 的时候，in_flight 就会减减，这时候自然就缩小了 cwnd 的
+	// __重要__: cwnd 的减少不是通过 sndcnt 变成负数来实现的。而是 sndcnt 设置为 0 来实现的。即收到一个 ack 的时候，in_flight 就会减减，这时候自然就缩小了 cwnd 的
 	// XXX: 由于被确认了 newly_acked_sacked 个数据，所以这里的 in_flight 是减少了 newly_acked_sacked 这个多数据的。只要 sndcnt 小于 newly_acked_sacked，这里的 cwnd 就是减少的
 	tp->snd_cwnd = tcp_packets_in_flight(tp) + sndcnt; // 这么设置拥塞窗口，就可以确保接下来还能发送 sndcnt 的数据, cwnd 不能小于 sndcnt 的
 }
@@ -3054,13 +3057,15 @@ static void tcp_process_loss(struct sock *sk, int flag, int num_dupack,
 }
 
 /* Undo during fast recovery after partial ACK. */
+// 能进到这里，表示 snd_una 被当前的 ack 报文前进了
 static bool tcp_try_undo_partial(struct sock *sk, u32 prior_snd_una)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
+	// 我们收到的最新的 timestamp 是针对原始报文的 ack，而不是重传报文的 ack
 	if (tp->undo_marker && tcp_packet_delayed(tp)) {
 		/* Plain luck! Hole if filled with delayed
-		 * packet, rather than with a retransmit. Check reordering.
+		 * packet, rather than with a retransmit. Check reordering. // 说明报文之前根本没有丢失，只是 delay 了，我们要重新评估下链路的 reordering 了
 		 */
 		tcp_check_sack_reordering(sk, prior_snd_una, 1);
 
@@ -3069,14 +3074,17 @@ static bool tcp_try_undo_partial(struct sock *sk, u32 prior_snd_una)
 		 * can undo. Otherwise we clock out new packets but do not
 		 * mark more packets lost or retransmit more.
 		 */
-		if (tp->retrans_out)
+		// 如果有 retrans out 为什么不 undo ？ 因为 链路的 reordering 还不是那么严重？
+		if (tp->retrans_out) // 有 retrans out 的话, 这里返回 true。在外层就会避免进一步标记更多的 lost。但是退出去后会发送新数据的。
 			return true;
 
+		// 到这里的时候，retrans_out 就是 0 了。那说明 retrans 的报文都得到 sack 了。
+		// 这时候才收到很早之前的报文的 ack, 说明 乱序非常严重, undo。之前的重传是伪重传的概率更大了。
 		if (!tcp_any_retrans_done(sk))
 			tp->retrans_stamp = 0;
 
 		DBGUNDO(sk, "partial recovery");
-		tcp_undo_cwnd_reduction(sk, true);
+		tcp_undo_cwnd_reduction(sk, true); // undo it
 		NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPPARTIALUNDO);
 		tcp_try_keep_open(sk);
 		return true;
@@ -3129,6 +3137,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct tcp_sock *tp = tcp_sk(sk);
+	int fast_rexmit = 0, flag = *ack_flag;
 	bool ece_ack = flag & FLAG_ECE;
 	bool do_lost = num_dupack || ((flag & FLAG_DATA_SACKED) &&
 				      tcp_force_fast_retransmit(sk));
@@ -3155,7 +3164,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 		tp->retrans_stamp = 0;
 	} else if (!before(tp->snd_una, tp->high_seq)) { // 超过恢复点了
 		switch (icsk->icsk_ca_state) {
-		case TCP_CA_CWR:
+		case TCP_CA_CWR:	// 这时候可以回到 open 状态了
 			/* CWR is to be held something *above* high_seq
 			 * is ACKed for CWR bit to reach receiver. */
 			if (tp->snd_una != tp->high_seq) {
@@ -3175,16 +3184,16 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 	}
 
 	/* E. Process state. */
-	switch (icsk->icsk_ca_state) {	// Open 状态不会进来
+	switch (icsk->icsk_ca_state) {	// Open 状态不会进来, 快速恢复阶段的主体逻辑
 	case TCP_CA_Recovery:
 		if (!(flag & FLAG_SND_UNA_ADVANCED)) {
 			if (tcp_is_reno(tp))
 				tcp_add_reno_sack(sk, num_dupack, ece_ack);
-		} else {
+		} else { // snd_una 往前走了，那就是说至少收到了 partial ack 了
 			if (tcp_try_undo_partial(sk, prior_snd_una))
 				return;
 			/* Partial ACK arrived. Force fast retransmit. */
-			do_lost = tcp_force_fast_retransmit(sk);
+			do_lost = tcp_force_fast_retransmit(sk); // sack 机制中，partial ack 后还是需要继续做快速重传的, 直到超过恢复点
 		}
 		if (tcp_try_undo_dsack(sk)) {
 			tcp_try_keep_open(sk);
@@ -3228,7 +3237,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 		}
 
 		/* Otherwise enter Recovery state */
-		tcp_enter_recovery(sk, ece_ack);
+		tcp_enter_recovery(sk, ece_ack);	// 这里 enter recovery 了
 		fast_rexmit = 1;
 	}
 
@@ -3644,7 +3653,7 @@ static void tcp_ack_probe(struct sock *sk)
 static inline bool tcp_ack_is_dubious(const struct sock *sk, const int flag)
 {
 	return !(flag & FLAG_NOT_DUP) || (flag & FLAG_CA_ALERT) ||
-		inet_csk(sk)->icsk_ca_state != TCP_CA_Open;
+		inet_csk(sk)->icsk_ca_state != TCP_CA_Open;	// 当前连接状态不是 Open
 }
 
 /* Decide wheather to run the increase function of congestion control. */
