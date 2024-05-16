@@ -599,14 +599,14 @@ tcp_retries1 - INTEGER
 	RFC 1122 recommends at least 3 retransmissions, which is the
 	default.
 
-tcp_retries2 - INTEGER
+tcp_retries2 - INTEGER  // refer to: tcp_model_timeout()
 	This value influences the timeout of an alive TCP connection,
 	when RTO retransmissions remain unacknowledged.
 	Given a value of N, a hypothetical TCP connection following
 	exponential backoff with an initial RTO of TCP_RTO_MIN would
 	retransmit N times before killing the connection at the (N+1)th RTO.
 
-	The default value of 15 yields a hypothetical timeout of 924.6
+	The default value of 15 yields a hypothetical timeout of 924.6  // 因为最大的 RTO 是 120s, 指数退避最多到 120s 的位置。 重传 15 次，最后一次重传还会等 120s 超时才会 reset 连接，所以总时间就是 924.6 s
 	seconds and is a lower bound for the effective timeout.
 	TCP will effectively time out at the first RTO which exceeds the
 	hypothetical timeout.

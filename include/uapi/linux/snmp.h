@@ -223,8 +223,8 @@ enum
 	LINUX_MIB_TCPRENOFAILURES,		/* TCPRenoFailures */ // 不同状态下 发生了 timeout
 	LINUX_MIB_TCPSACKFAILURES,		/* TCPSackFailures */
 	LINUX_MIB_TCPLOSSFAILURES,		/* TCPLossFailures */
-	LINUX_MIB_TCPFASTRETRANS,		/* TCPFastRetrans */
-	LINUX_MIB_TCPSLOWSTARTRETRANS,		/* TCPSlowStartRetrans */
+	LINUX_MIB_TCPFASTRETRANS,		/* TCPFastRetrans */	// 快速重传
+	LINUX_MIB_TCPSLOWSTARTRETRANS,		/* TCPSlowStartRetrans */ // 慢启动阶段的重传
 	LINUX_MIB_TCPTIMEOUTS,			/* TCPTimeouts */		// 严重事件，timeout
 	LINUX_MIB_TCPLOSSPROBES,		/* TCPLossProbes */  // 发送了 tlp (tail loss probe)
 	LINUX_MIB_TCPLOSSPROBERECOVERY,		/* TCPLossProbeRecovery */ // tlp 机制发挥了作用
