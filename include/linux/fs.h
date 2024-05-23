@@ -624,6 +624,9 @@ struct fsnotify_mark_connector;
  * - 一些属性信息
  * - 与其他结构的一些链接
  * - 数据: i_mapping
+ *
+ *
+ * vfs 的 inode 值是单个 文件系统内唯一的，不是整个 OS 唯一的
  */
 struct inode {
 	umode_t			i_mode;
@@ -646,7 +649,7 @@ struct inode {
 #endif
 
 	/* Stat data, not accessed from path walking */
-	unsigned long		i_ino;
+	unsigned long		i_ino;	// inode 值
 	/*
 	 * Filesystems may only read i_nlink directly.  They shall use the
 	 * following functions for modification:

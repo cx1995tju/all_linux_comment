@@ -2407,6 +2407,7 @@ static int path_parentat(struct nameidata *nd, unsigned flags,
 	return err;
 }
 
+// 这里创建文件，显然要做软链接的 follow 的
 static struct filename *filename_parentat(int dfd, struct filename *name,
 				unsigned int flags, struct path *parent,
 				struct qstr *last, int *type)
@@ -3527,6 +3528,7 @@ out:
 	return dentry;
 }
 
+// pathname 中如果包含软链接，会如何处理？
 struct dentry *kern_path_create(int dfd, const char *pathname,
 				struct path *path, unsigned int lookup_flags)
 {

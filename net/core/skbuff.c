@@ -4274,13 +4274,14 @@ __skb_to_sgvec(struct sk_buff *skb, struct scatterlist *sg, int offset, int len,
 	if (copy > 0) {
 		if (copy > len)
 			copy = len;
-		sg_set_buf(sg, skb->data + offset, copy);
+		sg_set_buf(sg, skb->data + offset, copy);	// skb 本身变成 sg frag
 		elt++;
 		if ((len -= copy) == 0)
 			return elt;
 		offset += copy;
 	}
 
+	// skb 里的 frag 变成 sg frag
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
 		int end;
 

@@ -226,6 +226,7 @@ static inline void unix_release_addr(struct unix_address *addr)
  *		- if started by zero, it is abstract name.
  */
 
+// 检查并返回 len 和 hash 值
 static int unix_mkname(struct sockaddr_un *sunaddr, int len, unsigned int *hashp)
 {
 	*hashp = 0;
@@ -315,6 +316,9 @@ static struct sock *unix_find_socket_byinode(struct inode *i)
 	struct sock *s;
 
 	spin_lock(&unix_table_lock);
+	// inode 的 i_no 就是 hash 值
+	// 根据 hash 值找到一个 slot
+	// 然后遍历 slot 找到正确的 socket: 通过 匹配 socket 里的 path.dentry 和 inode 对应的 dentry
 	sk_for_each(s,
 		    &unix_socket_table[i->i_ino & (UNIX_HASH_SIZE - 1)]) {
 		struct dentry *dentry = unix_sk(s)->path.dentry;
@@ -524,7 +528,7 @@ static void unix_release_sock(struct sock *sk, int embrion)
 	struct sk_buff *skb;
 	int state;
 
-	unix_remove_socket(sk);
+	unix_remove_socket(sk);	// HERE
 
 	/* Clear state */
 	unix_state_lock(sk);
@@ -849,6 +853,8 @@ static int unix_create(struct net *net, struct socket *sock, int protocol,
 	return unix_create1(net, sock, kern) ? 0 : -ENOMEM;
 }
 
+// relase 的时候，并没有删除 bind 时创建的 socket 文件
+// 但是将其从 unix_socket_table 移除了，这样根据 文件的 inode 就找不到 unix socket 了
 static int unix_release(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
@@ -932,7 +938,7 @@ static struct sock *unix_find_other(struct net *net,
 
 	if (sunname->sun_path[0]) {
 		struct inode *inode;
-		err = kern_path(sunname->sun_path, LOOKUP_FOLLOW, &path);
+		err = kern_path(sunname->sun_path, LOOKUP_FOLLOW, &path); // 注意这里的 LOOKUP_FOLLOW
 		if (err)
 			goto fail;
 		inode = d_backing_inode(path.dentry);
@@ -977,6 +983,8 @@ fail:
 	return NULL;
 }
 
+// sun_path 的路径名里含有 symlink 的时候，如何处理
+// 就是给 unix socket 创建 socket 文件，显然对于软链接肯定会做 follow 的
 static int unix_mknod(const char *sun_path, umode_t mode, struct path *res)
 {
 	struct dentry *dentry;
@@ -1006,6 +1014,7 @@ static int unix_mknod(const char *sun_path, umode_t mode, struct path *res)
 	return err;
 }
 
+// 一般会创建 unix socket 文件的
 static int unix_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 {
 	struct sock *sk = sock->sk;
@@ -1020,16 +1029,17 @@ static int unix_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	struct path path = { };
 
 	err = -EINVAL;
+	 // addr_len 含了 socketaddr_un 头部的 2 个字节的 family 字段
 	if (addr_len < offsetofend(struct sockaddr_un, sun_family) ||
 	    sunaddr->sun_family != AF_UNIX)
 		goto out;
 
-	if (addr_len == sizeof(short)) {
+	if (addr_len == sizeof(short)) { // addr_len = 2 的话，说明没有提供 bind 的地址，那么就 autobind
 		err = unix_autobind(sock);
 		goto out;
 	}
 
-	err = unix_mkname(sunaddr, addr_len, &hash);
+	err = unix_mkname(sunaddr, addr_len, &hash);	// 计算 hash 值
 	if (err < 0)
 		goto out;
 	addr_len = err;
@@ -1037,7 +1047,7 @@ static int unix_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	if (sun_path[0]) {
 		umode_t mode = S_IFSOCK |
 		       (SOCK_INODE(sock)->i_mode & ~current_umask());
-		err = unix_mknod(sun_path, mode, &path);
+		err = unix_mknod(sun_path, mode, &path); // __HERE IT IS__
 		if (err) {
 			if (err == -EEXIST)
 				err = -EADDRINUSE;
@@ -1063,12 +1073,12 @@ static int unix_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	addr->hash = hash ^ sk->sk_type;
 	refcount_set(&addr->refcnt, 1);
 
-	if (sun_path[0]) {
+	if (sun_path[0]) {	// 进了这条路径，前面计算的 hash 值就没有什么用
 		addr->hash = UNIX_HASH_SIZE;
-		hash = d_backing_inode(path.dentry)->i_ino & (UNIX_HASH_SIZE - 1);
+		hash = d_backing_inode(path.dentry)->i_ino & (UNIX_HASH_SIZE - 1);	// 创建了 unix socket 文件后，用其 inode 值来做 hash
 		spin_lock(&unix_table_lock);
-		u->path = path;
-		list = &unix_socket_table[hash];
+		u->path = path;					// __HERE IT IS__
+		list = &unix_socket_table[hash];		// __HERE IT IS__ 根据 hash 值找到一个 slot, 后面将 sk 插入到 slot 里
 	} else {
 		spin_lock(&unix_table_lock);
 		err = -EADDRINUSE;
@@ -1083,8 +1093,8 @@ static int unix_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 
 	err = 0;
 	__unix_remove_socket(sk);
-	smp_store_release(&u->addr, addr);
-	__unix_insert_socket(list, sk);
+	smp_store_release(&u->addr, addr);		// __HERE IT IS__
+	__unix_insert_socket(list, sk);			// __HERE IT IS__
 
 out_unlock:
 	spin_unlock(&unix_table_lock);
@@ -1617,7 +1627,7 @@ static int unix_dgram_sendmsg(struct socket *sock, struct msghdr *msg,
 	struct sock *sk = sock->sk;
 	struct net *net = sock_net(sk);
 	struct unix_sock *u = unix_sk(sk);
-	DECLARE_SOCKADDR(struct sockaddr_un *, sunaddr, msg->msg_name);
+	DECLARE_SOCKADDR(struct sockaddr_un *, sunaddr, msg->msg_name); // msg_name 保存的是 dst socket 路径地址
 	struct sock *other = NULL;
 	int namelen = 0; /* fake GCC */
 	int err;
@@ -1638,14 +1648,14 @@ static int unix_dgram_sendmsg(struct socket *sock, struct msghdr *msg,
 		goto out;
 
 	if (msg->msg_namelen) {
-		err = unix_mkname(sunaddr, msg->msg_namelen, &hash);
+		err = unix_mkname(sunaddr, msg->msg_namelen, &hash); // 做一些 check, 并返回 hash 值
 		if (err < 0)
 			goto out;
 		namelen = err;
 	} else {
 		sunaddr = NULL;
 		err = -ENOTCONN;
-		other = unix_peer_get(sk);
+		other = unix_peer_get(sk); // unix pair 走这条路径？
 		if (!other)
 			goto out;
 	}
@@ -1692,6 +1702,7 @@ restart:
 		if (sunaddr == NULL)
 			goto out_free;
 
+		// HERE：更具 dst addr 找到目的 unix socket
 		other = unix_find_other(net, sunaddr, namelen, sk->sk_type,
 					hash, &err);
 		if (other == NULL)
@@ -1794,7 +1805,7 @@ restart_locked:
 		__net_timestamp(skb);
 	maybe_add_creds(skb, sock, other);
 	scm_stat_add(other, skb);
-	skb_queue_tail(&other->sk_receive_queue, skb);
+	skb_queue_tail(&other->sk_receive_queue, skb);	// 发送数据的本质就是挂到 socket 的 sk_receive_queue 上
 	unix_state_unlock(other);
 	other->sk_data_ready(other);
 	sock_put(other);
@@ -2130,7 +2141,7 @@ static int unix_dgram_recvmsg(struct socket *sock, struct msghdr *msg,
 	if (msg->msg_name)
 		unix_copy_addr(msg, skb->sk);
 
-	if (size > skb->len - skip)
+	if (size > skb->len - skip) // 这里确保了 最多只会 copy 走一个 skb
 		size = skb->len - skip;
 	else if (size < skb->len - skip)
 		msg->msg_flags |= MSG_TRUNC;

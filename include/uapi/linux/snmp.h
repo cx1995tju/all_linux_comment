@@ -180,6 +180,7 @@ enum
 
 /* TCPDeliveredCE								// 异常，ECE */
 /* TCPDSACKOldSent + TCPDSACKOfoSent + TCPDSACKRecv + TCPDSACKOfoRecv	// 可疑重传 */
+/* TCPDSACKRecvSegs */	// 伪重传报文数目
 /* TCPSACKDiscard + TCPDSACKIgnoredOld + TCPDSACKIgnoredNoUndo		// 异常 dsack */
 
 // /proc/net/netstat

@@ -1785,6 +1785,9 @@ extern const u32		sched_prio_to_wmult[40];
 
 #define RETRY_TASK		((void *)-1UL)
 
+
+// refer to: ./arch/x86/kernel/vmlinux.lds 
+// // 通过链接脚本实现的各个 调度器类的绝对顺序
 struct sched_class {
 
 #ifdef CONFIG_UCLAMP_TASK

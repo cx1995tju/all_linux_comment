@@ -1983,7 +1983,7 @@ int __sys_sendto(int fd, void __user *buff, size_t len, unsigned int flags,
 		err = move_addr_to_kernel(addr, addr_len, &address);
 		if (err < 0)
 			goto out_put;
-		msg.msg_name = (struct sockaddr *)&address;
+		msg.msg_name = (struct sockaddr *)&address;	// 保存了 socket 地址
 		msg.msg_namelen = addr_len;
 	}
 	if (sock->file->f_flags & O_NONBLOCK)

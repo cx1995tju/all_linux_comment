@@ -112,7 +112,7 @@ struct clone_args {
  * Scheduling policies
 
  	- deadline调度类：SCHED_DEADLINE 调度策略
-	- rt 调度类: SCHED_FIFO, SCHED_RR
+	- rt 调度类: SCHED_FIFO, SCHED_RR。同一个调度类内，不同的调度策略的进程如何调度呢？ 取决于各个调度器类的实现么？？？
 	- CFS 调度类: SCHED_NORMAL / SCHED_BATCH / SCHED_IDLE	注：batch 和 idle 的优先级比 normal 的要低
 	- idle_sched_class: SCHED_IDLE
 

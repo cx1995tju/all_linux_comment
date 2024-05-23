@@ -58,7 +58,7 @@ struct unix_sock {
 	/* WARNING: sk has to be the first member */
 	struct sock		sk;
 	struct unix_address	*addr;
-	struct path		path;
+	struct path		path;	// 根据 socket 路径名创建的，标识了该 socket
 	struct mutex		iolock, bindlock;
 	struct sock		*peer;
 	struct list_head	link;
