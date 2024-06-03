@@ -979,7 +979,7 @@ static u32 tcp_dsack_seen(struct tcp_sock *tp, u32 start_seq,
 	if (seq_len > tp->max_window) // seq_len 太长，显然不合法
 		return 0;
 	if (seq_len > tp->mss_cache) // seq_len 超过 mss 的，所以要将其视作多个 dup_segs
-		dup_segs = DIV_ROUND_UP(seq_len, tp->mss_cache);
+		dup_segs = DIV_ROUND_UP(seq_len, tp->mss_cache); // 向上取整
 
 	tp->dsack_dups += dup_segs;
 	/* Skip the DSACK if dup segs weren't retransmitted by sender */ // dsack 表达的 dup_segs 超过了我们重传的总数了，显然是不正常的。我们重传一个seg，最多带来一个 dup_segs

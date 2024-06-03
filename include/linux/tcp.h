@@ -191,7 +191,7 @@ struct tcp_sock {
 				 * were acked.
 				 */
 	u32	dsack_dups;	/* RFC4898 tcpEStatsStackDSACKDups // 已经收了多少个 dup_segs, 这里的dup_segs 是通过解析 DSACK 找到的
-				 * total number of DSACK blocks received
+				 * total number of DSACK blocks received	// entire connection ???
 				 */
  	u32	snd_una;	/* First byte we want an ack for	*/ // 发送了，但是没有得到 ack 的数据中的 first byte
  	u32	snd_sml;	/* Last byte of the most recently transmitted small packet */
