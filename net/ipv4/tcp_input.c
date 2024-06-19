@@ -2696,7 +2696,7 @@ static bool tcp_try_undo_recovery(struct sock *sk)
 			mib_idx = LINUX_MIB_TCPFULLUNDO;
 
 		NET_INC_STATS(sock_net(sk), mib_idx);
-	} else if (tp->rack.reo_wnd_persist) {	// 不能 undo
+	} else if (tp->rack.reo_wnd_persist) {	// 不能 undo, 说明这一次 超过恢复点，是正常的 快速恢复
 		tp->rack.reo_wnd_persist--;
 	}
 	if (tp->snd_una == tp->high_seq && tcp_is_reno(tp)) {	// 传统的 newreno 算法(即没有 sack 的) 且超过了恢复点了
@@ -3176,7 +3176,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 		case TCP_CA_Recovery:
 			if (tcp_is_reno(tp))
 				tcp_reset_reno_sack(tp);
-			if (tcp_try_undo_recovery(sk)) // 从快速恢复退出
+			if (tcp_try_undo_recovery(sk)) // 从快速恢复退出, 超过恢复点后，会尝试 undo recovery 的
 				return;
 			tcp_end_cwnd_reduction(sk);
 			break;

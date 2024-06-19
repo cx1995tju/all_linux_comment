@@ -221,8 +221,8 @@ struct tcp_sock {
 		u32 rtt_us;  /* Associated RTT */	// 最近的一次 rtt 采样，很容易受到 rtt 波动影响呀。
 		u32 end_seq; /* Ending TCP sequence of the skb */
 		u32 last_delivered; /* tp->delivered at last reo_wnd adj */
-		u8 reo_wnd_steps;   /* Allowed reordering window 用来容忍合理的 rtt 波动的 */	// 基本单位是 min_RTT / 4	refer to: tcp_rack_reo_wnd
-#define TCP_RACK_RECOVERY_THRESH 16		// 发生了太多 recovery 之后，认为之前测量的 reo_wnd_step 已经不可靠了，就会 reset 为1，重新测量
+		u8 reo_wnd_steps;   /* Allowed reordering window 用来容忍合理的 rtt 波动的 */	// 基本单位是 min_RTT / 4	refer to: %tcp_rack_reo_wnd() %tcp_rack_update_reo_wnd() 	// 看到一个 dsack，reo_wnd_steps 就增加 minrtt/4
+#define TCP_RACK_RECOVERY_THRESH 16		// 发生了太多 recovery 之后(refer to: %tcp_try_undo_recovery())，认为之前测量的 reo_wnd_step 已经不可靠了，就会 reset 为1，重新测量
 		u8 reo_wnd_persist:5, /* No. of recovery since last adj */
 		   dsack_seen:1, /* Whether DSACK seen after last adj */
 		   advanced:1;	 /* mstamp advanced since last lost marking */

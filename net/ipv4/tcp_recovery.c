@@ -213,7 +213,7 @@ void tcp_rack_update_reo_wnd(struct sock *sk, struct rate_sample *rs)
 	/* Adjust the reo_wnd if update is pending */
 	if (tp->rack.dsack_seen) {
 		tp->rack.reo_wnd_steps = min_t(u32, 0xFF,
-					       tp->rack.reo_wnd_steps + 1);
+					       tp->rack.reo_wnd_steps + 1);	// 最高是 0xff
 		tp->rack.dsack_seen = 0;
 		tp->rack.last_delivered = tp->delivered;
 		tp->rack.reo_wnd_persist = TCP_RACK_RECOVERY_THRESH;

@@ -101,7 +101,7 @@ struct inet_connection_sock {
 				  icsk_ca_initialized:1,
 				  icsk_ca_setsockopt:1,
 				  icsk_ca_dst_locked:1;
-	__u8			  icsk_retransmits; // refer to: tcp_ack()
+	__u8			  icsk_retransmits; // refer to: tcp_ack() tcp_retransmit_timer() 
 	__u8			  icsk_pending;
 	__u8			  icsk_backoff;
 	__u8			  icsk_syn_retries;

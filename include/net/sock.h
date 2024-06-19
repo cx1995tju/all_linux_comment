@@ -2350,6 +2350,7 @@ static inline int sock_rcvlowat(const struct sock *sk, int waitall, int len)
  */
 static inline int sock_intr_errno(long timeo)
 {
+	// 对于 blocking 的 socket，且 timeout 没有被设置，那么种类就会 restart syscall。否则直接返回到用户空间。
 	return timeo == MAX_SCHEDULE_TIMEOUT ? -ERESTARTSYS : -EINTR;
 }
 

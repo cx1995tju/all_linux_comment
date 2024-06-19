@@ -882,8 +882,9 @@ static __poll_t ep_item_poll(const struct epitem *epi, poll_table *pt,
 
 	pt->_key = epi->event.events;
 	if (!is_file_epoll(epi->ffd.file))
-		return vfs_poll(epi->ffd.file, pt) & epi->event.events;
+		return vfs_poll(epi->ffd.file, pt) & epi->event.events;	// HERE: vfs_poll -> sock_poll -> tcp_poll
 
+	// 如果是 epoll fd 嵌套 epoll fd，那么进入这里处理，不过是有深度限制的
 	ep = epi->ffd.file->private_data;
 	poll_wait(epi->ffd.file, &ep->poll_wait, pt);
 	locked = pt && (pt->_qproc == ep_ptable_queue_proc);

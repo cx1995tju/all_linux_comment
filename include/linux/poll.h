@@ -47,7 +47,10 @@ typedef struct poll_table_struct {
 
 static inline void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table *p)
 {
-	if (p && p->_qproc && wait_address)
+//参考epoll_ctl() -> ep_insert()函数
+/* p中函数是ep_ptable_queue_proc   wait_address是被监听socket的sk_wq, filp是被监听文件*/
+/* 如果p 或者 p->_qproc是空的话，不会进来的, 所以谁 ep_item_poll -> poll_wait 的时候，只有第一次的 epoll_insert() -> ep_item_poll 才会进来执行，后续的 epoll_wait -> ep_item_poll 就不会真的执行了 */
+	if (p && p->_qproc && wait_address)  // ep_ptable_queue_proc
 		p->_qproc(filp, wait_address, p);
 }
 
@@ -87,7 +90,7 @@ static inline __poll_t vfs_poll(struct file *file, struct poll_table_struct *pt)
 {
 	if (unlikely(!file->f_op->poll))
 		return DEFAULT_POLLMASK;
-	return file->f_op->poll(file, pt);
+	return file->f_op->poll(file, pt);	// sock_poll
 }
 
 struct poll_table_entry {
