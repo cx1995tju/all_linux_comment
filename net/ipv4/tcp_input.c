@@ -4057,7 +4057,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 		// 注意此时这个 sacked 是 ingress 报文。 其没有表达任何 flag 信息。仅仅用来表达 sack 块是否存在 %tcp_parse_options
 		if (TCP_SKB_CB(skb)->sacked) // 数据包有 sack 信息	__处理 sack 信息对 skb 打标记__		__HERE IT IS__
 			flag |= tcp_sacktag_write_queue(sk, skb, prior_snd_una,	// 处理 SACK 信息，对发送队列中的 skb 打标记
-							&sack_state);
+							&sack_state); // 会处理采样信息
 
 		if (tcp_ecn_rcv_ecn_echo(tp, tcp_hdr(skb))) {	// 收到了 ECN 选项，表示 ip 层通告了拥塞
 			flag |= FLAG_ECE;

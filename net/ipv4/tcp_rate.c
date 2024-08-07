@@ -75,6 +75,7 @@ void tcp_rate_skb_sent(struct sock *sk, struct sk_buff *skb)
  * called multiple times. We favor the information from the most recently
  * sent skb, i.e., the skb with the highest prior_delivered count.
  */
+// 种类的 skb 是被 ack 的 skb
 void tcp_rate_skb_delivered(struct sock *sk, struct sk_buff *skb,
 			    struct rate_sample *rs)
 {
@@ -85,7 +86,7 @@ void tcp_rate_skb_delivered(struct sock *sk, struct sk_buff *skb,
 		return;
 
 	if (!rs->prior_delivered ||
-	    after(scb->tx.delivered, rs->prior_delivered)) {
+	    after(scb->tx.delivered, rs->prior_delivered)) { // 哪个 skb 大些, 新些就用谁. ack 了多个 skb 的时候, 这个 delivered 就会不断的被更新, 最终导致计算 delivery_rate 的时候, 其实只是使用了最大序号的 skb 的数据除以 interval_us
 		rs->prior_delivered  = scb->tx.delivered;
 		rs->prior_mstamp     = scb->tx.delivered_mstamp;
 		rs->is_app_limited   = scb->tx.is_app_limited;
@@ -144,7 +145,7 @@ void tcp_rate_gen(struct sock *sk, u32 delivered, u32 lost,
 	 * longer phase.
 	 */
 	snd_us = rs->interval_us;				/* send phase */
-	ack_us = tcp_stamp_us_delta(tp->tcp_mstamp,
+	ack_us = tcp_stamp_us_delta(tp->tcp_mstamp, // 最近接收到的报文的时间, 就是这条 tcp 连接的 now
 				    rs->prior_mstamp); /* ack phase */
 	rs->interval_us = max(snd_us, ack_us);
 
@@ -171,7 +172,7 @@ void tcp_rate_gen(struct sock *sk, u32 delivered, u32 lost,
 
 	/* Record the last non-app-limited or the highest app-limited bw */
 	if (!rs->is_app_limited ||
-	    ((u64)rs->delivered * tp->rate_interval_us >=
+	    ((u64)rs->delivered * tp->rate_interval_us >=	// 用乘法取代了除法做比较, 将两边的 us 用除法换一下就可以了
 	     (u64)tp->rate_delivered * rs->interval_us)) {
 		tp->rate_delivered = rs->delivered;
 		tp->rate_interval_us = rs->interval_us;

@@ -260,7 +260,7 @@ struct tcp_sock {
 	u64	tcp_clock_cache; /* cache last tcp_clock_ns() (see tcp_mstamp_refresh()) */ // 这个 tcp 连接的绝对时钟, 在各个链路上回去 refresh 的。 tcp_mstamp_refresh()。时钟单位是 ns
 
 /* RTT measurement */
-	u64	tcp_mstamp;	/* most recent packet received/sent */	// 单位是 us
+	u64	tcp_mstamp;	/* most recent packet received/sent */	// 单位是 us, 代表了这条 tcp 连接的 now
 	u32	srtt_us;	/* smoothed round trip time << 3 in usecs  */ // 采样的 rtt 值 向左移动了 3b。向右移动 3b才是 us
 	u32	mdev_us;	/* medium deviation	rtt 的平均偏差 */
 	u32	mdev_max_us;	/* maximal mdev for the last rtt period rtt 测量过程中的最大 mdev */
