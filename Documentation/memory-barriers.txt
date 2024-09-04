@@ -486,7 +486,7 @@ And a couple of implicit varieties:
      system. RELEASE operations include UNLOCK operations and
      smp_store_release() operations.
 
-     Memory operations that occur after a RELEASE operation may appear to
+     Memory operations that occur after a RELEASE operation may appear to				__重要, 特别强调了 release 的单向属性__
      happen before it completes.
 
      The use of ACQUIRE and RELEASE operations generally precludes the need
@@ -662,7 +662,7 @@ See also the subsection on "Cache Coherency" for a more thorough example.
 CONTROL DEPENDENCIES
 --------------------
 
-Control dependencies can be a bit tricky because current compilers do
+Control dependencies can be a bit tricky because current compilers do				__非常重要__
 not understand them.  The purpose of this section is to help you prevent
 the compiler's ignorance from breaking your code.
 

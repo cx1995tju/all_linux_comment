@@ -1482,10 +1482,11 @@ config X86_PAE
 config X86_5LEVEL
 	bool "Enable 5-level page tables support"
 	default y
-	select DYNAMIC_MEMORY_LAYOUT	// X86_5LEVEL 被选中的时候，这个会自动被选中的
+	select DYNAMIC_MEMORY_LAYOUT
 	select SPARSEMEM_VMEMMAP
 	depends on X86_64
 	help
+	  X86_5LEVEL 被选中的时候，DYNAMIC_MEMORY_LAYOUT 这个会自动被选中的
 	  5-level paging enables access to larger address space:
 	  upto 128 PiB of virtual address space and 4 PiB of
 	  physical address space.

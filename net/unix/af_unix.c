@@ -855,6 +855,7 @@ static int unix_create(struct net *net, struct socket *sock, int protocol,
 
 // relase 的时候，并没有删除 bind 时创建的 socket 文件
 // 但是将其从 unix_socket_table 移除了，这样根据 文件的 inode 就找不到 unix socket 了
+// release 操作不会唤醒对端的, 需要 shutdown 操作
 static int unix_release(struct socket *sock)
 {
 	struct sock *sk = sock->sk;
@@ -2527,7 +2528,7 @@ static int unix_shutdown(struct socket *sock, int mode)
 	if (other)
 		sock_hold(other);
 	unix_state_unlock(sk);
-	sk->sk_state_change(sk);
+	sk->sk_state_change(sk); // 这里会 wakeup 本端
 
 	if (other &&
 		(sk->sk_type == SOCK_STREAM || sk->sk_type == SOCK_SEQPACKET)) {
@@ -2543,7 +2544,7 @@ static int unix_shutdown(struct socket *sock, int mode)
 		unix_state_unlock(other);
 		other->sk_state_change(other);
 		if (peer_mode == SHUTDOWN_MASK)
-			sk_wake_async(other, SOCK_WAKE_WAITD, POLL_HUP);
+			sk_wake_async(other, SOCK_WAKE_WAITD, POLL_HUP);	// 这里会 wakeup 对端
 		else if (peer_mode & RCV_SHUTDOWN)
 			sk_wake_async(other, SOCK_WAKE_WAITD, POLL_IN);
 	}

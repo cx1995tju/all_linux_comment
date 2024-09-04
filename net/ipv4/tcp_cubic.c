@@ -311,7 +311,7 @@ static inline void bictcp_update(struct bictcp *ca, u32 cwnd, u32 acked) // __�
 		ca->ack_cnt = acked;			/* start counting */
 		ca->tcp_cwnd = cwnd;			/* syn with cubic */ // 这里的 cwnd 应该是 prr 算法结束时更新的，应该就是 ssthresh
 
-		if (ca->last_max_cwnd <= cwnd) { // 注意这里, hystart 第一次结束的时候，此时没有发生过任何丢包，然后开始拥塞避免就会进入这里
+		if (ca->last_max_cwnd <= cwnd) { // 注意这里, hystart 第一次结束的时候，此时没有发生过任何丢包，然后开始拥塞避免就会进入这里. 第一从 slow-start 进入 cubic 的时候, 是直接进入其右半部分的凹函数的
 			ca->bic_K = 0;
 			ca->bic_origin_point = cwnd; // 原点，即 W_{max}, 这种情况下，直接将 cwnd 作为 W_{max} 进入窗口探测阶段
 		} else { // 常态是这里
@@ -412,7 +412,7 @@ tcp_friendliness: // 按照 标准 tcp 的方式来计算 cwnd, 如果窗口特�
 // 执行时机: cwnd > ssthresh
 //一旦发生重传，那么 CUBIC 算法立即结束，执行 prr 算法/或 slowstart。当复 cwnd > ssthresh 后又会开始 cubic
 // 
-// 注意：这个函数比仅仅实现了拥塞避免，也实现了 hystart 的 slow start 算法
+// 注意：这个函数不仅实现了拥塞避免，也实现了 hystart 的 slow start 算法
 static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -425,7 +425,7 @@ static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 acked)
 		if (hystart && after(ack, ca->end_seq)) // 表示 慢启动阶段 开启了一个新的 RTT round
 			bictcp_hystart_reset(sk);
 		acked = tcp_slow_start(tp, acked);
-		if (!acked) // 如果是完全在慢启动阶段，这里返回值是0，就直接退出了
+		if (!acked) // 如果是完全在慢启动阶段(即 cwnd 离 ssthresh 还是比较远的, 没有穿越 ssthresh 的风险)，这里返回值是0，就直接退出了
 			return;
 	}
 	bictcp_update(ca, tp->snd_cwnd, acked);

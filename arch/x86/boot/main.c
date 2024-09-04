@@ -155,6 +155,8 @@ static void init_heap(void)
 //+--------------------------------+
 //| kernel setup.elf               |
 //+--------------------------------+ <- 一般是 0x10000, ss, cs 等段寄存器是 0x1000
+// /root/myGit/all_linux_comment/arch/x86/boot/header.S 这个文件里调用过来的
+// 这里是内核 c 代码的开始
 void main(void)
 {
 	// 利用 bios 提供的 int handler，获取很多信息

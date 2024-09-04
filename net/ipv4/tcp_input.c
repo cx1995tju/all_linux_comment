@@ -3220,7 +3220,7 @@ static void tcp_fastretrans_alert(struct sock *sk, const u32 prior_snd_una,
 			tcp_try_undo_dsack(sk);
 
 		tcp_identify_packet_loss(sk, ack_flag);	// 对 skb 做 lost 标记
-		if (!tcp_time_to_recover(sk, flag)) {
+		if (!tcp_time_to_recover(sk, flag)) { // 这里面会检查是不是超过 dupack 了
 			tcp_try_to_open(sk, flag);	// 这里尝试退出 Loss 状态了
 			return;
 		}

@@ -343,7 +343,7 @@ static void parse_elf(void *output)
  *
  * rmode - a pointer to the boot_params structure which is filled by either the bootloader or during early kernel initialization;
  * heap - a pointer to boot_heap which represents the start address of the early boot heap;
- * input_data - a pointer to the start of the compressed kernel or in other words, a pointer to the arch/x86/boot/compressed/vmlinux.bin.xz file;	// 这个文件是不包含没有被压缩的 protected mode 代码的
+ * input_data - a pointer to the start of the compressed kernel or in other words, a pointer to the arch/x86/boot/compressed/vmlinux.bin.xz file;	// 这个文件是不包含没有被压缩的 protected mode 代码的(即这里的内容都是被压缩的那部分代码)
  * input_len - the size of the compressed kernel;
  * output - the start address of the decompressed kernel;	// 默认是 16MB
  * output_len - the size of the decompressed kernel;

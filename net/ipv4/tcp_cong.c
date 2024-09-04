@@ -395,7 +395,7 @@ u32 tcp_slow_start(struct tcp_sock *tp, u32 acked)
 	// cwnd >= ssthresh
 	// snd_cwnd + acked 表示新的 cwnd 的起点, acked 了这么多，cwnd 就可以增长这么多的
 	// 但是不能超过 ssthresh 的, 因为还是慢启动阶段
-	u32 cwnd = min(tp->snd_cwnd + acked, tp->snd_ssthresh);
+	u32 cwnd = min(tp->snd_cwnd + acked, tp->snd_ssthresh);	// 慢启动算法
 
 	acked -= cwnd - tp->snd_cwnd; // 如果是在慢启动阶段，这里就为0了。
 	tp->snd_cwnd = min(cwnd, tp->snd_cwnd_clamp); // 更新 cwnd
