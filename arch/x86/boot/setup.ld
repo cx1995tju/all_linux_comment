@@ -13,8 +13,8 @@ SECTIONS
 	.bstext		: { *(.bstext) }		/* 所有文件的 bstext 段汇聚到一起，组成一个新的 .bstext 段, 而且这个段是在文件的最前面的 */
 	.bsdata		: { *(.bsdata) }
 
-	. = 495;			/* 0x1ef */
-	.header		: { *(.header) }
+	. = 495;			/* 0x1ef */ /* 将当前地址设置成了 0x1ef */
+	.header		: { *(.header) } /* 表示任意文件的 .header 段放到这里来 */
 	.entrytext	: { *(.entrytext) }
 	.inittext	: { *(.inittext) }
 	.initdata	: { *(.initdata) }

@@ -312,7 +312,7 @@ struct tcp_sock {
 	u32	notsent_lowat;	/* TCP_NOTSENT_LOWAT */
 	u32	pushed_seq;	/* Last pushed seq, required to talk to windows */
 	u32	lost_out;	/* Lost packets */ // 丢包数目，重传包丢的话，这个值不会++  refer to: %tcp_mark_skb_lost()
-	u32	sacked_out;	/* SACK'd packets	(被 sack 的数据包个数), 当然一次tcp连接波动处理结束后(即接收方 ACK 号已经超过了 sack 号，且已经没有接收到 sack 了)，这个值会被reset 为 0 的。*/ // 这个信息表达了链路当前乱序的情况
+	u32	sacked_out;	/* SACK'd packets	(被 sack 的数据包个数), 当然一次tcp连接波动处理结束后(即接收方 ACK 号已经超过了 sack 号，且已经没有接收到 sack 了)，这个值会被reset 为 0 的。*/ // 这个信息表达了链路当前乱序的情况, refer to: tcp_input.c 在没有 sack 的情况下, 这个可以通过 dup ack 来近似的
 
 	struct hrtimer	pacing_timer;
 	struct hrtimer	compressed_ack_timer;

@@ -1748,6 +1748,8 @@ static __poll_t ucma_poll(struct file *filp, struct poll_table_struct *wait)
  *  - there is no ioctl method to race against;
  *  - no further module initialization is required for open to work
  *    after the device is registered.
+ *
+ * nothing special
  */
 static int ucma_open(struct inode *inode, struct file *filp)
 {

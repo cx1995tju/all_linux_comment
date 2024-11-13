@@ -168,7 +168,7 @@ memory layout like the following is suggested::
   ... where the address X is as low as the design of the boot loader permits.
 
 
-The Real-Mode Kernel Header # header.S, X位置开始，一般是0x10000
+The Real-Mode Kernel Header # header.S, X位置开始，一般是0x10000, 就是 baImage 的开头位置, boot loader 负责从 bzImage 中读取出这部分内容, 加载到前文所述的 X 位置
 ===========================
 
 In the following text, and anywhere in the kernel boot sequence, "a
@@ -184,6 +184,8 @@ sectors (1K) and then examine the bootup sector size.
 The header looks like:
 
 // 这里的 offset 指的是从header.S 开头位置开始计算，即 "MZ" magic num 位置
+// kernel image 构建的时候 这里的一些信息会填充的, 这样才能将信息给到 boot loader, 比如: setup_sects 指示 setup.bin 的大小
+// refer to: linux://arch/x86/boot/tools/build.c
 ===========	========	=====================	============================================
 Offset/Size	Proto		Name			Meaning
 ===========	========	=====================	============================================

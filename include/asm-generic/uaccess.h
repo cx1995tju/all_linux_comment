@@ -117,10 +117,12 @@ static inline void set_fs(mm_segment_t fs)
 #endif
 
 #ifndef uaccess_kernel
+// 返回 true, 表示当前 ctx 可以访问内核内存范围
 #define uaccess_kernel() (get_fs().seg == KERNEL_DS.seg)
 #endif
 #endif /* CONFIG_SET_FS */
 
+/* access_ok 宏是 Linux 内核中用于验证用户空间指针合法性的一个重要宏。它的作用是在内核代码尝试访问用户空间数据之前，检查用户空间指针指向的地址范围是否在用户空间的有效地址范围内，以确保访问的安全性。 */
 #define access_ok(addr, size) __access_ok((unsigned long)(addr),(size))
 
 /*

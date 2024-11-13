@@ -1107,6 +1107,10 @@ struct sk_buff *alloc_skb_with_frags(unsigned long header_len,
 struct sk_buff *alloc_skb_for_msg(struct sk_buff *first);
 
 /* Layout of fast clones : [skb1][skb2][fclone_ref] */
+// 优化, 在 tcp 的发送流程中需要 skb_clone 将 clone 后的 skb 送到 driver 层
+// 这种情况下可以用一个特殊的 skb cache 一次性分配一对 skb 出来
+// refer to: 
+// sk_stream_alloc_skb() -> alloc_skb_fclone()
 struct sk_buff_fclones {
 	struct sk_buff	skb1;
 

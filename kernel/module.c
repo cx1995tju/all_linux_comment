@@ -1318,7 +1318,7 @@ static int check_version(const struct load_info *info,
 	if (versindex == 0)
 		return try_to_force_load(mod, symname) == 0;
 
-	versions = (void *) sechdrs[versindex].sh_addr;
+	versions = (void *) sechdrs[versindex].sh_addr; // ko 文件有 version section, 保存了这些信息
 	num_versions = sechdrs[versindex].sh_size
 		/ sizeof(struct modversion_info);
 
