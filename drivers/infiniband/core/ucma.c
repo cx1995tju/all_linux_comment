@@ -78,7 +78,7 @@ struct ucma_file {
 	struct mutex		mut;
 	struct file		*filp;
 	struct list_head	ctx_list;
-	struct list_head	event_list;
+	struct list_head	event_list; // 发生的事件 挂载在这里
 	wait_queue_head_t	poll_wait;
 };
 
@@ -182,7 +182,7 @@ static void ucma_close_id(struct work_struct *work)
 	 * by its creator.
 	 */
 	ucma_put_ctx(ctx);
-	wait_for_completion(&ctx->comp);
+	wait_for_completion(&ctx->comp); // 等待最后一个 ref 被 -- 后, 就会 complete 的
 	/* No new events will be generated after destroying the id. */
 	rdma_destroy_id(ctx->cm_id);
 
@@ -222,9 +222,10 @@ static void ucma_finish_ctx(struct ucma_context *ctx)
 {
 	lockdep_assert_held(&ctx->file->mut);
 	list_add_tail(&ctx->list, &ctx->file->ctx_list);
-	xa_store(&ctx_table, ctx->id, ctx, GFP_KERNEL);
+	xa_store(&ctx_table, ctx->id, ctx, GFP_KERNEL); // 这里才会将 ctx 真的存储到 ctx_table 里, ucma_alloc_ctx 的时候仅仅在 ctx_table 里占了一个位置
 }
 
+// helper 罢了
 static void ucma_copy_conn_event(struct rdma_ucm_conn_param *dst,
 				 struct rdma_conn_param *src)
 {
@@ -241,6 +242,7 @@ static void ucma_copy_conn_event(struct rdma_ucm_conn_param *dst,
 	dst->qp_num = src->qp_num;
 }
 
+// helper 罢了
 static void ucma_copy_ud_event(struct ib_device *device,
 			       struct rdma_ucm_ud_param *dst,
 			       struct rdma_ud_param *src)
@@ -254,6 +256,10 @@ static void ucma_copy_ud_event(struct ib_device *device,
 	dst->qkey = src->qkey;
 }
 
+// 创建一个 event 然后通过 fd 给到用户空间
+//
+// cma 层有事件后会 调用 cb ucma_event_handler() 通知到当前的 ucma 层, 然后 ucma 层调用这个函数创建 uevent, 然后挂载到 ucma_file->event_list 上
+// 然后通过 wake_up_interruptible(&ctx->file->poll_wait); 通知到用户空间
 static struct ucma_event *ucma_create_uevent(struct ucma_context *ctx,
 					     struct rdma_cm_event *event)
 {
@@ -361,6 +367,9 @@ static int ucma_event_handler(struct rdma_cm_id *cm_id,
 	return 0;
 }
 
+// refer to: ucma_event_handler
+//
+// 通过 wake_up_interruptible(&ctx->file->poll_wait);  唤醒用户态进程后, 其会调用这个函数来判断到底发生了什么事件
 static ssize_t ucma_get_event(struct ucma_file *file, const char __user *inbuf,
 			      int in_len, int out_len)
 {
@@ -413,10 +422,11 @@ static ssize_t ucma_get_event(struct ucma_file *file, const char __user *inbuf,
 	return 0;
 }
 
+// helper
 static int ucma_get_qp_type(struct rdma_ucm_create_id *cmd, enum ib_qp_type *qp_type)
 {
 	switch (cmd->ps) {
-	case RDMA_PS_TCP:
+	case RDMA_PS_TCP: // 这里可以看到 rdma_cm 提供的抽象中, port space 如果是 PS_TCP, 那么就是 RC 服务
 		*qp_type = IB_QPT_RC;
 		return 0;
 	case RDMA_PS_UDP:
@@ -431,6 +441,7 @@ static int ucma_get_qp_type(struct rdma_ucm_create_id *cmd, enum ib_qp_type *qp_
 	}
 }
 
+// id 代表了一个连接 ctx, 类似于 socket 的概念
 static ssize_t ucma_create_id(struct ucma_file *file, const char __user *inbuf,
 			      int in_len, int out_len)
 {
@@ -451,6 +462,8 @@ static ssize_t ucma_create_id(struct ucma_file *file, const char __user *inbuf,
 	if (ret)
 		return ret;
 
+	// 将 ctx 和 file 绑定, 后续 ctx 上有什么事件就通过 file 去通知
+	// refer to: ucma_event_handler()
 	ctx = ucma_alloc_ctx(file);
 	if (!ctx)
 		return -ENOMEM;
@@ -463,7 +476,7 @@ static ssize_t ucma_create_id(struct ucma_file *file, const char __user *inbuf,
 	}
 	ctx->cm_id = cm_id;
 
-	resp.id = ctx->id;
+	resp.id = ctx->id; // 返回的是 ctx 在 ctx_table 中的索引 (ref: ucma_finish_ctx), 后续传入这个 id , kernel 就能找到 ctx
 	if (copy_to_user(u64_to_user_ptr(cmd.response),
 			 &resp, sizeof(resp))) {
 		xa_erase(&ctx_table, ctx->id);
@@ -621,6 +634,7 @@ static ssize_t ucma_bind_ip(struct ucma_file *file, const char __user *inbuf,
 	if (copy_from_user(&cmd, inbuf, sizeof(cmd)))
 		return -EFAULT;
 
+	// 和 ucma_bind_ip 就是这里的 size 的检查有一点不同
 	if (!rdma_addr_size_in6(&cmd.addr))
 		return -EINVAL;
 
@@ -636,6 +650,9 @@ static ssize_t ucma_bind_ip(struct ucma_file *file, const char __user *inbuf,
 	return ret;
 }
 
+// 让 userspace 直接 bind AF_IB af, 老版本 kernel 不支持的, 所有现在在 librdmacm 里有一个 af_ib_support 的变量
+// af_ib_support 是在用户态尝试 bind AF_IB 来判断的. 
+// sockaddr_ib 的 大小比 sockaddr_in6 大的
 static ssize_t ucma_bind(struct ucma_file *file, const char __user *inbuf,
 			 int in_len, int out_len)
 {
@@ -646,6 +663,7 @@ static ssize_t ucma_bind(struct ucma_file *file, const char __user *inbuf,
 	if (copy_from_user(&cmd, inbuf, sizeof(cmd)))
 		return -EFAULT;
 
+	// 和 ucma_bind_ip 就是这里的 size 的检查有一点不同
 	if (cmd.reserved || !cmd.addr_size ||
 	    cmd.addr_size != rdma_addr_size_kss(&cmd.addr))
 		return -EINVAL;
@@ -1399,6 +1417,8 @@ out:
 	return ret;
 }
 
+// 用户态通知内核发生了什么事件
+// 因为数据面通过 QP 直通给了用户态, 如果数据面发生了什么事情是需要用户态反过来通知内核态的
 static ssize_t ucma_notify(struct ucma_file *file, const char __user *inbuf,
 			   int in_len, int out_len)
 {
@@ -1667,9 +1687,9 @@ file_put:
 static ssize_t (*ucma_cmd_table[])(struct ucma_file *file,
 				   const char __user *inbuf,
 				   int in_len, int out_len) = {
-	[RDMA_USER_CM_CMD_CREATE_ID] 	 = ucma_create_id,
+	[RDMA_USER_CM_CMD_CREATE_ID] 	 = ucma_create_id, // 后面的函数, 核心都是围绕这个 id 结构
 	[RDMA_USER_CM_CMD_DESTROY_ID]	 = ucma_destroy_id,
-	[RDMA_USER_CM_CMD_BIND_IP]	 = ucma_bind_ip,
+	[RDMA_USER_CM_CMD_BIND_IP]	 = ucma_bind_ip, // 老内核用的是这个
 	[RDMA_USER_CM_CMD_RESOLVE_IP]	 = ucma_resolve_ip,
 	[RDMA_USER_CM_CMD_RESOLVE_ROUTE] = ucma_resolve_route,
 	[RDMA_USER_CM_CMD_QUERY_ROUTE]	 = ucma_query_route,
@@ -1687,7 +1707,7 @@ static ssize_t (*ucma_cmd_table[])(struct ucma_file *file,
 	[RDMA_USER_CM_CMD_LEAVE_MCAST]	 = ucma_leave_multicast,
 	[RDMA_USER_CM_CMD_MIGRATE_ID]	 = ucma_migrate_id,
 	[RDMA_USER_CM_CMD_QUERY]	 = ucma_query,
-	[RDMA_USER_CM_CMD_BIND]		 = ucma_bind,
+	[RDMA_USER_CM_CMD_BIND]		 = ucma_bind,	// 新内核都支持 AF_IB 了, 会用这个
 	[RDMA_USER_CM_CMD_RESOLVE_ADDR]	 = ucma_resolve_addr,
 	[RDMA_USER_CM_CMD_JOIN_MCAST]	 = ucma_join_multicast
 };
@@ -1839,12 +1859,15 @@ static int __init ucma_init(void)
 	if (ret)
 		return ret;
 
+	// sysfs file for ucma_misc
+	// /sys/devices/virtual/misc/rdma_cm/abi_version
 	ret = device_create_file(ucma_misc.this_device, &dev_attr_abi_version);
 	if (ret) {
 		pr_err("rdma_ucm: couldn't create abi_version attr\n");
 		goto err1;
 	}
 
+	// sysctl 注册: net.rdma_ucm.max_backlog
 	ucma_ctl_table_hdr = register_net_sysctl(&init_net, "net/rdma_ucm", ucma_ctl_table);
 	if (!ucma_ctl_table_hdr) {
 		pr_err("rdma_ucm: couldn't register sysctl paths\n");
@@ -1852,6 +1875,8 @@ static int __init ucma_init(void)
 		goto err2;
 	}
 
+	// 向 ib_core 模块注册一个 client
+	// 仅仅实现了一个 get_nl_info 的功能
 	ret = ib_register_client(&rdma_cma_client);
 	if (ret)
 		goto err3;

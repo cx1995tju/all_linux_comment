@@ -1727,6 +1727,9 @@ static void remove_client_id(struct ib_client *client)
  * order that clients were registered).  In addition, when
  * ib_register_client() is called, the client will receive an add
  * callback for all devices already registered.
+ *
+ * ib driver 的 Upper level users 注册一些 callback 到对应的 ib device 上, 比如:
+ * - rdma_cm 模块在 ib driver 上建立了一套 socket-like 抽象, 需要关注设备的插拔
  */
 int ib_register_client(struct ib_client *client)
 {

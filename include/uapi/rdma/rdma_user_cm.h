@@ -71,6 +71,7 @@ enum {
 };
 
 /* See IBTA Annex A11, servies ID bytes 4 & 5 */
+/* ref: ucma_get_qp_type */
 enum rdma_ucm_port_space {
 	RDMA_PS_IPOIB = 0x0002,
 	RDMA_PS_IB    = 0x013F,

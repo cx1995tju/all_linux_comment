@@ -75,6 +75,7 @@ struct sockaddr_ib {
  */
 static inline bool ib_safe_file_access(struct file *filp)
 {
+	// 这里的 uaccess_kernel() 的检查在 2020 年移除了, 没有意义了
 	return filp->f_cred == current_cred() && !uaccess_kernel();
 }
 

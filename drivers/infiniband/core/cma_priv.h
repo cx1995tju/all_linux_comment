@@ -36,11 +36,13 @@
 #ifndef _CMA_PRIV_H
 #define _CMA_PRIV_H
 
+
+// ADDR_BOUND -> ADDR_RESOLVED -> ROUTE_ERSOLVED -> CONNECT
 enum rdma_cm_state {
 	RDMA_CM_IDLE,
 	RDMA_CM_ADDR_QUERY,
 	RDMA_CM_ADDR_RESOLVED,
-	RDMA_CM_ROUTE_QUERY,
+	RDMA_CM_ROUTE_QUERY, // 一个中间的临时状态
 	RDMA_CM_ROUTE_RESOLVED,
 	RDMA_CM_CONNECT,
 	RDMA_CM_DISCONNECT,
@@ -51,13 +53,13 @@ enum rdma_cm_state {
 };
 
 struct rdma_id_private {
-	struct rdma_cm_id	id;
+	struct rdma_cm_id	id;	// HERE: first-member inherit
 
 	struct rdma_bind_list	*bind_list;
 	struct hlist_node	node;
 	struct list_head	list; /* listen_any_list or cma_device.list */
 	struct list_head	listen_list; /* per device listens */
-	struct cma_device	*cma_dev;
+	struct cma_device	*cma_dev; // 当将一个 id 绑定 src_addr 的时候会查找到对应的 cma_dev
 	struct list_head	mc_list;
 
 	int			internal_id;

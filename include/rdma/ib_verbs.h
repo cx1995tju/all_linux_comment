@@ -2626,6 +2626,7 @@ struct ib_core_device {
 };
 
 struct rdma_restrack_root;
+// ib 对设备的抽象
 struct ib_device {
 	/* Do not access @dma_device directly from ULP nor from HW drivers. */
 	struct device                *dma_device;

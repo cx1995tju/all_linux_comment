@@ -78,8 +78,8 @@ struct io_uring_task;
 
 /* Used in tsk->state: */
 #define TASK_RUNNING			0x0000
-#define TASK_INTERRUPTIBLE		0x0001
-#define TASK_UNINTERRUPTIBLE		0x0002
+#define TASK_INTERRUPTIBLE		0x0001 // 这种状态下, 调度器还是会检测信号, 有信号的话, 会唤醒进程的
+#define TASK_UNINTERRUPTIBLE		0x0002 // 这种状态下, 就只能依靠其他进程来将本进程状态修改为 running 了
 #define __TASK_STOPPED			0x0004
 #define __TASK_TRACED			0x0008
 /* Used in tsk->exit_state: */

@@ -697,6 +697,7 @@ rdma_find_gid_by_port(struct ib_device *ib_dev,
 	if (!rdma_is_port_valid(ib_dev, port))
 		return ERR_PTR(-ENOENT);
 
+	// 判断 ib_dev 的 port 中的 gid 有没有符合咱们的 gid 的
 	table = rdma_gid_table(ib_dev, port);
 
 	if (ndev)

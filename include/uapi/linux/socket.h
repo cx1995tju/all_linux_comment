@@ -4,6 +4,8 @@
 
 /*
  * Desired design of maximum size and alignment (see RFC2553)
+ *
+ * 各种协议, 最大的 sockaddr 结构的大小是 128B
  */
 #define _K_SS_MAXSIZE	128	/* Implementation specific max size */
 

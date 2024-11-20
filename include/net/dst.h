@@ -21,6 +21,7 @@
 
 struct sk_buff;
 
+// routing entry
 struct dst_entry {
 	struct net_device       *dev;
 	struct  dst_ops	        *ops;
@@ -32,7 +33,7 @@ struct dst_entry {
 	void			*__pad1;
 #endif
 	int			(*input)(struct sk_buff *);
-	int			(*output)(struct net *net, struct sock *sk, struct sk_buff *skb);
+	int			(*output)(struct net *net, struct sock *sk, struct sk_buff *skb); // 这里是关键
 
 	unsigned short		flags;
 #define DST_NOXFRM		0x0002

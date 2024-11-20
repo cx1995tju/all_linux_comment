@@ -33,7 +33,7 @@
  * @sgid_attr:		GID attribute to use for identified SGID
  */
 struct rdma_dev_addr {
-	unsigned char src_dev_addr[MAX_ADDR_LEN];
+	unsigned char src_dev_addr[MAX_ADDR_LEN]; // ref: rdma_copy_src_l2_addr
 	unsigned char dst_dev_addr[MAX_ADDR_LEN];
 	unsigned char broadcast[MAX_ADDR_LEN];
 	unsigned short dev_type;
@@ -50,6 +50,9 @@ struct rdma_dev_addr {
  *   address.
  *
  * The dev_addr->net field must be initialized.
+ *
+ * local IP 地址找到一个 device, 然后找到 RDMA hw addr, 在 RoCE / iWarp 上就是 mac 地址
+ * 如果是 IB 场景, 不是使用这个函数, 因为没有 IP 地址, ref: cma_translate_ib()
  */
 int rdma_translate_ip(const struct sockaddr *addr,
 		      struct rdma_dev_addr *dev_addr);
@@ -118,7 +121,7 @@ static inline int rdma_ip2gid(struct sockaddr *addr, union ib_gid *gid)
 					addr)->sin_addr.s_addr,
 				       (struct in6_addr *)gid);
 		break;
-	case AF_INET6:
+	case AF_INET6: // gid 的 格式和 ipv6 地址格式是一样的
 		*(struct in6_addr *)&gid->raw =
 			((struct sockaddr_in6 *)addr)->sin6_addr;
 		break;

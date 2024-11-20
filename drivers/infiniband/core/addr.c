@@ -276,7 +276,7 @@ int rdma_translate_ip(const struct sockaddr *addr,
 {
 	struct net_device *dev;
 
-	if (dev_addr->bound_dev_if) {
+	if (dev_addr->bound_dev_if) { // 已经指定了, 那么用这个就可以了, 一般是没有指定的
 		dev = dev_get_by_index(dev_addr->net, dev_addr->bound_dev_if);
 		if (!dev)
 			return -ENODEV;
@@ -285,6 +285,7 @@ int rdma_translate_ip(const struct sockaddr *addr,
 		return 0;
 	}
 
+	// 根据 ip 地址找对应的 netdev 设备
 	rcu_read_lock();
 	dev = rdma_find_ndev_for_src_ip_rcu(dev_addr->net, addr);
 	if (!IS_ERR(dev))
@@ -392,14 +393,14 @@ static int addr4_resolve(struct sockaddr *src_sock,
 	__be32 src_ip = src_in->sin_addr.s_addr;
 	__be32 dst_ip = dst_in->sin_addr.s_addr;
 	struct rtable *rt;
-	struct flowi4 fl4;
+	struct flowi4 fl4; // 查找路由的 key
 	int ret;
 
 	memset(&fl4, 0, sizeof(fl4));
 	fl4.daddr = dst_ip;
 	fl4.saddr = src_ip;
 	fl4.flowi4_oif = addr->bound_dev_if;
-	rt = ip_route_output_key(addr->net, &fl4);
+	rt = ip_route_output_key(addr->net, &fl4); // rt 是 ipv4 路由查找的结果
 	ret = PTR_ERR_OR_ZERO(rt);
 	if (ret)
 		return ret;
@@ -548,6 +549,8 @@ static void rdma_addr_set_net_defaults(struct rdma_dev_addr *addr)
 	addr->bound_dev_if = 0;
 }
 
+// 根据 src_in dst_in 来查找路由信息并解析, 一般 src_in 是 NULL
+// 路由信息解析好了后, 会将一些信息 (出口设备的信息) 保存到 dev_addr 中
 static int addr_resolve(struct sockaddr *src_in,
 			const struct sockaddr *dst_in,
 			struct rdma_dev_addr *addr,
@@ -584,8 +587,8 @@ static int addr_resolve(struct sockaddr *src_in,
 		}
 	}
 	if (src_in->sa_family == AF_INET) {
-		ret = addr4_resolve(src_in, dst_in, addr, &rt);
-		dst = &rt->dst;
+		ret = addr4_resolve(src_in, dst_in, addr, &rt); // HERE, 解析后的结果保存到 rt 里
+		dst = &rt->dst; // 解析地址后得到路由信息
 	} else {
 		ret = addr6_resolve(src_in, dst_in, addr, &dst);
 	}
@@ -593,7 +596,7 @@ static int addr_resolve(struct sockaddr *src_in,
 		rcu_read_unlock();
 		goto done;
 	}
-	ret = rdma_set_src_addr_rcu(addr, &ndev_flags, dst_in, dst);
+	ret = rdma_set_src_addr_rcu(addr, &ndev_flags, dst_in, dst); // dst 是路由信息, dst 里有记录出口设备, 根据出口设备设置一些信息
 	rcu_read_unlock();
 
 	/*
@@ -601,7 +604,7 @@ static int addr_resolve(struct sockaddr *src_in,
 	 * only if src addr translation didn't fail.
 	 */
 	if (!ret && resolve_neigh)
-		ret = addr_resolve_neigh(dst, dst_in, addr, ndev_flags, seq);
+		ret = addr_resolve_neigh(dst, dst_in, addr, ndev_flags, seq); // 解析下一跳的信息
 
 	if (src_in->sa_family == AF_INET)
 		ip_rt_put(rt);
@@ -659,11 +662,16 @@ static void process_one_req(struct work_struct *_work)
 	spin_unlock_bh(&lock);
 }
 
+// @callback: addr_handler
+// 通过 dst_addr 查找路由信息 (也可能提供了 src_addr)
+// 有了路由信息后, 设置下 dev_addr 信息, dev_addr 信息记录了出口设备的信息
+//
+// 查路由, 主要是获取出口设备信息, 保存到 dev_addr 中
 int rdma_resolve_ip(struct sockaddr *src_addr, const struct sockaddr *dst_addr,
 		    struct rdma_dev_addr *addr, unsigned long timeout_ms,
 		    void (*callback)(int status, struct sockaddr *src_addr,
 				     struct rdma_dev_addr *addr, void *context),
-		    bool resolve_by_gid_attr, void *context)
+		    bool resolve_by_gid_attr, void *context) // context 是 opaque 的
 {
 	struct sockaddr *src_in, *dst_in;
 	struct addr_req *req;
@@ -683,23 +691,24 @@ int rdma_resolve_ip(struct sockaddr *src_addr, const struct sockaddr *dst_addr,
 		}
 
 		memcpy(src_in, src_addr, rdma_addr_size(src_addr));
-	} else {
+	} else { // 一般是这里
 		src_in->sa_family = dst_addr->sa_family;
 	}
 
 	memcpy(dst_in, dst_addr, rdma_addr_size(dst_addr));
 	req->addr = addr;
-	req->callback = callback;
+	req->callback = callback; // %addr_handler
 	req->context = context;
 	req->resolve_by_gid_attr = resolve_by_gid_attr;
-	INIT_DELAYED_WORK(&req->work, process_one_req);
+	INIT_DELAYED_WORK(&req->work,  process_one_req); // 为了等一会调用前面的 callback
 	req->seq = (u32)atomic_inc_return(&ib_nl_addr_request_seq);
 
+	// 解析后为什么用 delay work 来处理呢? 是因为这个函数是无状态的 helper 么? 是为了统一 addr_resolve 成功和失败的情况么?
 	req->status = addr_resolve(src_in, dst_in, addr, true,
 				   req->resolve_by_gid_attr, req->seq);
 	switch (req->status) {
 	case 0:
-		req->timeout = jiffies;
+		req->timeout = jiffies; // 如果这里解析成功了, 将其加入到 delay queue 里, 并且设置为立即超时
 		queue_req(req);
 		break;
 	case -ENODATA:

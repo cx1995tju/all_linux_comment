@@ -17,27 +17,33 @@
  * Upon receiving a device removal event, users must destroy the associated
  * RDMA identifier and release all resources allocated with the device.
  */
+
+// 和 userspace 交互的事件
 enum rdma_cm_event_type {
-	RDMA_CM_EVENT_ADDR_RESOLVED,
-	RDMA_CM_EVENT_ADDR_ERROR,
-	RDMA_CM_EVENT_ROUTE_RESOLVED,
-	RDMA_CM_EVENT_ROUTE_ERROR,
+	RDMA_CM_EVENT_ADDR_RESOLVED,          // 地址解析成功
+	RDMA_CM_EVENT_ADDR_ERROR,             // 地址解析失败
+	RDMA_CM_EVENT_ROUTE_RESOLVED,         // 路由解析成功
+	RDMA_CM_EVENT_ROUTE_ERROR,            // 路由解析失败
 	RDMA_CM_EVENT_CONNECT_REQUEST,
 	RDMA_CM_EVENT_CONNECT_RESPONSE,
 	RDMA_CM_EVENT_CONNECT_ERROR,
 	RDMA_CM_EVENT_UNREACHABLE,
 	RDMA_CM_EVENT_REJECTED,
-	RDMA_CM_EVENT_ESTABLISHED,
+	RDMA_CM_EVENT_ESTABLISHED,            // 连接建立成功
 	RDMA_CM_EVENT_DISCONNECTED,
-	RDMA_CM_EVENT_DEVICE_REMOVAL,
-	RDMA_CM_EVENT_MULTICAST_JOIN,
+	RDMA_CM_EVENT_DEVICE_REMOVAL,         // RDMA 设备被移除。可能是硬件被拔出或设备驱动被卸载，用户需要停止相关操作。
+	RDMA_CM_EVENT_MULTICAST_JOIN,         // 成功加入多播组。应用程序发起的多播加入请求已完成。
 	RDMA_CM_EVENT_MULTICAST_ERROR,
-	RDMA_CM_EVENT_ADDR_CHANGE,
-	RDMA_CM_EVENT_TIMEWAIT_EXIT
+	RDMA_CM_EVENT_ADDR_CHANGE,            // 地址改变。通常是由网络拓扑或设备状态变化引起，用户需要重新解析地址。
+	RDMA_CM_EVENT_TIMEWAIT_EXIT           // 超时退出。表示连接资源已从 TIME_WAIT 状态清理完毕，可以重新使用相同资源。
 };
 
 const char *__attribute_const__ rdma_event_msg(enum rdma_cm_event_type event);
 
+// PS: Protocol Selector
+// 表示 RDMA 底层使用的协议, refer: cma_select_ib_ps
+// 编码在 service id 里, refer: IB Spec Annex A11
+// service id 是编码在 REQ MAD 报文里的, refer: IB Spec Ch12
 #define RDMA_IB_IP_PS_MASK   0xFFFFFFFFFFFF0000ULL
 #define RDMA_IB_IP_PS_TCP    0x0000000001060000ULL
 #define RDMA_IB_IP_PS_UDP    0x0000000001110000ULL
@@ -46,15 +52,17 @@ const char *__attribute_const__ rdma_event_msg(enum rdma_cm_event_type event);
 struct rdma_addr {
 	struct sockaddr_storage src_addr;
 	struct sockaddr_storage dst_addr;
-	struct rdma_dev_addr dev_addr;
+	struct rdma_dev_addr dev_addr; // 出口设备信息. 表达一些 src_addr, dst_addr 无法表达的信息, 比如在 IB 网络中, LID, GUID 就无法通过 sockaddr_storage 表达
 };
 
+// RoCEv2 里, 路由是底层的 UDP/IP 负责的, 这个结构本质就是记录了 src/dst 地址
 struct rdma_route {
 	struct rdma_addr addr;
-	struct sa_path_rec *path_rec;
+	struct sa_path_rec *path_rec; // IB 中有用
 	int num_paths;
 };
 
+// connection 的一些参数
 struct rdma_conn_param {
 	const void *private_data;
 	u8 private_data_len;
@@ -69,6 +77,7 @@ struct rdma_conn_param {
 	u32 qkey;
 };
 
+// ud 协议的一些参数
 struct rdma_ud_param {
 	const void *private_data;
 	u8 private_data_len;
@@ -99,6 +108,7 @@ struct rdma_cm_id;
 typedef int (*rdma_cm_event_handler)(struct rdma_cm_id *id,
 				     struct rdma_cm_event *event);
 
+// 一个连接的 ctx, 类似于 tcp 中的一个 socket
 struct rdma_cm_id {
 	struct ib_device	*device;
 	void			*context;
@@ -114,6 +124,10 @@ struct rdma_cm_id *
 __rdma_create_kernel_id(struct net *net, rdma_cm_event_handler event_handler,
 			void *context, enum rdma_ucm_port_space ps,
 			enum ib_qp_type qp_type, const char *caller);
+/* 主要是创建 rdma_id_private
+ *
+ * 核心函数, 其他函数都是围绕着这个 id 结构
+ * */
 struct rdma_cm_id *rdma_create_user_id(rdma_cm_event_handler event_handler,
 				       void *context,
 				       enum rdma_ucm_port_space ps,
@@ -134,6 +148,8 @@ struct rdma_cm_id *rdma_create_user_id(rdma_cm_event_handler event_handler,
  *
  * The event handler callback serializes on the id's mutex and is
  * allowed to sleep.
+ *
+ * 创建 ctx 类似于创建一个 socket
  */
 #define rdma_create_id(net, event_handler, context, ps, qp_type)               \
 	__rdma_create_kernel_id(net, event_handler, context, ps, qp_type,      \
@@ -159,6 +175,8 @@ void rdma_destroy_id(struct rdma_cm_id *id);
  * This associates a source address with the RDMA identifier before calling
  * rdma_listen.  If a specific local address is given, the RDMA identifier will
  * be bound to a local RDMA device.
+ *
+ * 将一些地址信息(src addr)绑定到 id 上咯, 对于 server 端来说, listen 之前需要做这个操作的
  */
 int rdma_bind_addr(struct rdma_cm_id *id, struct sockaddr *addr);
 
@@ -171,6 +189,14 @@ int rdma_bind_addr(struct rdma_cm_id *id, struct sockaddr *addr);
  * @src_addr: Source address information.  This parameter may be NULL.
  * @dst_addr: Destination address information.
  * @timeout_ms: Time to wait for resolution to complete.
+ *
+ * dst 是必须的, src 是可选的
+ *
+ * 将 ip 地址解析为一个 RDMA 地址, 如果解析成功了, id 就可以关联到一个 local device
+ *
+ * 当然不同的 rdma 协议, 地址的解析方法是不一样的
+ *
+ * client 端会调用这个函数, 这样根据目的地址(ip 地址) 找到 口设备
  */
 int rdma_resolve_addr(struct rdma_cm_id *id, struct sockaddr *src_addr,
 		      const struct sockaddr *dst_addr,
@@ -183,6 +209,8 @@ int rdma_resolve_addr(struct rdma_cm_id *id, struct sockaddr *src_addr,
  * This is called on the client side of a connection.
  * Users must have first called rdma_resolve_addr to resolve a dst_addr
  * into an RDMA address before calling this routine.
+ *
+ * 解析 rdma 地址信息(已经 bound 到 id 了), 得到 route info, 后续用来建立连接
  */
 int rdma_resolve_route(struct rdma_cm_id *id, unsigned long timeout_ms);
 

@@ -160,6 +160,8 @@ struct sa_path_rec_opa {
 	u8	     qos_priority;
 };
 
+// Subnet Administration Path Record, 记录了一条路由信息
+// 有 subnet manager 来负责维护这些信息
 struct sa_path_rec {
 	union ib_gid dgid;
 	union ib_gid sgid;

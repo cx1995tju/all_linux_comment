@@ -848,6 +848,9 @@ static inline int __must_check xa_insert_irq(struct xarray *xa,
  * the @gfp flags permit.
  * Return: 0 on success, -ENOMEM if memory could not be allocated or
  * -EBUSY if there are no free entries in @limit.
+ *
+ *
+ *  entry 插入到 xa 中, 插入的位置用 id 返回, limit 用来限制返回的 id 范围
  */
 static inline __must_check int xa_alloc(struct xarray *xa, u32 *id,
 		void *entry, struct xa_limit limit, gfp_t gfp)

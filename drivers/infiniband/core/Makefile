@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
+# 定义两个变量, 后面会引用, 这里 CONFIG_INFINIBAND_ADDR_TRANS 如果不是 y的话, 后面对应的变量就是空, 就不会引用 rdma_cm.o 这个 source code
 infiniband-$(CONFIG_INFINIBAND_ADDR_TRANS)	:= rdma_cm.o
 user_access-$(CONFIG_INFINIBAND_ADDR_TRANS)	:= rdma_ucm.o
 
