@@ -161,7 +161,7 @@ struct sa_path_rec_opa {
 };
 
 // Subnet Administration Path Record, 记录了一条路由信息
-// 有 subnet manager 来负责维护这些信息
+// 有 subnet manager 来负责维护这些信息, 类似于 ip 网络里的 rtable / dst_entry
 struct sa_path_rec {
 	union ib_gid dgid;
 	union ib_gid sgid;

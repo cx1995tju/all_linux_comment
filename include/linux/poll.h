@@ -45,11 +45,14 @@ typedef struct poll_table_struct {
 	__poll_t _key;
 } poll_table;
 
+
+// epoll_insert 的时候调用到 poll_wait 会将一个 epoll 的 wait entry 挂载到 file->poll_wait 里
+// 而这个 wait entry 关联了一个 epitem 结构, epitem 又关联了被监听的 file(target file) 结构
 static inline void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table *p)
 {
 //参考epoll_ctl() -> ep_insert()函数
 /* p中函数是ep_ptable_queue_proc   wait_address是被监听socket的sk_wq, filp是被监听文件*/
-/* 如果p 或者 p->_qproc是空的话，不会进来的, 所以谁 ep_item_poll -> poll_wait 的时候，只有第一次的 epoll_insert() -> ep_item_poll 才会进来执行，后续的 epoll_wait -> ep_item_poll 就不会真的执行了 */
+/* 如果p 或者 p->_qproc是空的话，不会进来的, 只有第一次的 ep_insert() -> ep_item_poll 才会进来执行，后续的 epoll_wait -> ep_item_poll 就不会真的执行了 */
 	if (p && p->_qproc && wait_address)  // ep_ptable_queue_proc
 		p->_qproc(filp, wait_address, p);
 }

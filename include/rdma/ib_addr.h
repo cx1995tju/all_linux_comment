@@ -32,6 +32,7 @@
  * @net:		Network namespace containing the bound_dev_if net_dev.
  * @sgid_attr:		GID attribute to use for identified SGID
  */
+// 注: 显然在 IB 场景, dst/src_dev_addr 不是 MAC 地址, 具体存储了什么参考: %rdma_addr_get_sgid() 系列函数
 struct rdma_dev_addr {
 	unsigned char src_dev_addr[MAX_ADDR_LEN]; // ref: rdma_copy_src_l2_addr
 	unsigned char dst_dev_addr[MAX_ADDR_LEN];
@@ -105,7 +106,7 @@ static inline void ib_addr_get_mgid(struct rdma_dev_addr *dev_addr,
 
 static inline int rdma_addr_gid_offset(struct rdma_dev_addr *dev_addr)
 {
-	return dev_addr->dev_type == ARPHRD_INFINIBAND ? 4 : 0;
+	return dev_addr->dev_type == ARPHRD_INFINIBAND ? 4 : 0; // why is there 4 byte offset ? 是为了兼容 iponib 场景么? iponib 场景需要保留 4byte 存储 ip 地址? ref: 7025fcd36bd62af2c6ca0ea3490c00b216c4d168
 }
 
 static inline u16 rdma_vlan_dev_vlan_id(const struct net_device *dev)
@@ -150,7 +151,7 @@ static inline void rdma_gid2ip(struct sockaddr *out, const union ib_gid *gid)
 /*
  * rdma_get/set_sgid/dgid() APIs are applicable to IB, and iWarp.
  * They are not applicable to RoCE.
- * RoCE GIDs are derived from the IP addresses.
+ * RoCE GIDs are derived from the IP addresses.	// 注意: 这里的函数不适用于 RoCE 的
  */
 static inline void rdma_addr_get_sgid(struct rdma_dev_addr *dev_addr, union ib_gid *gid)
 {

@@ -74,23 +74,28 @@ static struct ctl_table ucma_ctl_table[] = {
 	{ }
 };
 
+// 一个 file 可以关联多个 id 的 ctx 的
+// ref: ucma_migrate_id
 struct ucma_file {
 	struct mutex		mut;
 	struct file		*filp;
-	struct list_head	ctx_list;
+	struct list_head	ctx_list; // 将 ucma_context ctx 挂载到这里, 这样反过来可以通过 ucma_file 找到 ctx. 什么时候一个 file 会挂载多个 ctx 呢 ??? 
+					  // ucma_migrate_id ??
 	struct list_head	event_list; // 发生的事件 挂载在这里
-	wait_queue_head_t	poll_wait;
+	wait_queue_head_t	poll_wait; // 没啥好说的, poll 机制
 };
 
+// 核心结构, 可以理解为是一个 socket 结构
+// 使用 ctx_table 来存储 ucma_context 变量
 struct ucma_context {
-	u32			id;
+	u32			id;  // 返回给 userspace 的
 	struct completion	comp;
 	refcount_t		ref;
 	int			events_reported;
 	atomic_t		backlog;
 
 	struct ucma_file	*file;
-	struct rdma_cm_id	*cm_id;
+	struct rdma_cm_id	*cm_id; // rdma_cm 层的 id, 可以理解为另一层的 socket
 	struct mutex		mutex;
 	u64			uid;
 
@@ -118,8 +123,9 @@ struct ucma_event {
 	struct rdma_ucm_event_resp resp;
 };
 
+// 一个数组, 用户 create id 后将其 ctx 保存到这里, 将 id 返回给用户
 static DEFINE_XARRAY_ALLOC(ctx_table);
-static DEFINE_XARRAY_ALLOC(multicast_table);
+static DEFINE_XARRAY_ALLOC(multicast_table); // 存储的是 struct ucma_multicast 结构
 
 static const struct file_operations ucma_fops;
 static int __destroy_id(struct ucma_context *ctx);
@@ -159,6 +165,8 @@ static void ucma_put_ctx(struct ucma_context *ctx)
 /*
  * Same as ucm_get_ctx but requires that ->cm_id->device is valid, eg that the
  * CM_ID is bound.
+ *
+ * 会检验下 ctx 有没有找到一个 ib_device
  */
 static struct ucma_context *ucma_get_ctx_dev(struct ucma_file *file, int id)
 {
@@ -226,6 +234,7 @@ static void ucma_finish_ctx(struct ucma_context *ctx)
 }
 
 // helper 罢了
+// 将底层的 rdma_cm 里的参数转换为 rdma_ucm 这一层的参数
 static void ucma_copy_conn_event(struct rdma_ucm_conn_param *dst,
 				 struct rdma_conn_param *src)
 {
@@ -243,6 +252,7 @@ static void ucma_copy_conn_event(struct rdma_ucm_conn_param *dst,
 }
 
 // helper 罢了
+// 同上, 针对 ud 的
 static void ucma_copy_ud_event(struct ib_device *device,
 			       struct rdma_ucm_ud_param *dst,
 			       struct rdma_ud_param *src)
@@ -272,7 +282,7 @@ static struct ucma_event *ucma_create_uevent(struct ucma_context *ctx,
 	uevent->ctx = ctx;
 	switch (event->event) {
 	case RDMA_CM_EVENT_MULTICAST_JOIN:
-	case RDMA_CM_EVENT_MULTICAST_ERROR:
+	case RDMA_CM_EVENT_MULTICAST_ERROR:	// 这两种 event 有 private_data
 		uevent->mc = (struct ucma_multicast *)
 			     event->param.ud.private_data;
 		uevent->resp.uid = uevent->mc->uid;
@@ -297,6 +307,7 @@ static struct ucma_event *ucma_create_uevent(struct ucma_context *ctx,
 	return uevent;
 }
 
+// 从 rdma_cm 层 callback 到这个函数的
 static int ucma_connect_event_handler(struct rdma_cm_id *cm_id,
 				      struct rdma_cm_event *event)
 {
@@ -394,6 +405,7 @@ static ssize_t ucma_get_event(struct ucma_file *file, const char __user *inbuf,
 		if (file->filp->f_flags & O_NONBLOCK)
 			return -EAGAIN;
 
+		// if O_BLOCK then sleep in here
 		if (wait_event_interruptible(file->poll_wait,
 					     !list_empty(&file->event_list)))
 			return -ERESTARTSYS;
@@ -586,6 +598,7 @@ static int __destroy_id(struct ucma_context *ctx)
 		ucma_put_ctx(ctx);
 	}
 
+	// 上层来主动 destroy 了, 不需要 close_work 了
 	cancel_work_sync(&ctx->close_work);
 	/* At this point it's guaranteed that there is no inflight closing task */
 	if (ctx->cm_id)
@@ -624,6 +637,7 @@ static ssize_t ucma_destroy_id(struct ucma_file *file, const char __user *inbuf,
 	return ret;
 }
 
+// 对 rdma_cm 层简单的封装
 static ssize_t ucma_bind_ip(struct ucma_file *file, const char __user *inbuf,
 			      int in_len, int out_len)
 {
@@ -653,6 +667,8 @@ static ssize_t ucma_bind_ip(struct ucma_file *file, const char __user *inbuf,
 // 让 userspace 直接 bind AF_IB af, 老版本 kernel 不支持的, 所有现在在 librdmacm 里有一个 af_ib_support 的变量
 // af_ib_support 是在用户态尝试 bind AF_IB 来判断的. 
 // sockaddr_ib 的 大小比 sockaddr_in6 大的
+//
+// 新内核用这个了, 更通用. 但是为了兼容, 保留了 ucma_bind_ip 函数
 static ssize_t ucma_bind(struct ucma_file *file, const char __user *inbuf,
 			 int in_len, int out_len)
 {
@@ -679,6 +695,8 @@ static ssize_t ucma_bind(struct ucma_file *file, const char __user *inbuf,
 	return ret;
 }
 
+// 对内层简单的封装
+// 传入的地址是 ip 地址
 static ssize_t ucma_resolve_ip(struct ucma_file *file,
 			       const char __user *inbuf,
 			       int in_len, int out_len)
@@ -706,6 +724,7 @@ static ssize_t ucma_resolve_ip(struct ucma_file *file,
 	return ret;
 }
 
+// 更通用, 传入的地址可以是 AF_IB 地址
 static ssize_t ucma_resolve_addr(struct ucma_file *file,
 				 const char __user *inbuf,
 				 int in_len, int out_len)
@@ -734,6 +753,7 @@ static ssize_t ucma_resolve_addr(struct ucma_file *file,
 	return ret;
 }
 
+// rdma_cm 层 resolve route 的简单封装
 static ssize_t ucma_resolve_route(struct ucma_file *file,
 				  const char __user *inbuf,
 				  int in_len, int out_len)
@@ -756,6 +776,8 @@ static ssize_t ucma_resolve_route(struct ucma_file *file,
 	return ret;
 }
 
+// helper: 将 rdma_cm 层的 route 信息转换一下
+// 仅仅针对 IB 的, Roce 不用这个
 static void ucma_copy_ib_route(struct rdma_ucm_query_route_resp *resp,
 			       struct rdma_route *route)
 {
@@ -784,6 +806,7 @@ static void ucma_copy_ib_route(struct rdma_ucm_query_route_resp *resp,
 	}
 }
 
+// iboe: ib on ethernet 即 RoCE
 static void ucma_copy_iboe_route(struct rdma_ucm_query_route_resp *resp,
 				 struct rdma_route *route)
 {
@@ -857,11 +880,11 @@ static ssize_t ucma_query_route(struct ucma_file *file,
 	resp.ibdev_index = ctx->cm_id->device->index;
 	resp.port_num = ctx->cm_id->port_num;
 
-	if (rdma_cap_ib_sa(ctx->cm_id->device, ctx->cm_id->port_num))
+	if (rdma_cap_ib_sa(ctx->cm_id->device, ctx->cm_id->port_num)) // IB 才会进入这里
 		ucma_copy_ib_route(&resp, &ctx->cm_id->route);
-	else if (rdma_protocol_roce(ctx->cm_id->device, ctx->cm_id->port_num))
-		ucma_copy_iboe_route(&resp, &ctx->cm_id->route);
-	else if (rdma_protocol_iwarp(ctx->cm_id->device, ctx->cm_id->port_num))
+	else if (rdma_protocol_roce(ctx->cm_id->device, ctx->cm_id->port_num)) // roce 到这里
+		ucma_copy_iboe_route(&resp, &ctx->cm_id->route); // 对于 RoCE 来说, 这里和前面的 memcpy 有点重复, 都是保存 route->addr.dst_addr/src_addr 的信息, 不过保存的位置不同罢了
+	else if (rdma_protocol_iwarp(ctx->cm_id->device, ctx->cm_id->port_num)) // iwarp 在这里
 		ucma_copy_iw_route(&resp, &ctx->cm_id->route);
 
 out:
@@ -1038,6 +1061,7 @@ static ssize_t ucma_query(struct ucma_file *file,
 	return ret;
 }
 
+// rdma_ucm 层的信息 copy 给 rdma_cm 层
 static void ucma_copy_conn_param(struct rdma_cm_id *id,
 				 struct rdma_conn_param *dst,
 				 struct rdma_ucm_conn_param *src)
@@ -1054,6 +1078,9 @@ static void ucma_copy_conn_param(struct rdma_cm_id *id,
 	dst->qkey = (id->route.addr.src_addr.ss_family == AF_IB) ? src->qkey : 0;
 }
 
+// XXX 关键, 看看 pkt 是如何构造并被发出的
+// 将 mad 报文构造需要的信息组织到一起, 然后通过 ib_send_mad 发送出去
+// ib_send_mad 会找到一个 mad_agent 进而找到一个 device, 根据 spec 应该使用的是 QP1, 找到 device 后使用正常的 ib_post_send 发送出去即可
 static ssize_t ucma_connect(struct ucma_file *file, const char __user *inbuf,
 			    int in_len, int out_len)
 {
@@ -1090,6 +1117,13 @@ static ssize_t ucma_connect(struct ucma_file *file, const char __user *inbuf,
 	return ret;
 }
 
+// XXX: 关键
+// Q: listen 后, 收到 mad req 报文是如何找到对应 ctx 的 ?
+//
+// listen 会关联一个 service_id (类似: tcp port), 调用内层的 ib_cm_insert_listen 的时候:
+// - 将对应的 id 结构保存到一个 rb tree 里了: cm.listen_service_table.rb_node 
+// - id 结构还携带了一个 handler
+// 后续底层收到 mad 报文后, 应该根据 service id 从 rb tree 里找到 id 进而调用 handler 将事件通知到上层
 static ssize_t ucma_listen(struct ucma_file *file, const char __user *inbuf,
 			   int in_len, int out_len)
 {
@@ -1115,6 +1149,8 @@ static ssize_t ucma_listen(struct ucma_file *file, const char __user *inbuf,
 	return ret;
 }
 
+// Q: 请求来了后, 被处理后保存在哪里? accept 从哪里取请求
+// ref: comment on rdma_accept()
 static ssize_t ucma_accept(struct ucma_file *file, const char __user *inbuf,
 			   int in_len, int out_len)
 {
@@ -1162,6 +1198,8 @@ static ssize_t ucma_accept(struct ucma_file *file, const char __user *inbuf,
 	return ret;
 }
 
+// ref: comment rdma_accept()
+// 当有连接来临的时候, 已经通过 RDMA_CM_EVENT_CONNECT_REQUEST 通知 userspace, userspace 可以选择拒绝, 而不是无条件的 accept
 static ssize_t ucma_reject(struct ucma_file *file, const char __user *inbuf,
 			   int in_len, int out_len)
 {
@@ -1195,6 +1233,7 @@ static ssize_t ucma_reject(struct ucma_file *file, const char __user *inbuf,
 	return ret;
 }
 
+// 发送 drep 消息咯
 static ssize_t ucma_disconnect(struct ucma_file *file, const char __user *inbuf,
 			       int in_len, int out_len)
 {
@@ -1241,13 +1280,14 @@ static ssize_t ucma_init_qp_attr(struct ucma_file *file,
 
 	resp.qp_attr_mask = 0;
 	memset(&qp_attr, 0, sizeof qp_attr);
-	qp_attr.qp_state = cmd.qp_state;
+	qp_attr.qp_state = cmd.qp_state;	// 修改 QP state
 	mutex_lock(&ctx->mutex);
 	ret = rdma_init_qp_attr(ctx->cm_id, &qp_attr, &resp.qp_attr_mask);
 	mutex_unlock(&ctx->mutex);
 	if (ret)
 		goto out;
 
+	// 将修改后的结果返回回去
 	ib_copy_qp_attr_to_user(ctx->cm_id->device, &resp, &qp_attr);
 	if (copy_to_user(u64_to_user_ptr(cmd.response),
 			 &resp, sizeof(resp)))
@@ -1352,7 +1392,7 @@ static int ucma_set_option_ib(struct ucma_context *ctx, int optname,
 	int ret;
 
 	switch (optname) {
-	case RDMA_OPTION_IB_PATH:
+	case RDMA_OPTION_IB_PATH: // infiniband(含 RoCE)
 		ret = ucma_set_ib_path(ctx, optval, optlen);
 		break;
 	default:
@@ -1607,6 +1647,8 @@ out:
 	return ret;
 }
 
+// 将 id 绑定到另一个 fd 上
+// 在多线程协作上有用处
 static ssize_t ucma_migrate_id(struct ucma_file *new_file,
 			       const char __user *inbuf,
 			       int in_len, int out_len)
@@ -1748,11 +1790,13 @@ static ssize_t ucma_write(struct file *filp, const char __user *buf,
 	return ret;
 }
 
+// 标准的 poll 机制咯, 没什么特殊的
 static __poll_t ucma_poll(struct file *filp, struct poll_table_struct *wait)
 {
 	struct ucma_file *file = filp->private_data;
 	__poll_t mask = 0;
 
+	// 如果是 epoll 机制, poll_table wait 就是 epoll 提供的, ref: ep_ptable_queue_proc 
 	poll_wait(filp, &file->poll_wait, wait);
 
 	if (!list_empty(&file->event_list))

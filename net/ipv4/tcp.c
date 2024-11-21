@@ -501,8 +501,9 @@ static inline bool tcp_stream_is_readable(const struct tcp_sock *tp,
  *	go look at any of the socket buffers directly.
  */
 // 两个作用: ep_item_poll -> sock_poll -> tcp_poll
-// epoll_wait 会调用这个函数来判断 socket 上的事件
-// epoll_insert 调用这个函数建立 socket fd 和 epoll fd 的关系
+// epoll_wait, 以及被唤醒(ep_poll_callback)的时候 会调用这个函数来判断 socket 上的事件, 唤醒后就接着在 epoll_wait 上继续执行
+//	- epoll_wait() -> ep_scan_ready_list() -> ep_read_events_proc() -> ep_item_poll()
+// epoll_insert 调用这个函数建立 socket fd 和 epoll fd 的关系,  ref: ep_ptable_queue_proc()
 __poll_t tcp_poll(struct file *file, struct socket *sock, poll_table *wait)
 {
 	__poll_t mask;

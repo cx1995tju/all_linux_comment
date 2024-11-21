@@ -167,7 +167,9 @@ static struct ib_client cma_client = {
 };
 
 static struct ib_sa_client sa_client;
-static LIST_HEAD(dev_list); // XXX ref: struct cma_device, 底层有 ib 设备添加的时候, 就会通过 cma_add_one cb 挂一个设备到 dev_list 上
+
+// 对于 rdma 设备通过向 ib_core 模块注册一个 `sa_client`, 每次底层有 ib 设备添加的时候, 都会通过 cma_add_one cb 挂一个设备到 dev_list 上
+static LIST_HEAD(dev_list); // XXX ref: struct cma_device
 static LIST_HEAD(listen_any_list); // 有些用户态应用会 listen any 的
 static DEFINE_MUTEX(lock);
 static struct workqueue_struct *cma_wq;
@@ -377,6 +379,7 @@ union cma_ip_addr {
 	} ip4;
 };
 
+// ref: IB Spec Vol1 A11.4
 struct cma_hdr {
 	u8 cma_version;
 	u8 ip_version;	/* IP version: 7:4 */
@@ -3988,6 +3991,8 @@ static int cma_connect_ib(struct rdma_id_private *id_priv,
 		memcpy(private_data + offset, conn_param->private_data,
 		       conn_param->private_data_len);
 
+	// 为什么需要一个 new id ?
+	// connect 后收到第二次握手的 REP 后, 是 cma_ib_handler 负责发出第三次握手的 RTU 报文
 	id = ib_create_cm_id(id_priv->id.device, cma_ib_handler, id_priv);
 	if (IS_ERR(id)) {
 		ret = PTR_ERR(id);
@@ -4271,6 +4276,9 @@ static int cma_send_sidr_rep(struct rdma_id_private *id_priv,
  * This function is for use by kernel ULPs and must be called from under the
  * handler callback.
  */
+
+// 比较有趣的是, 与 TCP 不同, 第二次握手的报文是 accept 触发的(ib_send_cm_rep()), 是因为第二次握手需要一些用户提供的信息
+// 第二点与 TCP 不同的时, accept 传入的这个 id 不是 listen id. 而是在收到 mad req 请求的时候, 内核通过 RDMA_CM_EVENT_CONNECT_REQUEST 通知了用户空间, 这时候在 EVENT 里已经携带了一个 id 给 userspace 了, userspace 用那个 id 直接来 accept. ref: cma_ib_req_handler
 int rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param)
 {
 	struct rdma_id_private *id_priv =
@@ -4297,7 +4305,7 @@ int rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param)
 			else
 				ret = cma_send_sidr_rep(id_priv, IB_SIDR_SUCCESS,
 							0, NULL, 0);
-		} else {
+		} else { // RC 服务走这里
 			if (conn_param)
 				ret = cma_accept_ib(id_priv, conn_param);
 			else

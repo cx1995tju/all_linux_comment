@@ -1269,7 +1269,7 @@ static int ep_poll_callback(wait_queue_entry_t *wait, unsigned mode, int sync, v
 				break;
 			}
 		}
-		wake_up(&ep->wq);
+		wake_up(&ep->wq); // epoll_wait() 那个进程还在睡着呢, 唤醒他. 然后其在 epoll_wait 里去 scan ready list
 	}
 	if (waitqueue_active(&ep->poll_wait))
 		pwake++;
@@ -1306,15 +1306,19 @@ out_unlock:
 /*
  * This is the callback that is used to add our wait queue to the
  * target file wakeup lists.
+ *
+ * 通过 ep_insert()-> ep_item_poll() -> vfs_poll() -> sock_poll() -> poll_wait() -> ... 调用到这个函数的时候, epi 已经关联了 target file 了
+ *
+ * whead 是 某个文件(比如 socket 的睡眠队列), 这里 epoll 机制创建一个 epoll_entry 作为睡眠队列的 entry(这个 entry 又通过 epitem 关联了这个文件的), 将其挂到对应文件的睡眠队列上, 后续唤醒的时候本质就是醒了 epoll 的这个 entry, 而 epoll 这个 entry 可以找到对应的文件, 通过调用对应文件的 poll 函数, 获取这个文件上发生的事情 (ep_read_events_proc() -> ep_item_poll() ->* poll_wait())
  */
 static void ep_ptable_queue_proc(struct file *file, wait_queue_head_t *whead,
 				 poll_table *pt)
 {
-	struct epitem *epi = ep_item_from_epqueue(pt);
+	struct epitem *epi = ep_item_from_epqueue(pt); // ref: ep_insert()
 	struct eppoll_entry *pwq;
 
 	if (epi->nwait >= 0 && (pwq = kmem_cache_alloc(pwq_cache, GFP_KERNEL))) {
-		init_waitqueue_func_entry(&pwq->wait, ep_poll_callback);
+		init_waitqueue_func_entry(&pwq->wait, ep_poll_callback); // HERE: 后续唤醒 epi 对应的文件的睡眠队列的时候, 本质就是唤醒 pwq 这个 entry, 也就是执行这里的 ep_poll_callback 函数
 		pwq->whead = whead;
 		pwq->base = epi;
 		if (epi->event.events & EPOLLEXCLUSIVE)
@@ -1487,6 +1491,8 @@ static noinline void ep_destroy_wakeup_source(struct epitem *epi)
 
 /*
  * Must be called with "mtx" held.
+ *
+ * tfile: target file
  */
 static int ep_insert(struct eventpoll *ep, const struct epoll_event *event,
 		     struct file *tfile, int fd, int full_check)

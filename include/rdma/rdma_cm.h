@@ -59,10 +59,10 @@ struct rdma_addr {
 struct rdma_route {
 	struct rdma_addr addr;
 	struct sa_path_rec *path_rec; // IB 中有用
-	int num_paths;
+	int num_paths; // path_rec 数组的大小
 };
 
-// connection 的一些参数
+// conn 服务的一些参数
 struct rdma_conn_param {
 	const void *private_data;
 	u8 private_data_len;
@@ -77,7 +77,7 @@ struct rdma_conn_param {
 	u32 qkey;
 };
 
-// ud 协议的一些参数
+// ud 服务的一些参数
 struct rdma_ud_param {
 	const void *private_data;
 	u8 private_data_len;

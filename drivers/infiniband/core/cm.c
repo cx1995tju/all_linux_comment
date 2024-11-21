@@ -259,7 +259,7 @@ struct cm_id_private {
 	int listen_sharecount;
 	struct rcu_head rcu;
 
-	struct ib_mad_send_buf *msg;
+	struct ib_mad_send_buf *msg; // mad 报文
 	struct cm_timewait_info *timewait_info;
 	/* todo: use alternate port on send failure */
 	struct cm_av av;

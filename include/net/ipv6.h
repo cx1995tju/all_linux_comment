@@ -734,6 +734,7 @@ static inline bool ipv6_addr_is_multicast(const struct in6_addr *addr)
 static inline void ipv6_addr_set_v4mapped(const __be32 addr,
 					  struct in6_addr *v4mapped)
 {
+	// ::ffff:<ipv4 addr>
 	ipv6_addr_set(v4mapped,
 			0, 0,
 			htonl(0x0000FFFF),

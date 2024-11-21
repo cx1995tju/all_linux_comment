@@ -604,7 +604,7 @@ static inline struct rdma_hw_stats *rdma_alloc_hw_stats_struct(
 #define RDMA_CORE_CAP_IB_SMI            0x00000002
 #define RDMA_CORE_CAP_IB_CM             0x00000004
 #define RDMA_CORE_CAP_IW_CM             0x00000008
-#define RDMA_CORE_CAP_IB_SA             0x00000010
+#define RDMA_CORE_CAP_IB_SA             0x00000010	// RoCE 肯定没有这个的
 #define RDMA_CORE_CAP_OPA_MAD           0x00000020
 
 /* Address format                       0x000FF000 */
