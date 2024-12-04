@@ -951,6 +951,8 @@ static int gid_table_setup_one(struct ib_device *ib_dev)
  * Returns 0 on success or appropriate error code.
  *
  */
+
+// 获取 device 这个设备的 port_num 的这个 port 的第 index 个 gid
 int rdma_query_gid(struct ib_device *device, u8 port_num,
 		   int index, union ib_gid *gid)
 {
@@ -1112,7 +1114,9 @@ int ib_find_cached_pkey(struct ib_device *device,
 	*index = -1;
 
 	for (i = 0; i < cache->table_len; ++i)
-		if ((cache->table[i] & 0x7fff) == (pkey & 0x7fff)) {
+		// 找到 device 这个设备的 port_num 这个 port, 如果其 某个 pkey 和传入的 pkey 匹配的话
+		// 将这个 pkey 的 index 返回回去
+		if ((cache->table[i] & 0x7fff) == (pkey & 0x7fff)) { // what ???
 			if (cache->table[i] & 0x8000) {
 				*index = i;
 				ret = 0;
@@ -1357,6 +1361,7 @@ EXPORT_SYMBOL(rdma_hold_gid_attr);
  * different net namespace. Returns ERR_PTR with error code otherwise.
  *
  */
+// attr 里已经保存(cache) 了 net_device, 这里就是校验一下有效性咯
 struct net_device *rdma_read_gid_attr_ndev_rcu(const struct ib_gid_attr *attr)
 {
 	struct ib_gid_table_entry *entry =

@@ -145,6 +145,8 @@ enum ib_gid_type {
 };
 
 #define ROCE_V2_UDP_DPORT      4791
+// ref: rdma_find_gid_by_port
+// 一个 device 有很多 port, 所以有一个 gid_table 来保存这些 port 的 gid 信息, ib_gid_attr 就在里面
 struct ib_gid_attr {
 	struct net_device __rcu	*ndev;
 	struct ib_device	*device;
@@ -1092,7 +1094,7 @@ enum ib_qp_type {
 
 	IB_QPT_RC = IB_UVERBS_QPT_RC,
 	IB_QPT_UC = IB_UVERBS_QPT_UC,
-	IB_QPT_UD = IB_UVERBS_QPT_UD,
+	IB_QPT_UD = IB_UVERBS_QPT_UD, // IB spec 是定义了 RD 类型的, 但是 内核和 rdma-core 都没有支持的.
 	IB_QPT_RAW_IPV6,
 	IB_QPT_RAW_ETHERTYPE,
 	IB_QPT_RAW_PACKET = IB_UVERBS_QPT_RAW_PACKET,
@@ -1236,13 +1238,14 @@ enum ib_qp_attr_mask {
 	IB_QP_RATE_LIMIT		= (1<<25),
 };
 
+// IB spec vol1 ch10.3
 enum ib_qp_state {
 	IB_QPS_RESET,
 	IB_QPS_INIT,
-	IB_QPS_RTR,
-	IB_QPS_RTS,
-	IB_QPS_SQD,
-	IB_QPS_SQE,
+	IB_QPS_RTR, // ready to read
+	IB_QPS_RTS, // ready to send
+	IB_QPS_SQD, // send queue drain
+	IB_QPS_SQE, // send queue error
 	IB_QPS_ERR
 };
 
@@ -1257,6 +1260,7 @@ enum ib_mw_type {
 	IB_MW_TYPE_2 = 2
 };
 
+// IB Spec vol1 ch11.2.5.2
 struct ib_qp_attr {
 	enum ib_qp_state	qp_state;
 	enum ib_qp_state	cur_qp_state;
@@ -2993,7 +2997,7 @@ static inline bool rdma_cap_ib_switch(const struct ib_device *device)
  */
 static inline u8 rdma_start_port(const struct ib_device *device)
 {
-	return rdma_cap_ib_switch(device) ? 0 : 1;
+	return rdma_cap_ib_switch(device) ? 0 : 1; // IB switch 的 port 0 是保留的 ref: IB spec vol1 Ch18.1.1
 }
 
 /**

@@ -25,6 +25,10 @@ iw_cm-y :=			iwcm.o iwpm_util.o iwpm_msg.o
 CFLAGS_cma_trace.o +=		-I$(src)
 rdma_cm-y :=			cma.o cma_trace.o
 
+# 提供了一些基于 configfs 的动态配置的能力, 使用方法
+# 挂载 configfs, 默认是 /sys/kernel/config
+# mkdir /sys/kernel/config/rdma_cm/${RDMA_DEV_NAME}
+# 然后就可以看到一些属性的操作接口了
 rdma_cm-$(CONFIG_INFINIBAND_ADDR_TRANS_CONFIGFS) += cma_configfs.o
 
 rdma_ucm-y :=			ucma.o

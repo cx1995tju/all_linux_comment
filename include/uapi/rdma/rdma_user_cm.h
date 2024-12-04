@@ -71,12 +71,16 @@ enum {
 };
 
 /* See IBTA Annex A11, servies ID bytes 4 & 5 */
-/* ref: ucma_get_qp_type */
+// 这个信息最终是体现在 services ID 上
+// roce 里是规定了 低 16b 放 port 号, [31:16]b 放这里的 port space 号
+// IB spec 没有规定 ib 的 serivce id 的 format
+// 不过 linux 实现的时候, 在其基础上统一搞了一个 port space 的概念, RDMA_PS_IB, 然后将 低 16b 也编码为 port, [31:16]b 编码为 port space
+/* ref: ucma_get_qp_type / rdma_ps_from_service_id() */
 enum rdma_ucm_port_space {
-	RDMA_PS_IPOIB = 0x0002,
-	RDMA_PS_IB    = 0x013F,
-	RDMA_PS_TCP   = 0x0106,
-	RDMA_PS_UDP   = 0x0111,
+	RDMA_PS_IPOIB = 0x0002, // iponib 用这个
+	RDMA_PS_IB    = 0x013F, // 基于 native ib 的服务用这个
+	RDMA_PS_TCP   = 0x0106, // 基于 roce 的 rc 服务用这个
+	RDMA_PS_UDP   = 0x0111, // 基于 roce 的 ud 服务用这个, uc 用这个 ??? 从 man rdma_create_id 看, uc 也用这个, 而且就算 port space 和 qp type 不匹配关系也不大, 无非是影响 service id 的选择罢了
 };
 
 /*

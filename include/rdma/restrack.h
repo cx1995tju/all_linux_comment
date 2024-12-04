@@ -1,3 +1,5 @@
+// resource track
+
 /* SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB */
 /*
  * Copyright (c) 2017-2018 Mellanox Technologies. All rights reserved.
@@ -18,7 +20,10 @@ struct ib_device;
 struct sk_buff;
 
 /**
+ * resource track
  * enum rdma_restrack_type - HW objects to track
+ *
+ * 资源类型
  */
 enum rdma_restrack_type {
 	/**

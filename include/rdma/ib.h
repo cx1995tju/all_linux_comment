@@ -58,7 +58,9 @@ struct sockaddr_ib {
 	__be16			sib_pkey;
 	__be32			sib_flowinfo;
 	struct ib_addr		sib_addr;
-	__be64			sib_sid;
+	// roce 里是规定了 低 16b 放 port 号, IB spec 没有规定 ib 的 serivce id 的 format
+	// 不过 linux 实现的时候, 在其基础上搞了一个 port space 的概念, RDMA_PS_IB, 然后将 低 16b 也编码为 port
+	__be64			sib_sid; // ref: cma_bind_port()/cma_port() sid 里低 16b 编码了 port, [31:16] 编码了 port space 号
 	__be64			sib_sid_mask;
 	__u64			sib_scope_id;
 };

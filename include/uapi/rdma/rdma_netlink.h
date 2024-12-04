@@ -148,6 +148,7 @@ enum {
 };
 
 /* For RDMA_NLDEV_ATTR_DEV_NODE_TYPE */
+// ref IB Spec vol1 ch14.2.5.3
 enum {
 	/* IB values map to NodeInfo:NodeType. */
 	RDMA_NODE_IB_CA = 1,

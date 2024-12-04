@@ -202,7 +202,7 @@ struct ucred {
 #define AF_PPPOX	24	/* PPPoX sockets		*/
 #define AF_WANPIPE	25	/* Wanpipe API Sockets */
 #define AF_LLC		26	/* Linux LLC			*/
-#define AF_IB		27	/* Native InfiniBand address	*/
+#define AF_IB		27	/* Native InfiniBand address(不函数 RoCE, RoCE 会使用 AF_INET/AF_INET6)	*/
 #define AF_MPLS		28	/* MPLS */
 #define AF_CAN		29	/* Controller Area Network      */
 #define AF_TIPC		30	/* TIPC sockets			*/

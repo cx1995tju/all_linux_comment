@@ -22,6 +22,7 @@ int rdma_set_ib_path(struct rdma_cm_id *id,
 		     struct sa_path_rec *path_rec);
 
 /* Global qkey for UDP QPs and multicast groups. */
+// 类似通配符的 qkey, 一般是调试用的
 #define RDMA_UDP_QKEY 0x01234567
 
 #endif /* RDMA_CM_IB_H */

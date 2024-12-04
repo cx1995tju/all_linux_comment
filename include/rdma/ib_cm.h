@@ -206,6 +206,7 @@ struct ib_cm_apr_event_param {
 	u8			info_len;
 };
 
+// 信息来自于 ibta_vol1_c12.h Table119
 struct ib_cm_sidr_req_event_param {
 	struct ib_cm_id		*listen_id;
 	__be64			service_id;
@@ -294,7 +295,7 @@ struct ib_cm_id {
 	void			*context;
 	struct ib_device	*device;
 	__be64			service_id;
-	__be64			service_mask;
+	__be64			service_mask; // 让 listen 操作可以 listen 一批 port, bit 为 1 的 位需要匹配
 	enum ib_cm_state	state;		/* internal CM/debug use */
 	enum ib_cm_lap_state	lap_state;	/* internal CM/debug use */
 	__be32			local_id;

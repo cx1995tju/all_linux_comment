@@ -1326,6 +1326,7 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 	// 答：取决于 driver 里的配置。因为这里的 ooo_okay 依赖于 sk_wmem_alloc_get()。所以问题的关键就是 wmeme_alloc 什么时候减少。就可能出现 ooo_okay
 	//     如果在 driver 回收 txq 的 skb 的时候才减少，那么就确保了硬件层以上都是 order 的。如果在 driver 送入 硬件 txq 之后就减少。那么只能保证 driver 层及之上是有序的。
 	//     因为对于 multi queue 的 网卡，送到 driver 虽然是有序的。但是由于 mq 的存在，硬件搬运后，可能就是无序的了。
+	//     注: 当这里是 ooo_okay 的时候, 进入 driver 层就可以为改 5-tuple 选择新的 queue 了
 	skb->ooo_okay = sk_wmem_alloc_get(sk) < SKB_TRUESIZE(1);
 
 	/* If we had to use memory reserve to allocate this skb,

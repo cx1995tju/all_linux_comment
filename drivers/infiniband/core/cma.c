@@ -1,3 +1,95 @@
+/* 注: ib 和 roce 在 transport 层是一样的, 所以这里很多 ib 和 roce 的代码是统一到一起的
+ *
+ * 1. module_init/exit 函数
+ * 2. 核心全局变量的增删改查
+ *        - dev_list
+ *        - listen_any_list
+ *        - cma_wq
+ *        - cma_pernet()->tcp_ps
+ * 3. 外部接口: 给内核其他模块提供 rdma cm 能力, 以及通过 rdma_ucm.ko 提供 rdma cm 能力给 userspace
+ *      // socket-like 接口, 不过与 tcp-socket 有一些不同的点, ref: comment on rdma_accept()
+ *	EXPORT_SYMBOL(__rdma_create_kernel_id);
+ *	EXPORT_SYMBOL(rdma_create_user_id);
+ *	EXPORT_SYMBOL(rdma_destroy_id);
+ *	EXPORT_SYMBOL(rdma_resolve_route);
+ *	EXPORT_SYMBOL(rdma_resolve_addr);
+ *	EXPORT_SYMBOL(rdma_listen);
+ *	EXPORT_SYMBOL(rdma_bind_addr);
+ *	EXPORT_SYMBOL(rdma_connect_locked);
+ *	EXPORT_SYMBOL(rdma_connect);
+ *	EXPORT_SYMBOL(rdma_connect_ece);
+ *	EXPORT_SYMBOL(rdma_accept);
+ *	EXPORT_SYMBOL(rdma_accept_ece);
+ *	EXPORT_SYMBOL(rdma_disconnect);
+ *	EXPORT_SYMBOL(rdma_reject); // 与 tcp socket 不同的点, 作为 user-space 或者其他模块, 知道连接来了后, 可以主动拒绝的
+ *	EXPORT_SYMBOL(rdma_notify); // 其他模块/user-space 通知发生了什么事件, 一般都是数据通路有什么事情发生了, 因为数据通路 bypass 了
+ *
+ *
+ *	EXPORT_SYMBOL(rdma_create_qp);
+ *	EXPORT_SYMBOL(rdma_destroy_qp);
+ *	EXPORT_SYMBOL(rdma_init_qp_attr);
+ *
+ *	// 基于 id_priv->handler_mutex 类似于 lock_sock() 同步三个角色的行为:
+ *	- 上层 user-space 通过 rdma_ucm.ko 进入
+ *	- cma_wq 里的 work
+ *	- 下层 rdma 设备层之间的事件, 比如: cma_ib_listen() -> ib_cm_insert_listen() 注册的 cma_ib_req_handler
+ *	EXPORT_SYMBOL(rdma_lock_handler);
+ *	EXPORT_SYMBOL(rdma_unlock_handler);
+ *
+ *
+ *
+ *
+ *      // 一些参数的设置读取
+ *	EXPORT_SYMBOL(rdma_get_service_id);
+ *	EXPORT_SYMBOL(rdma_read_gids);
+ *	EXPORT_SYMBOL(rdma_set_service_type);
+ *	EXPORT_SYMBOL(rdma_set_ack_timeout);
+ *	EXPORT_SYMBOL(rdma_set_ib_path);
+ *	EXPORT_SYMBOL(rdma_set_reuseaddr);
+ *	EXPORT_SYMBOL(rdma_set_afonly);
+ *
+ *      // helper
+ *	EXPORT_SYMBOL(rdma_iw_cm_id);
+ *	EXPORT_SYMBOL(rdma_res_to_id);
+ *	EXPORT_SYMBOL(rdma_event_msg);
+ *	EXPORT_SYMBOL(rdma_reject_msg);
+ *	EXPORT_SYMBOL(rdma_consumer_reject_data);
+ *
+ *
+ *      // 多播相关
+ *	EXPORT_SYMBOL(rdma_join_multicast);
+ *	EXPORT_SYMBOL(rdma_leave_multicast);
+ * 4. 各种 handler: 构建了 rdma_cm.ko 的上层模块(比如: rdma_ucm.ko)和下层模块的 ib_core.ko 之间的关系 
+ *      - type 1: create id 时上层模块传入的 handler, rdma_cm.ko 通过这个 handler 将事件分发过去
+ *              cma_listen_handler
+ *
+ *	- type 2: rdma_cm.ko 模块的事件分发到上层模块			__核心__
+ *              cma_cm_event_handler
+ *
+ *      - type 3: create id 时 rdma_cm.ko 传入到底层 ib_core.ko 的 handler, 底层连接报文的处理就是这些 handler callback 到 rdma_cm.ko 层的
+ *              cma_sidr_rep_handler
+ *              cma_ib_handler
+ *              cma_ib_req_handler
+ *              cma_iw_handler // iwarp
+ *              iw_conn_req_handler // iwarp
+ *
+ *      - type 4: 其他注册到底层的 handler
+ *              cma_query_handler
+ *              cma_ib_mc_handler
+ *
+ *      - type 5: cma_wq 里使用的 handler
+ *              cma_work_handler
+ *              addr_handler
+ *
+ * 5. bind 机制的实现
+ *	- 核心结构: rdma_bind_list
+ *	- 相关函数:
+ *          - 创建: cma_alloc_port() -> cma_ps_alloc()
+ *          - 销毁: cma_release_port() -> cma_ps_remove()
+ *          - 查找: cma_ps_find()
+ *          - 增 node: cma_bind_port()
+ *          - 减 node: cma_release_port() -> cma_ps_remove()
+ * */
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
  * Copyright (c) 2005 Voltaire Inc.  All rights reserved.
@@ -112,6 +204,11 @@ static bool rdma_is_consumer_reject(struct rdma_cm_id *id, int reason)
 	return false;
 }
 
+// helper 提取 private data
+// 谁调用这个函数的? 得到 private data 后如何处理的?
+//
+// 作用不大, 上层协议发现连接被 reject 后, 提取下 private data , 看看 reject 的理由.
+// private data 也是由上层协议定义的
 const void *rdma_consumer_reject_data(struct rdma_cm_id *id,
 				      struct rdma_cm_event *ev, u8 *data_len)
 {
@@ -168,23 +265,27 @@ static struct ib_client cma_client = {
 
 static struct ib_sa_client sa_client;
 
-// 对于 rdma 设备通过向 ib_core 模块注册一个 `sa_client`, 每次底层有 ib 设备添加的时候, 都会通过 cma_add_one cb 挂一个设备到 dev_list 上
+// 对于 rdma 设备通过向 ib_core 模块注册一个 `cma_client`, 每次底层有 ib 设备添加的时候, 都会通过 cma_add_one cb 挂一个设备到 dev_list 上
+// dev_list 挂载的结构 cma_device 是和底层的设备一一对应的, ref: ib_register_device() ->* add_client_context()
 static LIST_HEAD(dev_list); // XXX ref: struct cma_device
 static LIST_HEAD(listen_any_list); // 有些用户态应用会 listen any 的
 static DEFINE_MUTEX(lock);
 static struct workqueue_struct *cma_wq;
-static unsigned int cma_pernet_id;
+static unsigned int cma_pernet_id; // 用于索引 per_net 的 cma_pernet 结构
 
+// 从 cma_init() 里可以看出来, 这个结构是一个 pernet 的核心结构
+// 下面 xarray 的 index 都是 host 字节序的 sport, 即相同 sport 的不同 id 都挂在同一个 entry(即 bind_list) 下
+// 注意: bind_list 以 sport 为 index, 是因为收报文的时候, 就是 dport 了
 struct cma_pernet {
-	struct xarray tcp_ps;
-	struct xarray udp_ps;
-	struct xarray ipoib_ps;
+	struct xarray tcp_ps; // rdma cm 协议用了
+	struct xarray udp_ps; // rdma cm 协议用了
+	struct xarray ipoib_ps; // ipoib 协议用了
 	struct xarray ib_ps;
 };
 
 static struct cma_pernet *cma_pernet(struct net *net)
 {
-	return net_generic(net, cma_pernet_id);
+	return net_generic(net, cma_pernet_id); // 在每个 net 结构的 cma_pernet_id 位置存储了一个指针, 指针的空间大小是 cma_pernet_operations->size
 }
 
 static
@@ -213,16 +314,26 @@ struct cma_device {
 	struct completion	comp;
 	refcount_t refcount;
 	struct list_head	id_list;
-	enum ib_gid_type	*default_gid_type;
-	u8			*default_roce_tos;
+	enum ib_gid_type	*default_gid_type; // 一个设备有很多 port, 记录所有 port 的 gid
+	u8			*default_roce_tos; // 数组, 每个 port 一个元素
 };
 
+// bind 机制的实现
+//    创建: cma_alloc_port() -> cma_ps_alloc()
+//    销毁: cma_release_port() -> cma_ps_remove() // owners 上的 node 减光了就自动 remove 咯
+//    查找: cma_ps_find()
+//    增 node: cma_bind_port()
+//    减 node: cma_release_port() -> cma_ps_remove()
+//
+// convention: bind_list
 struct rdma_bind_list {
 	enum rdma_ucm_port_space ps;
-	struct hlist_head	owners;
+	struct hlist_head	owners;  // node 是 struct rdma_id_private *id_priv->node 
 	unsigned short		port;
 };
 
+// 代码里都没有用这个结构
+// drivers/infiniband/core/cma.c
 struct class_port_info_context {
 	struct ib_class_port_info	*class_port_info;
 	struct ib_device		*device;
@@ -231,6 +342,7 @@ struct class_port_info_context {
 	u8				port_num;
 };
 
+// 在指定的 port space 里分配 port
 static int cma_ps_alloc(struct net *net, enum rdma_ucm_port_space ps,
 			struct rdma_bind_list *bind_list, int snum)
 {
@@ -256,7 +368,7 @@ static void cma_ps_remove(struct net *net, enum rdma_ucm_port_space ps,
 }
 
 enum {
-	CMA_OPTION_AFONLY,
+	CMA_OPTION_AFONLY, // 只能用 id_priv->afonly 指定的 af 咯 ???
 };
 
 void cma_dev_get(struct cma_device *cma_dev)
@@ -267,9 +379,10 @@ void cma_dev_get(struct cma_device *cma_dev)
 void cma_dev_put(struct cma_device *cma_dev)
 {
 	if (refcount_dec_and_test(&cma_dev->refcount))
-		complete(&cma_dev->comp);
+		complete(&cma_dev->comp);	// 注意这里, 唤醒了 cma_dev 上等待的一个实体, 因为 put 的时候如果能进来, 说明当前 做 put 的 thread 是最后一个持有 dev ref 的, 所以其要承担下唤醒的责任
 }
 
+// helper
 struct cma_device *cma_enum_devices_by_ibdev(cma_device_filter	filter,
 					     void		*cookie)
 {
@@ -278,6 +391,7 @@ struct cma_device *cma_enum_devices_by_ibdev(cma_device_filter	filter,
 
 	mutex_lock(&lock);
 
+	// 遍历 dev_list , 根据 filter 函数找到一个符合条件的设备, 返回回去
 	list_for_each_entry(cma_dev, &dev_list, list)
 		if (filter(cma_dev->device, cookie)) {
 			found_cma_dev = cma_dev;
@@ -290,6 +404,7 @@ struct cma_device *cma_enum_devices_by_ibdev(cma_device_filter	filter,
 	return found_cma_dev;
 }
 
+// 通过 configfs 可以设置设备的 default gid type / tos
 int cma_get_default_gid_type(struct cma_device *cma_dev,
 			     unsigned int port)
 {
@@ -308,7 +423,7 @@ int cma_set_default_gid_type(struct cma_device *cma_dev,
 	if (!rdma_is_port_valid(cma_dev->device, port))
 		return -EINVAL;
 
-	if (default_gid_type == IB_GID_TYPE_IB &&
+	if (default_gid_type == IB_GID_TYPE_IB && /* 不是想改成 IB 就改成 IB 的 */
 	    rdma_protocol_roce_eth_encap(cma_dev->device, port))
 		default_gid_type = IB_GID_TYPE_ROCE;
 
@@ -364,7 +479,7 @@ struct cma_multicast {
 };
 
 struct cma_work {
-	struct work_struct	work;
+	struct work_struct	work; // first-member inherit, work 机
 	struct rdma_id_private	*id;
 	enum rdma_cm_state	old_state;
 	enum rdma_cm_state	new_state;
@@ -402,6 +517,8 @@ struct cma_req_info {
 };
 
 // return 1 标识当前状态是 comp
+//
+// id_priv 的状态是 comp 的话就切换 exch
 static int cma_comp_exch(struct rdma_id_private *id_priv,
 			 enum rdma_cm_state comp, enum rdma_cm_state exch)
 {
@@ -434,6 +551,7 @@ static inline void cma_set_ip_ver(struct cma_hdr *hdr, u8 ip_ver)
 	hdr->ip_version = (ip_ver << 4) | (hdr->ip_version & 0xF);
 }
 
+// 组播相关, igmp
 static int cma_igmp_send(struct net_device *ndev, union ib_gid *mgid, bool join)
 {
 	struct in_device *in_dev = NULL;
@@ -454,6 +572,7 @@ static int cma_igmp_send(struct net_device *ndev, union ib_gid *mgid, bool join)
 	return (in_dev) ? 0 : -ENODEV;
 }
 
+// helper: 为 id_priv 查找路由后可以得到 出口 cma_dev, 将其 attach 到 id 上
 static void _cma_attach_to_dev(struct rdma_id_private *id_priv,
 			       struct cma_device *cma_dev)
 {
@@ -501,6 +620,8 @@ static inline unsigned short cma_family(struct rdma_id_private *id_priv)
 	return id_priv->id.route.addr.src_addr.ss_family;
 }
 
+// helper
+// UD 服务需要的
 static int cma_set_qkey(struct rdma_id_private *id_priv, u32 qkey)
 {
 	struct ib_sa_mcmember_rec rec;
@@ -517,6 +638,7 @@ static int cma_set_qkey(struct rdma_id_private *id_priv, u32 qkey)
 		return 0;
 	}
 
+	// qkey 为 0 就走下来
 	switch (id_priv->id.ps) {
 	case RDMA_PS_UDP:
 	case RDMA_PS_IB:
@@ -536,20 +658,22 @@ static int cma_set_qkey(struct rdma_id_private *id_priv, u32 qkey)
 	return ret;
 }
 
+// helper:
+// sib -> dev_addr
 static void cma_translate_ib(struct sockaddr_ib *sib, struct rdma_dev_addr *dev_addr)
 {
-	dev_addr->dev_type = ARPHRD_INFINIBAND;
-	rdma_addr_set_sgid(dev_addr, (union ib_gid *) &sib->sib_addr);
-	ib_addr_set_pkey(dev_addr, ntohs(sib->sib_pkey));
+	dev_addr->dev_type = ARPHRD_INFINIBAND; // 地址类型
+	rdma_addr_set_sgid(dev_addr, (union ib_gid *) &sib->sib_addr); // 地址 sgid
+	ib_addr_set_pkey(dev_addr, ntohs(sib->sib_pkey)); // pkey
 }
 
-// 根据传入的 addr 来寻找 dev_addr ???
+// 将 addr -> dev_addr
 static int cma_translate_addr(struct sockaddr *addr, struct rdma_dev_addr *dev_addr)
 {
 	int ret;
 
 	if (addr->sa_family != AF_IB) {
-		ret = rdma_translate_ip(addr, dev_addr);
+		ret = rdma_translate_ip(addr, dev_addr); // 用 addr 里的 ip 地址找到一个设备, 然后根据设备上的信息来设置 dev_addr
 	} else { // userspace 可以直接指定 AF_IB, 然后传入 gid 的
 		cma_translate_ib((struct sockaddr_ib *) addr, dev_addr);
 		ret = 0;
@@ -558,6 +682,12 @@ static int cma_translate_addr(struct sockaddr *addr, struct rdma_dev_addr *dev_a
 	return ret;
 }
 
+// device 的 port 是否符合条件
+// - namespace 符合 id_priv 的 namespace
+// - dev_type 匹配
+// - gid_type 匹配
+//
+// 如果都匹配的话, 将 sgid 的信息 sgid_attr 返回
 static const struct ib_gid_attr *
 cma_validate_port(struct ib_device *device, u8 port,
 		  enum ib_gid_type gid_type,
@@ -595,6 +725,8 @@ cma_validate_port(struct ib_device *device, u8 port,
 	return sgid_attr;
 }
 
+// helper
+// 设置 sgid_attr
 static void cma_bind_sgid_attr(struct rdma_id_private *id_priv,
 			       const struct ib_gid_attr *sgid_attr)
 {
@@ -638,7 +770,7 @@ static int cma_acquire_dev_by_src_ip(struct rdma_id_private *id_priv)
 		rdma_for_each_port (cma_dev->device, port) {
 			gidp = rdma_protocol_roce(cma_dev->device, port) ?
 			       &iboe_gid : &gid; // iboe_gid 是根据 src_addr 得到的, gid 也是根据 src_dev_addr 得到的
-			gid_type = cma_dev->default_gid_type[port - 1];
+			gid_type = cma_dev->default_gid_type[port - 1]; // port - 1: ref cma_set_default_gid_type
 			sgid_attr = cma_validate_port(cma_dev->device, port,
 						      gid_type, gidp, id_priv); // 判断当前 遍历的这个 port 是不是和 id_priv dev_addr 匹配的
 			if (!IS_ERR(sgid_attr)) {
@@ -666,6 +798,9 @@ out:
  * that a GID table entry is present for the source address.
  * Returns 0 on success, or returns error code otherwise.
  */
+// id_priv 是 listen_id 到来的 new conn 的 id
+//
+// 现在根据 listn_id 以及 req 里的信息, 为这个 id 绑定 出口设备 以及 sgid_attr
 static int cma_ib_acquire_dev(struct rdma_id_private *id_priv,
 			      const struct rdma_id_private *listen_id_priv,
 			      struct cma_req_info *req)
@@ -680,13 +815,15 @@ static int cma_ib_acquire_dev(struct rdma_id_private *id_priv,
 		return -EINVAL;
 
 	if (rdma_protocol_roce(req->device, req->port))
-		rdma_ip2gid((struct sockaddr *)&id_priv->id.route.addr.src_addr,
+		rdma_ip2gid((struct sockaddr *)&id_priv->id.route.addr.src_addr, // roce 协议的 gid 就是 ip地址转换过来的
 			    &gid);
 	else
 		memcpy(&gid, dev_addr->src_dev_addr +
 		       rdma_addr_gid_offset(dev_addr), sizeof(gid));
 
-	gid_type = listen_id_priv->cma_dev->default_gid_type[req->port - 1];
+	/* ah! magic num ???? */
+	gid_type = listen_id_priv->cma_dev->default_gid_type[req->port - 1]; // port - 1: ref cma_set_default_gid_type.
+
 	sgid_attr = cma_validate_port(req->device, req->port,
 				      gid_type, &gid, id_priv);
 	if (IS_ERR(sgid_attr))
@@ -704,6 +841,7 @@ static int cma_ib_acquire_dev(struct rdma_id_private *id_priv,
 	return 0;
 }
 
+// iwarp 相关
 static int cma_iw_acquire_dev(struct rdma_id_private *id_priv,
 			      const struct rdma_id_private *listen_id_priv)
 {
@@ -765,11 +903,14 @@ out:
 /*
  * Select the source IB device and address to reach the destination IB address.
  */
+// __重要__ 为 id_priv 选择出口设备, 出口地址
+//
+// roce 不用这个函数
 static int cma_resolve_ib_dev(struct rdma_id_private *id_priv)
 {
 	struct cma_device *cma_dev, *cur_dev;
-	struct sockaddr_ib *addr;
-	union ib_gid gid, sgid, *dgid;
+	struct sockaddr_ib *addr; // 目的地址
+	union ib_gid gid, sgid, *dgid; // 目的 gid
 	unsigned int p;
 	u16 pkey, index;
 	enum ib_port_state port_state;
@@ -782,26 +923,27 @@ static int cma_resolve_ib_dev(struct rdma_id_private *id_priv)
 
 	mutex_lock(&lock);
 	list_for_each_entry(cur_dev, &dev_list, list) {
-		rdma_for_each_port (cur_dev->device, p) {
-			if (!rdma_cap_af_ib(cur_dev->device, p))
+		rdma_for_each_port (cur_dev->device, p) { // 检查 dev_list 中每个设备的每个 port
+			if (!rdma_cap_af_ib(cur_dev->device, p)) // roce 可以通过这个检查
 				continue;
 
+			// device 这个设备的 p 这个 port 可以和 pkey 匹配上就返回 0
 			if (ib_find_cached_pkey(cur_dev->device, p, pkey, &index))
 				continue;
 
 			if (ib_get_cached_port_state(cur_dev->device, p, &port_state))
 				continue;
 			for (i = 0; !rdma_query_gid(cur_dev->device,
-						    p, i, &gid);
+						    p, i, &gid); // 获取到对应的 gid
 			     i++) {
-				if (!memcmp(&gid, dgid, sizeof(gid))) {
+				if (!memcmp(&gid, dgid, sizeof(gid))) { // 设备的 gid  和 dgid 匹配, 说明是 loopback 么么 ???
 					cma_dev = cur_dev;
 					sgid = gid;
 					id_priv->id.port_num = p;
 					goto found;
 				}
 
-				if (!cma_dev && (gid.global.subnet_prefix ==
+				if (!cma_dev && (gid.global.subnet_prefix ==	// 说明 dgid 和这个设备的 gid 是在同一个 subnet 里, 那么可以通过这个设备出去
 				    dgid->global.subnet_prefix) &&
 				    port_state == IB_PORT_ACTIVE) {
 					cma_dev = cur_dev;
@@ -832,10 +974,14 @@ static void cma_id_get(struct rdma_id_private *id_priv)
 static void cma_id_put(struct rdma_id_private *id_priv)
 {
 	if (refcount_dec_and_test(&id_priv->refcount))
-		complete(&id_priv->comp);
+		complete(&id_priv->comp); // 如果我是持有这个 id 的最后一个 thread, 我要负责唤醒其上的调度实体的
 }
 
 // event_handler 的调用: cma_cm_event_handler
+// 关注传入的参数
+//     - event_handler: 通知上层的 callback
+//     - 一个 id 的关键参数: ps, qp_type
+//     - listen_id 是 new conn id 的 parent
 static struct rdma_id_private *
 __rdma_create_id(struct net *net, rdma_cm_event_handler event_handler,
 		 void *context, enum rdma_ucm_port_space ps,
@@ -918,6 +1064,7 @@ static int cma_init_ud_qp(struct rdma_id_private *id_priv, struct ib_qp *qp)
 	if (ret)
 		return ret;
 
+	// 标准 verbs 接口咯, 要一路下去到 设备层的
 	ret = ib_modify_qp(qp, &qp_attr, qp_attr_mask);
 	if (ret)
 		return ret;
@@ -934,6 +1081,7 @@ static int cma_init_ud_qp(struct rdma_id_private *id_priv, struct ib_qp *qp)
 	return ret;
 }
 
+// 利用 verbs 接口, 修改 qp 状态咯
 static int cma_init_conn_qp(struct rdma_id_private *id_priv, struct ib_qp *qp)
 {
 	struct ib_qp_attr qp_attr;
@@ -947,6 +1095,7 @@ static int cma_init_conn_qp(struct rdma_id_private *id_priv, struct ib_qp *qp)
 	return ib_modify_qp(qp, &qp_attr, qp_attr_mask);
 }
 
+// 底层接口的简单调用
 int rdma_create_qp(struct rdma_cm_id *id, struct ib_pd *pd,
 		   struct ib_qp_init_attr *qp_init_attr)
 {
@@ -1000,6 +1149,7 @@ void rdma_destroy_qp(struct rdma_cm_id *id)
 }
 EXPORT_SYMBOL(rdma_destroy_qp);
 
+// 底层接口简单封装
 static int cma_modify_qp_rtr(struct rdma_id_private *id_priv,
 			     struct rdma_conn_param *conn_param)
 {
@@ -1037,6 +1187,7 @@ out:
 	return ret;
 }
 
+// 底层接口简单封装
 static int cma_modify_qp_rts(struct rdma_id_private *id_priv,
 			     struct rdma_conn_param *conn_param)
 {
@@ -1062,6 +1213,7 @@ out:
 	return ret;
 }
 
+// 底层接口简单封装
 static int cma_modify_qp_err(struct rdma_id_private *id_priv)
 {
 	struct ib_qp_attr qp_attr;
@@ -1088,7 +1240,7 @@ static int cma_ib_init_qp_attr(struct rdma_id_private *id_priv,
 	u16 pkey;
 
 	if (rdma_cap_eth_ah(id_priv->id.device, id_priv->id.port_num))
-		pkey = 0xffff;
+		pkey = 0xffff; // IB Spec vol1 ch10.9.1.2, 所以 roce 场景 pkey 没有什么用
 	else
 		pkey = ib_addr_get_pkey(dev_addr);
 
@@ -1121,7 +1273,7 @@ int rdma_init_qp_attr(struct rdma_cm_id *id, struct ib_qp_attr *qp_attr,
 	int ret = 0;
 
 	id_priv = container_of(id, struct rdma_id_private, id);
-	if (rdma_cap_ib_cm(id->device, id->port_num)) {
+	if (rdma_cap_ib_cm(id->device, id->port_num)) { // roce 走这里
 		if (!id_priv->cm_id.ib || (id_priv->id.qp_type == IB_QPT_UD))
 			ret = cma_ib_init_qp_attr(id_priv, qp_attr, qp_attr_mask);
 		else
@@ -1185,6 +1337,7 @@ static inline bool cma_any_addr(const struct sockaddr *addr)
 	return cma_zero_addr(addr) || cma_loopback_addr(addr);
 }
 
+// 不等 返回 true (1), 相等返回 false (0)
 static int cma_addr_cmp(const struct sockaddr *src, const struct sockaddr *dst)
 {
 	if (src->sa_family != dst->sa_family)
@@ -1228,7 +1381,7 @@ static __be16 cma_port(const struct sockaddr *addr)
 	case AF_IB:
 		sib = (struct sockaddr_ib *) addr;
 		return htons((u16) (be64_to_cpu(sib->sib_sid) &
-				    be64_to_cpu(sib->sib_sid_mask)));
+				    be64_to_cpu(sib->sib_sid_mask))); // 这里也可以看出 sib_sid 被 mask 后的 低 16 b 里编码了 port
 	default:
 		return 0;
 	}
@@ -1239,6 +1392,7 @@ static inline int cma_any_port(const struct sockaddr *addr)
 	return !cma_port(addr);
 }
 
+// ib 会用, roce 不会用
 static void cma_save_ib_info(struct sockaddr *src_addr,
 			     struct sockaddr *dst_addr,
 			     const struct rdma_cm_id *listen_id,
@@ -1276,6 +1430,7 @@ static void cma_save_ib_info(struct sockaddr *src_addr,
 	}
 }
 
+// 从 cma_hdr 里提取出信息保存到 src_addr / dst_addr
 static void cma_save_ip4_info(struct sockaddr_in *src_addr,
 			      struct sockaddr_in *dst_addr,
 			      struct cma_hdr *hdr,
@@ -1320,6 +1475,8 @@ static void cma_save_ip6_info(struct sockaddr_in6 *src_addr,
 	}
 }
 
+// service_id 的 低 16b 编码了 port
+// ref: rdma_get_service_id 
 static u16 cma_port_from_service_id(__be64 service_id)
 {
 	return (u16)be64_to_cpu(service_id);
@@ -1373,6 +1530,8 @@ static int cma_save_net_info(struct sockaddr *src_addr,
 	return cma_save_ip_info(src_addr, dst_addr, ib_event, service_id);
 }
 
+// ib_event 中的信息保存到 req 里
+// ib_event 是底层接收了报文解析后构造出来的
 static int cma_save_req_info(const struct ib_cm_event *ib_event,
 			     struct cma_req_info *req)
 {
@@ -1382,7 +1541,7 @@ static int cma_save_req_info(const struct ib_cm_event *ib_event,
 		&ib_event->param.sidr_req_rcvd;
 
 	switch (ib_event->event) {
-	case IB_CM_REQ_RECEIVED:
+	case IB_CM_REQ_RECEIVED: // 接收到了连接请求
 		req->device	= req_param->listen_id->device;
 		req->port	= req_param->port;
 		memcpy(&req->local_gid, &req_param->primary_path->sgid,
@@ -1395,7 +1554,7 @@ static int cma_save_req_info(const struct ib_cm_event *ib_event,
 					    "RDMA CMA: in the future this may cause the request to be dropped\n",
 					    req_param->bth_pkey, req->pkey);
 		break;
-	case IB_CM_SIDR_REQ_RECEIVED:
+	case IB_CM_SIDR_REQ_RECEIVED: // 接收到了 SIDR_REQ 报文
 		req->device	= sidr_param->listen_id->device;
 		req->port	= sidr_param->port;
 		req->has_gid	= false;
@@ -1413,6 +1572,7 @@ static int cma_save_req_info(const struct ib_cm_event *ib_event,
 	return 0;
 }
 
+// 检查下 src / dst 地址, 然后用地址去查一下路由, 看看能不能查成功
 static bool validate_ipv4_net_dev(struct net_device *net_dev,
 				  const struct sockaddr_in *dst_addr,
 				  const struct sockaddr_in *src_addr)
@@ -1505,6 +1665,7 @@ roce_get_net_dev_by_cm_event(const struct ib_cm_event *ib_event)
 		return NULL;
 
 	rcu_read_lock();
+	// 从 sgid_attr 里将 ndev 提取出来
 	ndev = rdma_read_gid_attr_ndev_rcu(sgid_attr);
 	if (IS_ERR(ndev))
 		ndev = NULL;
@@ -1524,12 +1685,14 @@ static struct net_device *cma_get_net_dev(const struct ib_cm_event *ib_event,
 	const union ib_gid *gid = req->has_gid ? &req->local_gid : NULL;
 	int err;
 
+	// ib_event 保存了底层报文里提取的信息, 其中包含一些地址信息 ref: IB Spec Vol1 A11.4
+	// 填充 listen_addr, src_addr (这里的 src_addr 是 peer addr;  listen addr 才是自己的 addr)
 	err = cma_save_ip_info(listen_addr, src_addr, ib_event,
 			       req->service_id);
 	if (err)
 		return ERR_PTR(err);
 
-	if (rdma_protocol_roce(req->device, req->port))
+	if (rdma_protocol_roce(req->device, req->port)) // roce 在这里
 		net_dev = roce_get_net_dev_by_cm_event(ib_event);
 	else
 		net_dev = ib_get_net_dev_by_params(req->device, req->port,
@@ -1541,6 +1704,7 @@ static struct net_device *cma_get_net_dev(const struct ib_cm_event *ib_event,
 	return net_dev;
 }
 
+// 可以看到 service id 的 低 [16:31]b 编码了 port space 号
 static enum rdma_ucm_port_space rdma_ps_from_service_id(__be64 service_id)
 {
 	return (be64_to_cpu(service_id) >> 16) & 0xffff;
@@ -1673,6 +1837,7 @@ cma_ib_id_from_event(struct ib_cm_id *cm_id,
 	struct rdma_id_private *id_priv;
 	int err;
 
+	// 保存 ib_event 的信息到 req 里
 	err = cma_save_req_info(ib_event, req);
 	if (err)
 		return ERR_PTR(err);
@@ -1723,6 +1888,8 @@ cma_ib_id_from_event(struct ib_cm_id *cm_id,
 		}
 	}
 
+	// 从 service id 里解析出 port, 然后得到 bind list
+	// 再在 bind list 上找到 id
 	bind_list = cma_ps_find(*net_dev ? dev_net(*net_dev) : &init_net,
 				rdma_ps_from_service_id(req->service_id),
 				cma_port_from_service_id(req->service_id));
@@ -1739,7 +1906,7 @@ err:
 
 static inline u8 cma_user_data_offset(struct rdma_id_private *id_priv)
 {
-	return cma_family(id_priv) == AF_IB ? 0 : sizeof(struct cma_hdr);
+	return cma_family(id_priv) == AF_IB ? 0 : sizeof(struct cma_hdr); // ref: IB Spec Vol1 A11.4
 }
 
 static void cma_cancel_route(struct rdma_id_private *id_priv)
@@ -1964,6 +2131,9 @@ static void cma_set_rep_event_data(struct rdma_cm_event *event,
 	event->ece.attr_mod = rep_data->ece.attr_mod;
 }
 
+
+// 最底层的handler, 其他 handler 都会调用这个函数, 将事件分发到其他使用 rdma_cm.ko 的模块 或者 userspace (通过 rdma_ucm.ko 模块)
+// 通过调用其他模块 create_id 时传入的 event_handler
 static int cma_cm_event_handler(struct rdma_id_private *id_priv,
 				struct rdma_cm_event *event)
 {
@@ -1977,6 +2147,9 @@ static int cma_cm_event_handler(struct rdma_id_private *id_priv,
 	return ret;
 }
 
+// 连接建立过程中底层发生的相关的事件都是这个 handler 处理
+// 被动方通过 listen 操作将这个 handler 注册到底层
+// 主动方通过 conenct 操作将其注册到底层
 static int cma_ib_handler(struct ib_cm_id *cm_id,
 			  const struct ib_cm_event *ib_event)
 {
@@ -2199,6 +2372,10 @@ static int cma_ib_check_req_qp_type(const struct rdma_cm_id *id,
 		(!id->qp_type));
 }
 
+
+// listen 的时候, 将这个 handler 挂到底层, 底层收到 req 报文的时候调用这个 handler 处理
+//
+// ib_event 中包含了底层处理报文的时候得到的信息(含报文里提供的信息)
 static int cma_ib_req_handler(struct ib_cm_id *cm_id,
 			      const struct ib_cm_event *ib_event)
 {
@@ -2209,12 +2386,13 @@ static int cma_ib_req_handler(struct ib_cm_id *cm_id,
 	u8 offset;
 	int ret;
 
+	// 底层的 cm_id 结合 ib_event 事件来得到本层的 listen id, 通过查找 bind_list 得到的
 	listen_id = cma_ib_id_from_event(cm_id, ib_event, &req, &net_dev);
 	if (IS_ERR(listen_id))
 		return PTR_ERR(listen_id);
 
 	trace_cm_req_handler(listen_id, ib_event->event);
-	if (!cma_ib_check_req_qp_type(&listen_id->id, ib_event)) {
+	if (!cma_ib_check_req_qp_type(&listen_id->id, ib_event)) { // listen id 找到后还要检查下 qp_type
 		ret = -EINVAL;
 		goto net_dev_put;
 	}
@@ -2227,14 +2405,14 @@ static int cma_ib_req_handler(struct ib_cm_id *cm_id,
 
 	offset = cma_user_data_offset(listen_id);
 	event.event = RDMA_CM_EVENT_CONNECT_REQUEST;
-	if (ib_event->event == IB_CM_SIDR_REQ_RECEIVED) {
-		conn_id = cma_ib_new_udp_id(&listen_id->id, ib_event, net_dev);
-		event.param.ud.private_data = ib_event->private_data + offset;
+	if (ib_event->event == IB_CM_SIDR_REQ_RECEIVED) {  // UD 服务用这个, ref: IB Spec vol1 Ch12.11.1
+		conn_id = cma_ib_new_udp_id(&listen_id->id, ib_event, net_dev); // listen id 上有新请求了, 为其创建一个新 id 咯
+		event.param.ud.private_data = ib_event->private_data + offset; // 然后保存连接相关信息
 		event.param.ud.private_data_len =
 				IB_CM_SIDR_REQ_PRIVATE_DATA_SIZE - offset;
-	} else {
-		conn_id = cma_ib_new_conn_id(&listen_id->id, ib_event, net_dev);
-		cma_set_req_event_data(&event, &ib_event->param.req_rcvd,
+	} else {  // RC 服务用这个
+		conn_id = cma_ib_new_conn_id(&listen_id->id, ib_event, net_dev); // 同样为新连接创建一个 id
+		cma_set_req_event_data(&event, &ib_event->param.req_rcvd, // 保存连接相关信息
 				       ib_event->private_data, offset);
 	}
 	if (!conn_id) {
@@ -2249,10 +2427,11 @@ static int cma_ib_req_handler(struct ib_cm_id *cm_id,
 		goto err_unlock;
 	}
 
-	conn_id->cm_id.ib = cm_id;
+	conn_id->cm_id.ib = cm_id; // 和底层的 id 建立起关系
 	cm_id->context = conn_id;
 	cm_id->cm_handler = cma_ib_handler;
 
+	// 事件通知到更上层
 	ret = cma_cm_event_handler(conn_id, &event);
 	if (ret) {
 		/* Destroy the CM ID by returning a non-zero value. */
@@ -2262,9 +2441,11 @@ static int cma_ib_req_handler(struct ib_cm_id *cm_id,
 		goto net_dev_put;
 	}
 
-	if (READ_ONCE(conn_id->state) == RDMA_CM_CONNECT &&
+	if (READ_ONCE(conn_id->state) == RDMA_CM_CONNECT && // 这是正常路径 cma_ib_new_conn_id() 设置的
 	    conn_id->id.qp_type != IB_QPT_UD) {
 		trace_cm_send_mra(cm_id->context);
+		// 发个 MRA 消息给 peer, 告诉对方我收到了, 你暂时不要做 retry 咯
+		// ref IB Spec vol1 ch12.6.6
 		ib_send_cm_mra(cm_id, CMA_CM_MRA_SETTING, NULL, 0);
 	}
 	mutex_unlock(&conn_id->handler_mutex);
@@ -2279,11 +2460,31 @@ net_dev_put:
 	return ret;
 }
 
+// ref: ib spec vol1 A11 基于 IP 的 CM 协议中 service id 的编码
+// 另外如果底层是 IB 设备的话, 那么 service id 是不需要特殊编码的
 __be64 rdma_get_service_id(struct rdma_cm_id *id, struct sockaddr *addr)
 {
 	if (addr->sa_family == AF_IB)
 		return ((struct sockaddr_ib *) addr)->sib_sid;
 
+	// 以 RDMA_PS_TCP 为例:
+	//
+	// 如果机器是小端 id->ps 从低 byte 到 高 byte
+	//     06 01 00 00 00 00 00 00
+	// 左移 
+	//     00 00 06 01 00 00 00 00
+	// 加法
+	//     xx xx 06 01 00 00 00 00
+	// 转换为大端
+	//     00 00 00 00 01 06 xx xx
+	//
+	// 如果机器是大端 id->ps 从低 byte 到 高 byte
+	//     00 00 00 00 00 00 01 06
+	// 左移
+	//     00 00 00 00 01 06 00 00
+	// 加法
+	//     00 00 00 00 01 06 xx xx 
+	// 不需要转换为大端
 	return cpu_to_be64(((u64)id->ps << 16) + be16_to_cpu(cma_port(addr)));
 }
 EXPORT_SYMBOL(rdma_get_service_id);
@@ -2301,6 +2502,8 @@ void rdma_read_gids(struct rdma_cm_id *cm_id, union ib_gid *sgid,
 		return;
 	}
 
+	// roce 协议 gid 就是用 ip 转换过来的
+	// iwarp 就压根没有 gid 了
 	if (rdma_protocol_roce(cm_id->device, cm_id->port_num)) {
 		if (sgid)
 			rdma_ip2gid((struct sockaddr *)&addr->src_addr, sgid);
@@ -2456,7 +2659,7 @@ static int cma_ib_listen(struct rdma_id_private *id_priv)
 	__be64 svc_id;
 
 	addr = cma_src_addr(id_priv);
-	svc_id = rdma_get_service_id(&id_priv->id, addr);
+	svc_id = rdma_get_service_id(&id_priv->id, addr); // local 的 src addr 当然有 listen 的 port, 通过 listen port 可以得到 service id
 	id = ib_cm_insert_listen(id_priv->id.device,
 				 cma_ib_req_handler, svc_id);
 	if (IS_ERR(id))
@@ -2673,6 +2876,7 @@ static int cma_query_ib_route(struct rdma_id_private *id_priv,
 	return (id_priv->query_id < 0) ? id_priv->query_id : 0;
 }
 
+// 其他模块让 rdma_cm.ko 帮忙干活的时候, 特别是一些异步的工作的时候, 返回的信息都是通过这个 handler 返回的
 static void cma_work_handler(struct work_struct *_work)
 {
 	struct cma_work *work = container_of(_work, struct cma_work, work);
@@ -2970,7 +3174,7 @@ static int cma_resolve_iboe_route(struct rdma_id_private *id_priv)
 
 	route->num_paths = 1;
 
-	// 调用 这个函数之前, 已经 resolve addr 找到了出口设备的
+	// 调用 这个函数之前, 可能已经 resolve addr 找到了出口设备的
 	ndev = cma_iboe_set_path_rec_l2_fields(id_priv);
 	if (!ndev) {
 		ret = -ENODEV;
@@ -3379,6 +3583,7 @@ int rdma_set_afonly(struct rdma_cm_id *id, int afonly)
 }
 EXPORT_SYMBOL(rdma_set_afonly);
 
+// helper
 static void cma_bind_port(struct rdma_bind_list *bind_list,
 			  struct rdma_id_private *id_priv)
 {
@@ -3403,7 +3608,7 @@ static void cma_bind_port(struct rdma_bind_list *bind_list,
 		sib = (struct sockaddr_ib *) addr;
 		sid = be64_to_cpu(sib->sib_sid);
 		mask = be64_to_cpu(sib->sib_sid_mask);
-		sib->sib_sid = cpu_to_be64((sid & mask) | (u64) ntohs(port));
+		sib->sib_sid = cpu_to_be64((sid & mask) | (u64) ntohs(port)); // 这里可以看到 sid 低 16 b里编码了 port
 		sib->sib_sid_mask = cpu_to_be64(~0ULL);
 		break;
 	}
@@ -3411,6 +3616,7 @@ static void cma_bind_port(struct rdma_bind_list *bind_list,
 	hlist_add_head(&id_priv->node, &bind_list->owners);
 }
 
+// ps 这个 space 里分配 snum 这个 port 给 id_priv 这个 id 用
 static int cma_alloc_port(enum rdma_ucm_port_space ps,
 			  struct rdma_id_private *id_priv, unsigned short snum)
 {
@@ -3430,13 +3636,15 @@ static int cma_alloc_port(enum rdma_ucm_port_space ps,
 
 	bind_list->ps = ps;
 	bind_list->port = snum;
-	cma_bind_port(bind_list, id_priv);
+	cma_bind_port(bind_list, id_priv); // 这里是核心, 将 id_priv 绑定到了 bind_list 上, 后续根据 sport 找到 bind_list, 然后遍历一下对比下 5-tuple 就能找到对应的 id_priv
 	return 0;
 err:
 	kfree(bind_list);
 	return ret == -ENOSPC ? -EADDRNOTAVAIL : ret;
 }
 
+// 根据 4-tuple (sport, dport, saddr, daddr) 判断 id_priv 和已有的 id 是否冲突
+// 注意: 这里的 bind_list 是唯一对应一个 sport 的
 static int cma_port_is_unique(struct rdma_bind_list *bind_list,
 			      struct rdma_id_private *id_priv)
 {
@@ -3454,6 +3662,9 @@ static int cma_port_is_unique(struct rdma_bind_list *bind_list,
 
 		if (id_priv == cur_id)
 			continue;
+
+		// 注意: 只要有一个 tuple 是 unique, 那么整体就是 unique 的
+		// 注意: 如果是 any_port 那么其他和其一样的都是冲突的
 
 		/* different dest port -> unique */
 		if (!cma_any_port(daddr) &&
@@ -3633,6 +3844,8 @@ cma_select_ib_ps(struct rdma_id_private *id_priv)
 // 检查下 id_priv 里关联的 port 是否可用
 // 有 port 那么就 check 下能不能绑定
 // 没有设置 port 那就内核分配一个
+//
+// bind sport 函数, sport 从 id_priv 的 srcaddr 里提取出来的
 static int cma_get_port(struct rdma_id_private *id_priv)
 {
 	enum rdma_ucm_port_space ps;
@@ -3938,6 +4151,7 @@ static int cma_resolve_ib_udp(struct rdma_id_private *id_priv,
 		req.private_data = private_data;
 	}
 
+	// 为什么要创建一个新的 id ???
 	id = ib_create_cm_id(id_priv->id.device, cma_sidr_rep_handler,
 			     id_priv);
 	if (IS_ERR(id)) {
@@ -4231,6 +4445,7 @@ static int cma_accept_iw(struct rdma_id_private *id_priv,
 	return iw_cm_accept(id_priv->cm_id.iw, &iw_param);
 }
 
+// ref: IB Spec vol1 Ch12 
 static int cma_send_sidr_rep(struct rdma_id_private *id_priv,
 			     enum ib_cm_sidr_status status, u32 qkey,
 			     const void *private_data, int private_data_len)
@@ -4279,6 +4494,7 @@ static int cma_send_sidr_rep(struct rdma_id_private *id_priv,
 
 // 比较有趣的是, 与 TCP 不同, 第二次握手的报文是 accept 触发的(ib_send_cm_rep()), 是因为第二次握手需要一些用户提供的信息
 // 第二点与 TCP 不同的时, accept 传入的这个 id 不是 listen id. 而是在收到 mad req 请求的时候, 内核通过 RDMA_CM_EVENT_CONNECT_REQUEST 通知了用户空间, 这时候在 EVENT 里已经携带了一个 id 给 userspace 了, userspace 用那个 id 直接来 accept. ref: cma_ib_req_handler
+// 第三点不同的是, 不是通过 accept() 的返回来告诉 usersapce 或者其他模块有连接来了, 而是通过 RDMA_CM_EVENT_CONNECT_REQUEST 事件通知 userspace, 而且直接将新的 id(类似 socket) 直接返回回去了. 二 usespace 或者其他模块可以选择 reject (rdma_reject())这个连接出发 REJ 报文的发送
 int rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param)
 {
 	struct rdma_id_private *id_priv =
@@ -5004,8 +5220,8 @@ static int __init cma_init(void)
 	 * to test with bonding.
 	 */
 	if (IS_ENABLED(CONFIG_LOCKDEP)) {
-		rtnl_lock();
 		mutex_lock(&lock);
+		rtnl_lock();
 		mutex_unlock(&lock);
 		rtnl_unlock();
 	}

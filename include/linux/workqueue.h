@@ -308,7 +308,7 @@ static inline unsigned int work_static(struct work_struct *work) { return 0; }
 enum {
 	WQ_UNBOUND		= 1 << 1, /* not bound to any cpu */
 	WQ_FREEZABLE		= 1 << 2, /* freeze during suspend */
-	WQ_MEM_RECLAIM		= 1 << 3, /* may be used for memory reclaim */
+	WQ_MEM_RECLAIM		= 1 << 3, /* may be used for memory reclaim */ // 这个 work queue 上的 work 可能会做内存回收的操作
 	WQ_HIGHPRI		= 1 << 4, /* high priority */
 	WQ_CPU_INTENSIVE	= 1 << 5, /* cpu intensive workqueue */
 	WQ_SYSFS		= 1 << 6, /* visible in sysfs, see wq_sysfs_register() */
@@ -341,7 +341,7 @@ enum {
 	WQ_POWER_EFFICIENT	= 1 << 7,
 
 	__WQ_DRAINING		= 1 << 16, /* internal: workqueue is draining */
-	__WQ_ORDERED		= 1 << 17, /* internal: workqueue is ordered */
+	__WQ_ORDERED		= 1 << 17, /* internal: workqueue is ordered */	// 保证 work 是 ST 执行的
 	__WQ_LEGACY		= 1 << 18, /* internal: create*_workqueue() */
 	__WQ_ORDERED_EXPLICIT	= 1 << 19, /* internal: alloc_ordered_workqueue() */
 

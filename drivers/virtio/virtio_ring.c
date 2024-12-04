@@ -636,9 +636,10 @@ static void detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
 	}
 
 	vring_unmap_one_split(vq, &vq->split.vring.desc[i]);
+	// 将desc chain  的 last desc 指向 free_head, 然后更新 free_head
 	vq->split.vring.desc[i].next = cpu_to_virtio16(vq->vq.vdev,
 						vq->free_head);
-	vq->free_head = head;
+	vq->free_head = head; // 不是按着之前 填充 buffer 时的 next 往下用, 而是回到了开头去使用.  即 desc 总是倾向于使用 desc 开头的那些, 而不是按照顺序往下用. 这里只要 free 一下, 就将 free_head 往回拨
 
 	/* Plus final descriptor */
 	vq->vq.num_free++;

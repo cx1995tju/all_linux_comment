@@ -42,12 +42,14 @@ const char *__attribute_const__ rdma_event_msg(enum rdma_cm_event_type event);
 
 // PS: Protocol Selector
 // 表示 RDMA 底层使用的协议, refer: cma_select_ib_ps
-// 编码在 service id 里, refer: IB Spec Annex A11
+//
+// 编码在 service id 里, 另外低 16b 会将 port 编码进去: refer: IB Spec Annex A11
+//
 // service id 是编码在 REQ MAD 报文里的, refer: IB Spec Ch12
 #define RDMA_IB_IP_PS_MASK   0xFFFFFFFFFFFF0000ULL
-#define RDMA_IB_IP_PS_TCP    0x0000000001060000ULL
-#define RDMA_IB_IP_PS_UDP    0x0000000001110000ULL
-#define RDMA_IB_IP_PS_IB     0x00000000013F0000ULL
+#define RDMA_IB_IP_PS_TCP    0x0000000001060000ULL // 06 tcp
+#define RDMA_IB_IP_PS_UDP    0x0000000001110000ULL // 17 udp
+#define RDMA_IB_IP_PS_IB     0x00000000013F0000ULL // 0x3f any local network
 
 struct rdma_addr {
 	struct sockaddr_storage src_addr;
@@ -64,7 +66,7 @@ struct rdma_route {
 
 // conn 服务的一些参数
 struct rdma_conn_param {
-	const void *private_data;
+	const void *private_data; // 报文里提取的 private data, IB Sepc Ch12
 	u8 private_data_len;
 	u8 responder_resources;
 	u8 initiator_depth;

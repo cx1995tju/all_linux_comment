@@ -1587,7 +1587,7 @@ static int rdma_dev_change_netns(struct ib_device *device, struct net *cur_net,
 	}
 
 	kobject_uevent(&device->dev.kobj, KOBJ_REMOVE);
-	disable_device(device);
+	disable_device(device); // disable 了之前 net 里的 device, 后面又重新创建了
 
 	/*
 	 * At this point no one can be using the device, so it is safe to

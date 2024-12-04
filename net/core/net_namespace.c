@@ -1140,7 +1140,7 @@ static int __register_pernet_operations(struct list_head *list,
 		/* We held write locked pernet_ops_rwsem, and parallel
 		 * setup_net() and cleanup_net() are not possible.
 		 */
-		for_each_net(net) {
+		for_each_net(net) { // 有些 namespaace 已经存在了, 要都帮忙执行一下
 			error = ops_init(ops, net);
 			if (error)
 				goto out_undo;

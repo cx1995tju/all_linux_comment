@@ -220,6 +220,8 @@ EXPORT_SYMBOL(ib_response_mad);
  * ib_register_mad_agent - Register to send/receive MADs
  *
  * Context: Process context.
+ *
+ * 注册一个 agent, 处理某种类型的 mad 报文, mad 报文来自网络中的一些 manager. 比如: infiniband 中的 subnet manager
  */
 struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 					   u8 port_num,
@@ -2789,6 +2791,8 @@ static void cleanup_recv_queue(struct ib_mad_qp_info *qp_info)
 
 /*
  * Start the port
+ *
+ * QP0 / QP1 需要被 driver 自动 post recv 的, 用来接收 mad 报文
  */
 static int ib_mad_port_start(struct ib_mad_port_private *port_priv)
 {

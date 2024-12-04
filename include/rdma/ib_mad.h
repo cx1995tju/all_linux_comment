@@ -134,6 +134,7 @@ enum {
 	OPA_MGMT_MAD_SIZE = IB_MGMT_MAD_HDR + OPA_MGMT_MAD_DATA,
 };
 
+// ref ib spec vol1 Ch13.4.3 
 struct ib_mad_hdr {
 	u8	base_version;
 	u8	mgmt_class;
@@ -215,6 +216,7 @@ struct ib_vendor_mad {
 #define IB_CLASS_PORT_INFO_RESP_TIME_MASK	0x1F
 #define IB_CLASS_PORT_INFO_RESP_TIME_FIELD_SIZE 5
 
+// ref: IB Spec vol1 ch13.4.8.1 subnet management 相关
 struct ib_class_port_info {
 	u8			base_version;
 	u8			class_version;

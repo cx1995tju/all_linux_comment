@@ -643,6 +643,7 @@ static struct cm_id_private *cm_insert_listen(struct cm_id_private *cm_id_priv,
 		parent = *link;
 		cur_cm_id_priv = rb_entry(parent, struct cm_id_private,
 					  service_node);
+		/* why ??? */
 		if ((cur_cm_id_priv->id.service_mask & service_id) ==
 		    (service_mask & cur_cm_id_priv->id.service_id) &&
 		    (cm_id_priv->id.device == cur_cm_id_priv->id.device)) {
@@ -1218,6 +1219,8 @@ static int cm_init_listen(struct cm_id_private *cm_id_priv, __be64 service_id,
  *   range of service IDs.  If set to 0, the service ID is matched
  *   exactly.  This parameter is ignored if %service_id is set to
  *   IB_CM_ASSIGN_SERVICE_ID.
+ *
+ *   如果 service_mask 是 0 的话, 说明需要精确匹配, 注意这了的 service_mask 不是直接写到 cm_id_priv->id 里了
  */
 int ib_cm_listen(struct ib_cm_id *cm_id, __be64 service_id, __be64 service_mask)
 {
@@ -1266,6 +1269,8 @@ EXPORT_SYMBOL(ib_cm_listen);
  *
  * Callers should call ib_destroy_cm_id when done with the listener ID.
  */
+// service_id 上有 req 报文过来的话, 那么就用 cm_handler 来处理
+// 为了实现这个 功能, 创建一个 ctx cm_id_priv
 struct ib_cm_id *ib_cm_insert_listen(struct ib_device *device,
 				     ib_cm_handler cm_handler,
 				     __be64 service_id)
@@ -1285,7 +1290,7 @@ struct ib_cm_id *ib_cm_insert_listen(struct ib_device *device,
 
 	spin_lock_irq(&cm_id_priv->lock);
 	listen_id_priv = cm_insert_listen(cm_id_priv, cm_handler);
-	if (listen_id_priv != cm_id_priv) {
+	if (listen_id_priv != cm_id_priv) { // 什么时候会不等呢? 由于冲突无法插入的时候返回 NULL, 或者由于 shared usage 返回已经存在的 cm_id_priv; 这时候会复用之前的, 所以将当起啊的 cm_id_priv destroy 掉
 		spin_unlock_irq(&cm_id_priv->lock);
 		ib_destroy_cm_id(&cm_id_priv->id);
 		if (!listen_id_priv)

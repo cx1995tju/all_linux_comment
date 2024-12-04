@@ -36,6 +36,9 @@ struct net_generic {
 	};
 };
 
+
+// 调用 register_pernet_subsys() -> register_pernet_operations() 的时候, 会在当前的 net 结构的 id 这个位置存储一个指针, 指针指向的空间是
+// 某个子系统需要的 pernet 结构
 static inline void *net_generic(const struct net *net, unsigned int id)
 {
 	struct net_generic *ng;
