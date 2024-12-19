@@ -107,8 +107,8 @@ struct vring_desc {
 
 struct vring_avail {
 	__virtio16 flags;
-	__virtio16 idx;
-	__virtio16 ring[];
+	__virtio16 idx; // 指针
+	__virtio16 ring[]; // 指向 vring_desc_t 的位置
 };
 
 /* u32 is used here for ids for padding reasons. */

@@ -215,6 +215,7 @@ struct rdma_ucm_ud_param {
 	__u8  reserved[7];
 };
 
+// ref rfc6581 Enhanced Remote Direct Memory Access (RDMA) Connection Establishment
 struct rdma_ucm_ece {
 	__u32 vendor_id;
 	__u32 attr_mod;

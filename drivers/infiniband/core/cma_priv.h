@@ -55,14 +55,14 @@ enum rdma_cm_state {
 struct rdma_id_private {
 	struct rdma_cm_id	id;	// HERE: first-member inherit
 
-	struct rdma_bind_list	*bind_list;
-	struct hlist_node	node;
-	struct list_head	list; /* listen_any_list or cma_device.list */
-	struct list_head	listen_list; /* per device listens */
+	struct rdma_bind_list	*bind_list; // ref: cma_bind_port()
+	struct hlist_node	node; // 挂载到 bind_list 上的
+	struct list_head	list; /* listen_any_list or cma_device.list */ // 用来挂载到 别的 list_head 上, ref: _cma_attach_to_dev(), _cma_attach_to_dev()
+	struct list_head	listen_list; /* per device listens */ // listen 的时候会创建一个 id, 然后将这个 id 挂载到 listen id 的 listen_list 上, 挂入的节点也用的是自己的 listen_list, ref: cma_listen_on_dev()
 	struct cma_device	*cma_dev; // 当将一个 id 绑定 src_addr 的时候会查找到对应的 cma_dev
 	struct list_head	mc_list;
 
-	int			internal_id;
+	int			internal_id; // 是否是一个 internal id
 	enum rdma_cm_state	state;
 	spinlock_t		lock;
 	struct mutex		qp_mutex;
@@ -90,7 +90,7 @@ struct rdma_id_private {
 	u8                      timeout_set:1;
 	u8			reuseaddr;
 	u8			afonly;
-	u8			timeout;
+	u8			timeout; // ref: rdma_set_ack_timeout(), ib spec vol1 ch12.7.34
 	enum ib_gid_type	gid_type;
 
 	/*

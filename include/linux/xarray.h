@@ -928,7 +928,7 @@ static inline int __must_check xa_alloc_irq(struct xarray *xa, u32 *id,
  * @id: Pointer to ID.
  * @entry: New entry.
  * @limit: Range of allocated ID.
- * @next: Pointer to next ID to allocate.
+ * @next: Pointer to next ID to allocate.	// 分配的时候 search 的话, 从这里开始, next 还会被自动更新, 下次传入的时候就用新的更新后的 next 了
  * @gfp: Memory allocation flags.
  *
  * Finds an empty entry in @xa between @limit.min and @limit.max,

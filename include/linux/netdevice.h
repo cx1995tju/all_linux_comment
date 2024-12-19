@@ -2140,9 +2140,9 @@ struct net_device {
 #ifdef CONFIG_DCB
 	const struct dcbnl_rtnl_ops *dcbnl_ops;
 #endif
-	s16			num_tc;
+	s16			num_tc; // 硬件支持的 traffic class, 即资源隔离的单位咯
 	struct netdev_tc_txq	tc_to_txq[TC_MAX_QUEUE];
-	u8			prio_tc_map[TC_BITMASK + 1];
+	u8			prio_tc_map[TC_BITMASK + 1]; // prio -> tc
 
 #if IS_ENABLED(CONFIG_FCOE)
 	unsigned int		fcoe_ddp_xid;

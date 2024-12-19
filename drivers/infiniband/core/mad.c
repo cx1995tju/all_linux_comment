@@ -228,8 +228,8 @@ struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 					   enum ib_qp_type qp_type,
 					   struct ib_mad_reg_req *mad_reg_req,
 					   u8 rmpp_version,
-					   ib_mad_send_handler send_handler,
-					   ib_mad_recv_handler recv_handler,
+					   ib_mad_send_handler send_handler, /* post send mad 完成后调用 ? */
+					   ib_mad_recv_handler recv_handler, /* recv mad 后调用 ? 也就是 post recv 完成后调用咯 */
 					   void *context,
 					   u32 registration_flags)
 {
@@ -1080,6 +1080,7 @@ int ib_post_send_mad(struct ib_mad_send_buf *send_buf,
 
 	/* Walk list of send WRs and post each on send list */
 	for (; send_buf; send_buf = next_send_buf) {
+		// ref: ib_create_send_mad()
 		mad_send_wr = container_of(send_buf,
 					   struct ib_mad_send_wr_private,
 					   send_buf);

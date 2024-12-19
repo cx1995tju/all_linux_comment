@@ -48,7 +48,10 @@ enum ib_cm_event_type {
 	IB_CM_REP_ERROR,
 	IB_CM_REP_RECEIVED,
 	IB_CM_RTU_RECEIVED,
-	IB_CM_USER_ESTABLISHED,
+	// 用户在 RTR 状态的时候 rq 中已经接收到了数据了, 这时候数据面会直接报告事件给用户态,
+	// 用户态需要反过来将 event 通知到 communication manager 连接其实已经建立
+	// 数据通道和 连接通道的分离 引入的异步问题, 所以需要这套机制
+	IB_CM_USER_ESTABLISHED, //  // ib spec vol1 Ch11.6.3
 	IB_CM_DREQ_ERROR,
 	IB_CM_DREQ_RECEIVED,
 	IB_CM_DREP_RECEIVED,
@@ -259,6 +262,7 @@ struct ib_cm_event {
 	void			*private_data;
 };
 
+// 是 MAD Base hdr 里的 attributeid field
 #define CM_REQ_ATTR_ID		cpu_to_be16(0x0010)
 #define CM_MRA_ATTR_ID		cpu_to_be16(0x0011)
 #define CM_REJ_ATTR_ID		cpu_to_be16(0x0012)
@@ -298,9 +302,9 @@ struct ib_cm_id {
 	__be64			service_mask; // 让 listen 操作可以 listen 一批 port, bit 为 1 的 位需要匹配
 	enum ib_cm_state	state;		/* internal CM/debug use */
 	enum ib_cm_lap_state	lap_state;	/* internal CM/debug use */
-	__be32			local_id;
+	__be32			local_id; // 既作为 cm.c:cm.local_id_table 的 id, 也是连接建立的时候 的 communication id, ref: cm_alloc_id_priv() cm_local_id(). 当其作为 index 使用的时候, 会用 cm_local_id() 将其修正回来
 	__be32			remote_id;
-	u32			remote_cm_qpn;  /* 1 unless redirected */
+	u32			remote_cm_qpn;  /* 1 unless redirected */ // ref ib spec vol1 ch13 GSI redirection
 };
 
 /**
@@ -352,7 +356,7 @@ int ib_cm_listen(struct ib_cm_id *cm_id, __be64 service_id,
 struct ib_cm_id *ib_cm_insert_listen(struct ib_device *device,
 				     ib_cm_handler cm_handler,
 				     __be64 service_id);
-
+// ref: cm_format_req()
 struct ib_cm_req_param {
 	struct sa_path_rec	*primary_path;
 	struct sa_path_rec	*alternate_path;

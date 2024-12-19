@@ -1,3 +1,94 @@
+/*
+ * 入口/出口
+ * =========
+ * - ib_cm_init()
+ * - ib_cm_cleanup()
+ *
+ * 核心全局变量
+ * ============
+ * - struct ib_cm cm;
+ *
+ * 核心结构体
+ * ==========
+ * - cm_id_private
+ * - cm_timewait_info
+ *
+ *
+ * 外部接口
+ * ========
+ * - 提供给上层的接口
+ *     - 帮助上层实现 socket-like 语义, listen 这种操作需要让下层感知, 这样下层收到报文后才能将 event 分发到下层
+ *         EXPORT_SYMBOL(ib_create_cm_id);
+ *         EXPORT_SYMBOL(ib_destroy_cm_id);
+ *         EXPORT_SYMBOL(ib_cm_listen);
+ *         EXPORT_SYMBOL(ib_cm_insert_listen);
+ *         EXPORT_SYMBOL(ib_cm_notify);	// 接收上层的通知
+ *         EXPORT_SYMBOL(ib_cm_init_qp_attr);
+ *     - 提供了连接建立相关的报文发送函数
+ *         EXPORT_SYMBOL(ibcm_reject_msg);
+ *         EXPORT_SYMBOL(ib_send_cm_req);
+ *         EXPORT_SYMBOL(ib_send_cm_rep);
+ *         EXPORT_SYMBOL(ib_send_cm_rtu);
+ *         EXPORT_SYMBOL(ib_send_cm_dreq);
+ *         EXPORT_SYMBOL(ib_send_cm_drep);
+ *         EXPORT_SYMBOL(ib_send_cm_rej);
+ *         EXPORT_SYMBOL(ib_send_cm_mra);
+ *         EXPORT_SYMBOL(ib_send_cm_sidr_req);
+ *         EXPORT_SYMBOL(ib_send_cm_sidr_rep);
+ * - 提供给下层的接口
+ *     - 从下层接收事件处理后发送给上层, 比如下层收到了连接相关的报文
+ *         - cm_recv_handler() -> cm_work_handler() -> cm_process_work() -> cma层提供的 handler
+ *         - 其中 cm_work_handler() 事实上实现了 连接建立的状态机, ref ib spec vol1 ch12.9.5
+ *
+ * 文件结构 
+ * ========
+ * - cm 层的 port / device / address_vector 的抽象
+ *   - 基于 cm_client 实现的, 将其注册到 ib_core.ko 层, 在相应事件发生的时候构造/销毁相关结构
+ *   - 核心结构: cm.device_list
+ *
+ * - work 机制: 基于 cm.work, 下层事件通过 callback handler 给到本层后, 并不会直接继续 callback 到更上层, 而是通过 work 机制通知更上层
+ *   - per cm_id_private work list: cm_id_private.work_list
+ *   - 相关函数:
+ *	- cm_dequeue_work() / cm_free_work() / cm_queue_qork_unlock() / cm_process_work()
+ *
+ * - msg 机制: 构造/发送各种消息
+ *
+ * - 连接处理相关:
+ *   - listen 机制的支持
+ *   - 基于 work 机制实现的 连接状态机 cm_work_handler(), 状态机的事件驱动源:
+ *	- 下层收到报文
+ *	- 上层发送报文
+ *	- 上层 notify()
+ *   - timewait 阶段的处理: cm.timewait_info 
+ *	- cm_enter_timewait(): 一个 cm_id_priv.timewait_info 结构挂到全局的 cm.timewait_list 上
+ *
+ * - mad_agent 机制: 注册一个 per-port 的 mad agent, 这样底层收到 mad 报文后才知道分发给谁
+ *   - 两个 handler, 分别处理 mad wr 的 post send complete 和 post recv complete
+ *
+ * - 各种报文发送函数
+ *	- ib_send_cm_req()
+ *	- cm_issue_rej()
+ *	- ib_send_cm_rep()
+ *	- ib_send_cm_rtu()
+ *	- cm_send_dreq()
+ *	- cm_send_drep()
+ *	- cm_issue_drep()
+ *	- ib_send_cm_rej()
+ *	- ib_send_cm_mra()
+ *	- ...
+ *
+ * Advanced Topic
+ * ==============
+ * - 连接建立状态机
+ * - qp 状态机
+ * - 报文收发细节
+ * - listen 机制
+ * - timewait 机制
+ *
+ *
+ * Q: mad_agent ?
+ *
+ * */
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
  * Copyright (c) 2004-2007 Intel Corporation.  All rights reserved.
@@ -106,20 +197,22 @@ static struct ib_client cm_client = {
 	.remove = cm_remove_one
 };
 
+// 整个模块的 ctx
 static struct ib_cm {
 	spinlock_t lock;
-	struct list_head device_list;
+	struct list_head device_list; // 全局 device list
 	rwlock_t device_lock;
-	struct rb_root listen_service_table;
+	struct rb_root listen_service_table;	// listen 相关, 保存 listen 的 cm_id_priv, ref: cm_insert_listen(),  key 是 cm_id_priv.id.device + cm_id_priv.id.service_id
 	u64 listen_service_id;
 	/* struct rb_root peer_service_table; todo: fix peer to peer */
-	struct rb_root remote_qp_table;
-	struct rb_root remote_id_table;
-	struct rb_root remote_sidr_table;
-	struct xarray local_id_table;
+	struct rb_root remote_qp_table; // 保存: struct cm_timewait_info.remote_qp_node, key 是: remote_qpn + remote_ca_guid
+	struct rb_root remote_id_table; // 保存: struct cm_timewait_info.remote_id_node, ref: cm_insert_remote_id, key 是: remote_id + remote_ca_guid
+
+	struct rb_root remote_sidr_table; // 保存 cm_id_priv->sidr_id_node, key 是: remote_id
+	struct xarray local_id_table;	// ref cm_alloc_id_priv() cm_finalize_id()存储 cm_id_private 结构, key 是 cm_local_id(cm_id_private.id.local_id)
 	u32 local_id_next;
 	__be32 random_id_operand;
-	struct list_head timewait_list;
+	struct list_head timewait_list;	// time wait 相关, 挂载 struct cm_timewait_info 结构
 	struct workqueue_struct *wq;
 	/* Sync on cm change port state */
 	spinlock_t state_lock;
@@ -203,8 +296,8 @@ struct cm_port {
 	struct cm_device *cm_dev;
 	struct ib_mad_agent *mad_agent;
 	u8 port_num;
-	struct list_head cm_priv_prim_list;
-	struct list_head cm_priv_altr_list;
+	struct list_head cm_priv_prim_list; // cm_id_private.prim_list
+	struct list_head cm_priv_altr_list; // cm_id_private.altr_list
 	struct cm_counter_group counter_group[CM_COUNTER_GROUPS];
 };
 
@@ -246,6 +339,7 @@ struct cm_timewait_info {
 	u8 inserted_remote_id;
 };
 
+// ref: cm_alloc_id_priv() 分配的时候各个字段的默认值是 0
 struct cm_id_private {
 	struct ib_cm_id	id;
 
@@ -300,10 +394,12 @@ static void cm_work_handler(struct work_struct *work);
 
 static inline void cm_deref_id(struct cm_id_private *cm_id_priv)
 {
+	// 最后一个 deref 负责唤醒
 	if (refcount_dec_and_test(&cm_id_priv->refcount))
 		complete(&cm_id_priv->comp);
 }
 
+// 分配一个存储 mad pkt 的结构: struct ib_mad_send_buf msg
 static int cm_alloc_msg(struct cm_id_private *cm_id_priv,
 			struct ib_mad_send_buf **msg)
 {
@@ -315,7 +411,7 @@ static int cm_alloc_msg(struct cm_id_private *cm_id_priv,
 	int ret = 0;
 
 	/* don't let the port to be released till the agent is down */
-	spin_lock_irqsave(&cm.state_lock, flags2);
+	spin_lock_irqsave(&cm.state_lock, flags2);	// 这么粗暴的全局锁 ??? 还两个 ???
 	spin_lock_irqsave(&cm.lock, flags);
 	if (!cm_id_priv->prim_send_port_not_ready)
 		av = &cm_id_priv->av;
@@ -336,12 +432,15 @@ static int cm_alloc_msg(struct cm_id_private *cm_id_priv,
 		ret = -ENODEV;
 		goto out;
 	}
+	// UD 服务需要的, mad pkt 就是基于 ud 服务来发送的
 	ah = rdma_create_ah(mad_agent->qp->pd, &av->ah_attr, 0);
 	if (IS_ERR(ah)) {
 		ret = PTR_ERR(ah);
 		goto out;
 	}
 
+	// 创建一个关于 mad pkt 的 ctx 或者说 存储 mad pkt 的 buf
+	// 这里很关键, 每个 msg 结构 ib_mad_send_buf 关联了一个 mad_agent 的, ref: ib_create_send_mad()
 	m = ib_create_send_mad(mad_agent, cm_id_priv->id.remote_cm_qpn,
 			       av->pkey_index,
 			       0, IB_MGMT_MAD_HDR, IB_MGMT_MAD_DATA,
@@ -366,6 +465,7 @@ out:
 	return ret;
 }
 
+// 创建一个 response msg , 使用 接收到的信息(struct ib_mad_recv_wc)来初始化分配的 msg, 而不是用户给的 ah
 static struct ib_mad_send_buf *cm_alloc_response_msg_no_ah(struct cm_port *port,
 							   struct ib_mad_recv_wc *mad_recv_wc)
 {
@@ -375,6 +475,7 @@ static struct ib_mad_send_buf *cm_alloc_response_msg_no_ah(struct cm_port *port,
 				  IB_MGMT_BASE_VERSION);
 }
 
+// 分配 ah
 static int cm_create_response_msg_ah(struct cm_port *port,
 				     struct ib_mad_recv_wc *mad_recv_wc,
 				     struct ib_mad_send_buf *msg)
@@ -445,6 +546,7 @@ static void cm_set_private_data(struct cm_id_private *cm_id_priv,
 	cm_id_priv->private_data_len = private_data_len;
 }
 
+// helper
 static int cm_init_av_for_lap(struct cm_port *port, struct ib_wc *wc,
 			      struct ib_grh *grh, struct cm_av *av)
 {
@@ -471,6 +573,7 @@ static int cm_init_av_for_lap(struct cm_port *port, struct ib_wc *wc,
 	return 0;
 }
 
+// helper
 static int cm_init_av_for_response(struct cm_port *port, struct ib_wc *wc,
 				   struct ib_grh *grh, struct cm_av *av)
 {
@@ -496,6 +599,7 @@ static void add_cm_id_to_port_list(struct cm_id_private *cm_id_priv,
 	spin_unlock_irqrestore(&cm.lock, flags);
 }
 
+// 根据 path 以及 attr 的信息找到一个 port
 static struct cm_port *
 get_cm_port_from_path(struct sa_path_rec *path, const struct ib_gid_attr *attr)
 {
@@ -516,12 +620,12 @@ get_cm_port_from_path(struct sa_path_rec *path, const struct ib_gid_attr *attr)
 		/* SGID attribute can be NULL in following
 		 * conditions.
 		 * (a) Alternative path
-		 * (b) IB link layer without GRH
+		 * (b) IB link layer without GRH	// RoCE ???
 		 * (c) LAP send messages
 		 */
 		read_lock_irqsave(&cm.device_lock, flags);
 		list_for_each_entry(cm_dev, &cm.device_list, list) {
-			attr = rdma_find_gid(cm_dev->ib_device,
+			attr = rdma_find_gid(cm_dev->ib_device,	/* 用 地址信息 sgid 去找 attr */
 					     &path->sgid,
 					     sa_conv_pathrec_to_gid_type(path),
 					     NULL);
@@ -627,6 +731,8 @@ static int be64_gt(__be64 a, __be64 b)
  * Inserts a new cm_id_priv into the listen_service_table. Returns cm_id_priv
  * if the new ID was inserted, NULL if it could not be inserted due to a
  * collision, or the existing cm_id_priv ready for shared usage.
+ *
+ * 支持上层的 listen 接口的, 下层 收到 mad pkt 后, 通过这里的 handler 通告给上层
  */
 static struct cm_id_private *cm_insert_listen(struct cm_id_private *cm_id_priv,
 					      ib_cm_handler shared_handler)
@@ -650,7 +756,7 @@ static struct cm_id_private *cm_insert_listen(struct cm_id_private *cm_id_priv,
 			/*
 			 * Sharing an ib_cm_id with different handlers is not
 			 * supported
-			 */
+			 */ // 所有的 都必须是相同的 handler ?? alloc id 的时候 id 就已经绑定了 handler 了, listen 的时候传入的这个 handler 必须是一样的
 			if (cur_cm_id_priv->id.cm_handler != shared_handler ||
 			    cur_cm_id_priv->id.context ||
 			    WARN_ON(!cur_cm_id_priv->id.cm_handler)) {
@@ -709,6 +815,9 @@ static struct cm_id_private * cm_find_listen(struct ib_device *device,
 	return NULL;
 }
 
+// 顺利建立起连接的 id 会分配这个结构, 在连接维持期间保存起来,
+// 在连接拆除 enter timewait 的时候挂载到 cm.timewait_list 上
+// ref: cm_create_timewait_info() cm_enter_timewait()
 static struct cm_timewait_info * cm_insert_remote_id(struct cm_timewait_info
 						     *timewait_info)
 {
@@ -739,6 +848,7 @@ static struct cm_timewait_info * cm_insert_remote_id(struct cm_timewait_info
 	return NULL;
 }
 
+// remote_id / ca_guid     ref: ib spec vol1 ch12 communication id
 static struct cm_id_private *cm_find_remote_id(__be64 remote_ca_guid,
 					       __be32 remote_id)
 {
@@ -860,10 +970,13 @@ static struct cm_id_private *cm_alloc_id_priv(struct ib_device *device,
 	atomic_set(&cm_id_priv->work_count, -1);
 	refcount_set(&cm_id_priv->refcount, 1);
 
+	// 分配一个 entry 先, 分配的结果通过 id 返回
 	ret = xa_alloc_cyclic(&cm.local_id_table, &id, NULL, xa_limit_32b,
 			      &cm.local_id_next, GFP_KERNEL);
 	if (ret < 0)
 		goto error;
+	// 这个搞一下,  local_id 不会冲突么 ???
+	// 所以当 local_id 作为 index 使用的时候, 会修正回来, ref: cm_local_id 
 	cm_id_priv->id.local_id = (__force __be32)id ^ cm.random_id_operand;
 
 	return cm_id_priv;
@@ -876,6 +989,8 @@ error:
 /*
  * Make the ID visible to the MAD handlers and other threads that use the
  * xarray.
+ *
+ * alloc id 的时候仅仅是占据了一个位置, 没有存储 cm_id_private 指针, ref: cm_alloc_id_priv()
  */
 static void cm_finalize_id(struct cm_id_private *cm_id_priv)
 {
@@ -954,7 +1069,7 @@ static inline int cm_convert_to_ms(int iba_time)
 }
 
 /*
- * calculate: 4.096x2^ack_timeout = 4.096x2^ack_delay + 2x4.096x2^life_time
+ * calculate: 4.096x2^ack_timeout = 4.096x2^ack_delay + 2x4.096x2^life_time	// ref: ib spec ch11.2.1.2 Query HCA / Ch15.2.5.16 PathRecord
  * Because of how ack_timeout is stored, adding one doubles the timeout.
  * To avoid large timeouts, select the max(ack_delay, life_time + 1), and
  * increment it (round up) only if the other is within 50%.
@@ -997,7 +1112,7 @@ static struct cm_timewait_info * cm_create_timewait_info(__be32 local_id)
 
 	timewait_info->work.local_id = local_id;
 	INIT_DELAYED_WORK(&timewait_info->work.work, cm_work_handler);
-	timewait_info->work.cm_event.event = IB_CM_TIMEWAIT_EXIT;
+	timewait_info->work.cm_event.event = IB_CM_TIMEWAIT_EXIT;		// ref: comments on cm_insert_remote_id()
 	return timewait_info;
 }
 
@@ -1015,6 +1130,7 @@ static void cm_enter_timewait(struct cm_id_private *cm_id_priv)
 
 	spin_lock_irqsave(&cm.lock, flags);
 	cm_remove_remote(cm_id_priv);
+	/* 一个 cm_id_priv.timewait_info 结构挂到全局的 cm.timewait_list 上 */
 	list_add_tail(&cm_id_priv->timewait_info->list, &cm.timewait_list);
 	spin_unlock_irqrestore(&cm.lock, flags);
 
@@ -1048,7 +1164,7 @@ static void cm_reset_to_idle(struct cm_id_private *cm_id_priv)
 	lockdep_assert_held(&cm_id_priv->lock);
 
 	cm_id_priv->id.state = IB_CM_IDLE;
-	if (cm_id_priv->timewait_info) {
+	if (cm_id_priv->timewait_info) {	// 一切归零, 所以有 timewait 的话, 需要被干掉
 		spin_lock_irqsave(&cm.lock, flags);
 		cm_remove_remote(cm_id_priv);
 		spin_unlock_irqrestore(&cm.lock, flags);
@@ -1057,6 +1173,7 @@ static void cm_reset_to_idle(struct cm_id_private *cm_id_priv)
 	}
 }
 
+// 各种情况下 destroy_id() 都走这条路
 static void cm_destroy_id(struct ib_cm_id *cm_id, int err)
 {
 	struct cm_id_private *cm_id_priv;
@@ -1310,6 +1427,7 @@ struct ib_cm_id *ib_cm_insert_listen(struct ib_device *device,
 }
 EXPORT_SYMBOL(ib_cm_insert_listen);
 
+// transaction id
 static __be64 cm_form_tid(struct cm_id_private *cm_id_priv)
 {
 	u64 hi_tid, low_tid;
@@ -1319,6 +1437,7 @@ static __be64 cm_form_tid(struct cm_id_private *cm_id_priv)
 	return cpu_to_be64(hi_tid | low_tid);
 }
 
+// mad base hdr, ref: IB spec vol1 Ch13.4.2
 static void cm_format_mad_hdr(struct ib_mad_hdr *hdr,
 			      __be16 attr_id, __be64 tid)
 {
@@ -1330,6 +1449,10 @@ static void cm_format_mad_hdr(struct ib_mad_hdr *hdr,
 	hdr->tid	   = tid;
 }
 
+// ref: IB spec vol1 ch16.7.3
+// ece: end to end connection ref: ref: IB spec vol1 ch16.7.3.1
+//
+// man ibv_set_ece
 static void cm_format_mad_ece_hdr(struct ib_mad_hdr *hdr, __be16 attr_id,
 				  __be64 tid, u32 attr_mod)
 {
@@ -1349,9 +1472,11 @@ static void cm_format_req(struct cm_req_msg *req_msg,
 		pri_ext = opa_is_extended_lid(pri_path->opa.dlid,
 					      pri_path->opa.slid);
 
+	// 填个hdr 先
 	cm_format_mad_ece_hdr(&req_msg->hdr, CM_REQ_ATTR_ID,
 			      cm_form_tid(cm_id_priv), param->ece.attr_mod);
 
+	// 然后 填 data, ref ib spec vol1 ch12.6.5
 	IBA_SET(CM_REQ_LOCAL_COMM_ID, req_msg,
 		be32_to_cpu(cm_id_priv->id.local_id));
 	IBA_SET(CM_REQ_SERVICE_ID, req_msg, be64_to_cpu(param->service_id));
@@ -1421,7 +1546,7 @@ static void cm_format_req(struct cm_req_msg *req_msg,
 		cm_ack_timeout(cm_id_priv->av.port->cm_dev->ack_delay,
 			       pri_path->packet_life_time));
 
-	if (alt_path) {
+	if (alt_path) { // 有备用路径
 		bool alt_ext = false;
 
 		if (alt_path->rec_type == SA_PATH_REC_TYPE_OPA)
@@ -1523,6 +1648,7 @@ int ib_send_cm_req(struct ib_cm_id *cm_id,
 	}
 	spin_unlock_irqrestore(&cm_id_priv->lock, flags);
 
+	// 提前给 timewait 做好准备
 	cm_id_priv->timewait_info = cm_create_timewait_info(cm_id_priv->
 							    id.local_id);
 	if (IS_ERR(cm_id_priv->timewait_info)) {
@@ -1531,6 +1657,7 @@ int ib_send_cm_req(struct ib_cm_id *cm_id,
 		goto out;
 	}
 
+	// 利用传入的参数初始化一些结构, 或者说保存这些参数
 	ret = cm_init_av_by_path(param->primary_path,
 				 param->ppath_sgid_attr, &cm_id_priv->av,
 				 cm_id_priv);
@@ -1547,7 +1674,7 @@ int ib_send_cm_req(struct ib_cm_id *cm_id,
 	cm_id_priv->timeout_ms = cm_convert_to_ms(
 				    param->primary_path->packet_life_time) * 2 +
 				 cm_convert_to_ms(
-				    param->remote_cm_response_timeout);
+				    param->remote_cm_response_timeout);	// ref ib spec vol ch12.9.8.6 Timeout and Retries
 	cm_id_priv->max_cm_retries = param->max_cm_retries;
 	cm_id_priv->initiator_depth = param->initiator_depth;
 	cm_id_priv->responder_resources = param->responder_resources;
@@ -1561,7 +1688,7 @@ int ib_send_cm_req(struct ib_cm_id *cm_id,
 		goto out;
 
 	req_msg = (struct cm_req_msg *) cm_id_priv->msg->mad;
-	cm_format_req(req_msg, cm_id_priv, param);
+	cm_format_req(req_msg, cm_id_priv, param);	// 填充报文结构咯
 	cm_id_priv->tid = req_msg->hdr.tid;
 	cm_id_priv->msg->timeout_ms = cm_id_priv->timeout_ms;
 	cm_id_priv->msg->context[1] = (void *) (unsigned long) IB_CM_REQ_SENT;
@@ -1571,7 +1698,7 @@ int ib_send_cm_req(struct ib_cm_id *cm_id,
 
 	trace_icm_send_req(&cm_id_priv->id);
 	spin_lock_irqsave(&cm_id_priv->lock, flags);
-	ret = ib_post_send_mad(cm_id_priv->msg, NULL);
+	ret = ib_post_send_mad(cm_id_priv->msg, NULL);	// 调用底下的 mad 层提供的能力去发送 mad 报文
 	if (ret) {
 		spin_unlock_irqrestore(&cm_id_priv->lock, flags);
 		goto error2;
@@ -3902,6 +4029,9 @@ static void cm_work_handler(struct work_struct *_work)
 		cm_free_work(work);
 }
 
+// 用户在 RTR 状态的时候 rq 中已经接收到了数据了, 这时候数据面会直接报告事件给用户态,
+// 用户态需要反过来将 event 通知到 communication manager 连接其实已经建立
+// 数据通道和 连接通道的分离 引入的异步问题, 所以需要这套机制
 static int cm_establish(struct ib_cm_id *cm_id)
 {
 	struct cm_id_private *cm_id_priv;
@@ -3927,7 +4057,7 @@ static int cm_establish(struct ib_cm_id *cm_id)
 		cm_id->state = IB_CM_ESTABLISHED;
 		break;
 	case IB_CM_ESTABLISHED:
-		ret = -EISCONN;
+		ret = -EISCONN;	// NOT err, 都是因为异步机制导致的, ref: ib spec vol1 Ch11.6.3
 		break;
 	default:
 		trace_icm_establish_err(cm_id);
@@ -4087,7 +4217,7 @@ static void cm_recv_handler(struct ib_mad_agent *mad_agent,
 	/* Check if the device started its remove_one */
 	spin_lock_irq(&cm.lock);
 	if (!port->cm_dev->going_down)
-		queue_delayed_work(cm.wq, &work->work, 0);
+		queue_delayed_work(cm.wq, &work->work, 0);	// not delay
 	else
 		going_down = 1;
 	spin_unlock_irq(&cm.lock);
@@ -4295,6 +4425,8 @@ static int cm_create_port_fs(struct cm_port *port)
 {
 	int i, ret;
 
+	// 每个设备的每个 port 都会在 sysfs 下创建对应的接口
+	/* /sys/devices/virtual/infiniband/${DEV_NAME}/ports/1/cm_rx_msgs */
 	for (i = 0; i < CM_COUNTER_GROUPS; i++) {
 		ret = ib_port_register_module_stat(port->cm_dev->ib_device,
 						   port->port_num,
@@ -4480,6 +4612,7 @@ static int __init ib_cm_init(void)
 {
 	int ret;
 
+	// XXX: 这里没有一些 pernet 的东西, 说明都是 global 的
 	INIT_LIST_HEAD(&cm.device_list);
 	rwlock_init(&cm.device_lock);
 	spin_lock_init(&cm.lock);

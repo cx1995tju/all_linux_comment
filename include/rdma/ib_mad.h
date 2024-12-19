@@ -22,6 +22,7 @@
 #define OPA_SM_CLASS_VERSION			0x80
 
 /* Management classes */
+// ref ib spec vol1 ch13.4.4
 #define IB_MGMT_CLASS_SUBN_LID_ROUTED		0x01
 #define IB_MGMT_CLASS_SUBN_DIRECTED_ROUTE	0x81
 #define IB_MGMT_CLASS_SUBN_ADM			0x03
@@ -119,9 +120,9 @@
 
 enum {
 	IB_MGMT_MAD_HDR = 24,
-	IB_MGMT_MAD_DATA = 232,
+	IB_MGMT_MAD_DATA = 232, // 256 - IB_MGMT_MD_HDR ref: ib spec vol1 ch13 MAD Format
 	IB_MGMT_RMPP_HDR = 36,
-	IB_MGMT_RMPP_DATA = 220,
+	IB_MGMT_RMPP_DATA = 220, // ref ib spec vol1 ch13.6 rmpp
 	IB_MGMT_VENDOR_HDR = 40,
 	IB_MGMT_VENDOR_DATA = 216,
 	IB_MGMT_SA_HDR = 56,
@@ -135,6 +136,8 @@ enum {
 };
 
 // ref ib spec vol1 Ch13.4.3 
+// mad 报文 header, mad 报文是作为 UD 的 transport 的 paylaod 被发送的
+// hdr 后面会跟着 data: ref: CM_STRUCT
 struct ib_mad_hdr {
 	u8	base_version;
 	u8	mgmt_class;
@@ -142,8 +145,8 @@ struct ib_mad_hdr {
 	u8	method;
 	__be16	status;
 	__be16	class_specific;
-	__be64	tid;
-	__be16	attr_id;
+	__be64	tid;	// transaction id
+	__be16	attr_id;	// 指示了后面跟着的 data 内容
 	__be16	resv;
 	__be32	attr_mod;
 };
@@ -463,7 +466,7 @@ struct ib_mad_notice_attr {
  */
 struct ib_mad_send_buf {
 	struct ib_mad_send_buf	*next;
-	void			*mad;
+	void			*mad;	// mad 报文, 含 ib_mad_hdr, 注意 mad 报文是作为 UD transport 的 payload 发送的
 	struct ib_mad_agent	*mad_agent;
 	struct ib_ah		*ah;
 	void			*context[2];
@@ -563,6 +566,7 @@ typedef void (*ib_mad_recv_handler)(struct ib_mad_agent *mad_agent,
  * @port_num: Port number on which QP is registered
  * @rmpp_version: If set, indicates the RMPP version used by this agent.
  */
+// ref ib spec vol1 ch13.6
 enum {
 	IB_MAD_USER_RMPP = IB_USER_MAD_USER_RMPP,
 };

@@ -127,7 +127,7 @@ enum sa_path_rec_type {
 	SA_PATH_REC_TYPE_IB,
 	SA_PATH_REC_TYPE_ROCE_V1,
 	SA_PATH_REC_TYPE_ROCE_V2,
-	SA_PATH_REC_TYPE_OPA
+	SA_PATH_REC_TYPE_OPA // intel omni-path
 };
 
 struct sa_path_rec_ib {
@@ -162,6 +162,8 @@ struct sa_path_rec_opa {
 
 // Subnet Administration Path Record, 记录了一条路由信息
 // 有 subnet manager 来负责维护这些信息, 类似于 ip 网络里的 rtable / dst_entry
+//
+// IB sepc vol1 Ch15.2.5.16
 struct sa_path_rec {
 	union ib_gid dgid;
 	union ib_gid sgid;

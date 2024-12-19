@@ -60,7 +60,7 @@ struct rdma_addr {
 // RoCEv2 里, 路由是底层的 UDP/IP 负责的, 这个结构本质就是记录了 src/dst 地址
 struct rdma_route {
 	struct rdma_addr addr;
-	struct sa_path_rec *path_rec; // IB 中有用
+	struct sa_path_rec *path_rec; // 路由信息主要就是这个 path_rec 结构
 	int num_paths; // path_rec 数组的大小
 };
 

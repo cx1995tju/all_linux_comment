@@ -28,6 +28,7 @@
 #define CM_FIELD_MLOC(field_struct, byte_offset, width, type)                  \
 	IBA_FIELD_MLOC(field_struct,                                           \
 		       (byte_offset + sizeof(struct ib_mad_hdr)), width, type)
+/* 这里的 total_len 单位是 bit */
 #define CM_STRUCT(field_struct, total_len)                                     \
 	field_struct                                                           \
 	{                                                                      \

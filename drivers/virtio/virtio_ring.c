@@ -178,7 +178,7 @@ struct vring_virtqueue {
 	};
 
 	/* How to notify other side. FIXME: commonalize hcalls! */
-	bool (*notify)(struct virtqueue *vq);
+	bool (*notify)(struct virtqueue *vq); // %vp_notify()
 
 	/* DMA, allocation, and size information */
 	bool we_own_ring;

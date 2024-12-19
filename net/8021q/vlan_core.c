@@ -98,6 +98,7 @@ struct net_device *__vlan_find_dev_deep_rcu(struct net_device *dev,
 }
 EXPORT_SYMBOL(__vlan_find_dev_deep_rcu);
 
+// vlan 设备对应的真实的 net_device ?
 struct net_device *vlan_dev_real_dev(const struct net_device *dev)
 {
 	struct net_device *ret = vlan_dev_priv(dev)->real_dev;

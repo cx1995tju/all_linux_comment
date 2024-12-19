@@ -710,7 +710,7 @@ enum ib_event_type {
 	IB_EVENT_QP_FATAL,
 	IB_EVENT_QP_REQ_ERR,
 	IB_EVENT_QP_ACCESS_ERR,
-	IB_EVENT_COMM_EST,
+	IB_EVENT_COMM_EST, // ib spec vol1 Ch11.6.3 用户态都已经在 RQ 收到报文了, QP 却还是 RTR 状态, 没有完成连接建立
 	IB_EVENT_SQ_DRAINED,
 	IB_EVENT_PATH_MIG,
 	IB_EVENT_PATH_MIG_ERR,
@@ -756,8 +756,8 @@ struct ib_event_handler {
 	} while (0)
 
 struct ib_global_route {
-	const struct ib_gid_attr *sgid_attr;
-	union ib_gid	dgid;
+	const struct ib_gid_attr *sgid_attr; // local 地址
+	union ib_gid	dgid; // 目的地址
 	u32		flow_label;
 	u8		sgid_index;
 	u8		hop_limit;
@@ -898,7 +898,7 @@ enum rdma_ah_attr_type {
 	RDMA_AH_ATTR_TYPE_UNDEFINED,
 	RDMA_AH_ATTR_TYPE_IB,
 	RDMA_AH_ATTR_TYPE_ROCE,
-	RDMA_AH_ATTR_TYPE_OPA,
+	RDMA_AH_ATTR_TYPE_OPA, // intel omni-path arch
 };
 
 struct ib_ah_attr {
@@ -1238,14 +1238,53 @@ enum ib_qp_attr_mask {
 	IB_QP_RATE_LIMIT		= (1<<25),
 };
 
-// IB spec vol1 ch10.3
+// QP 状态机: IB spec vol1 ch10.3
+// - 任何状态出现错误了, 都可以进入 ERROR 状态
 enum ib_qp_state {
+	/* 初始态
+	 * */
 	IB_QPS_RESET,
+
+	 /* QP:
+	  * - Can Post Recv WRs
+	  * */
 	IB_QPS_INIT,
-	IB_QPS_RTR, // ready to read
-	IB_QPS_RTS, // ready to send
-	IB_QPS_SQD, // send queue drain
-	IB_QPS_SQE, // send queue error
+
+	 /* QP:
+	  * - Can post/process Recv WRs
+	  * - Can Send         Acks
+	  *
+	  * read to read
+	  * */
+	IB_QPS_RTR, 
+
+	 /* QP:	完全态
+	  * - Can post/process Recv WRs
+	  * - Can post/process Send WRs
+	  *
+	  * ready to send
+	  * */
+	IB_QPS_RTS,
+
+	 /* QP:
+	  * - Can post/process Recv WRs
+	  * - Can Send         Acks
+	  * - Can post         Send WRs
+	  *
+	  * send queue drain
+	  * */
+	IB_QPS_SQD,
+
+	 /* QP: 
+	  * - Can post & process RecvWRs
+	  * - Send WRs 都会 completed in error
+	  *
+	  * 坏了一半, send 方向坏了
+	  * */
+	IB_QPS_SQE,
+
+	/* Recv 方向坏了也就全坏了
+	 * */
 	IB_QPS_ERR
 };
 
@@ -1543,12 +1582,13 @@ struct ib_xrcd {
 	struct xarray		tgt_qps;
 };
 
+// address handle
 struct ib_ah {
 	struct ib_device	*device;
 	struct ib_pd		*pd;
 	struct ib_uobject	*uobject;
-	const struct ib_gid_attr *sgid_attr;
-	enum rdma_ah_attr_type	type;
+	const struct ib_gid_attr *sgid_attr; // 地址信息
+	enum rdma_ah_attr_type	type; // 地址类型
 };
 
 typedef void (*ib_comp_handler)(struct ib_cq *cq, void *cq_context);
@@ -4636,7 +4676,7 @@ bool rdma_dev_access_netns(const struct ib_device *device,
 
 #define IB_ROCE_UDP_ENCAP_VALID_PORT_MIN (0xC000)
 #define IB_ROCE_UDP_ENCAP_VALID_PORT_MAX (0xFFFF)
-#define IB_GRH_FLOWLABEL_MASK (0x000FFFFF)
+#define IB_GRH_FLOWLABEL_MASK (0x000FFFFF) // ref: ib spec vol1 ch8.3.3
 
 /**
  * rdma_flow_label_to_udp_sport - generate a RoCE v2 UDP src port value based

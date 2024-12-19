@@ -170,6 +170,7 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 	 *	to be an old duplicate".
 	 */
 
+	// time-wait 状态下收到 pkt 的处理逻辑, 且 pkt 通过了 paws 校验
 	if (!paws_reject &&
 	    (TCP_SKB_CB(skb)->seq == tcptw->tw_rcv_nxt &&
 	     (TCP_SKB_CB(skb)->seq == TCP_SKB_CB(skb)->end_seq || th->rst))) {
@@ -186,7 +187,7 @@ kill:
 				return TCP_TW_SUCCESS;
 			}
 		} else {
-			inet_twsk_reschedule(tw, TCP_TIMEWAIT_LEN);
+			inet_twsk_reschedule(tw, TCP_TIMEWAIT_LEN); // 重新调度一下 timewait 定时器
 		}
 
 		if (tmp_opt.saw_tstamp) {

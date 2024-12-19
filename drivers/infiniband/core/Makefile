@@ -28,6 +28,7 @@ rdma_cm-y :=			cma.o cma_trace.o
 # 提供了一些基于 configfs 的动态配置的能力, 使用方法
 # 挂载 configfs, 默认是 /sys/kernel/config
 # mkdir /sys/kernel/config/rdma_cm/${RDMA_DEV_NAME}
+# /sys/devices/virtual/infiniband/${DEV_NAME}/ports/1/cm_rx_msgs
 # 然后就可以看到一些属性的操作接口了
 rdma_cm-$(CONFIG_INFINIBAND_ADDR_TRANS_CONFIGFS) += cma_configfs.o
 
