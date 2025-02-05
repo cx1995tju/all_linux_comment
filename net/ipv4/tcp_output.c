@@ -3420,7 +3420,7 @@ void sk_forced_mem_schedule(struct sock *sk, int size)
 /* Send a FIN. The caller locks the socket for us.
  * We should try to send a FIN packet really hard, but eventually give up.
  */
-// fin 发送前，需要排空 write queue 中的数据的
+// fin 发送前，需要排空 write queue 中的数据的, 即 linux 的实现中，fin 报文不会携带数据(虽然 协议并没有禁止 fin 携带数据，但是为了状态机的简单，一般实现都不会在 fin 中携带数据的)
 void tcp_send_fin(struct sock *sk)
 {
 	struct sk_buff *skb, *tskb, *tail = tcp_write_queue_tail(sk);

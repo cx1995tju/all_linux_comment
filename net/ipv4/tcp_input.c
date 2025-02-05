@@ -5219,6 +5219,7 @@ void tcp_data_ready(struct sock *sk)
 }
 
 // syn 也会在这里处理的
+// fin 也会正在这里处理
 static void tcp_data_queue(struct sock *sk, struct sk_buff *skb)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
