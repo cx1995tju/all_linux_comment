@@ -2082,6 +2082,8 @@ martian_source:
  *	called with rcu_read_lock()
  */
 
+// rx 方向路由子系统入口, 判断 pkt 是要 forward 还是交给上层协议栈, skb 进入的口是否符合预期等
+// ref: fib_validate_source()
 static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 			       u8 tos, struct net_device *dev,
 			       struct fib_result *res)
@@ -2113,6 +2115,7 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 		fl4.flowi4_tun_key.tun_id = 0;
 	skb_dst_drop(skb);
 
+	// saddr 非法
 	if (ipv4_is_multicast(saddr) || ipv4_is_lbcast(saddr))
 		goto martian_source;
 
@@ -2163,6 +2166,7 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 		fl4.fl4_dport = 0;
 	}
 
+	// 查路由, 结果存在 res 里
 	err = fib_lookup(net, &fl4, res, 0);
 	if (err != 0) {
 		if (!IN_DEV_FORWARD(in_dev))
@@ -2292,6 +2296,7 @@ martian_source:
 	goto out;
 }
 
+//  校验入口路由 ? 即判断 skb 是否应该由上层协议栈处理 ? skb 是否被 drop
 int ip_route_input_noref(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 			 u8 tos, struct net_device *dev)
 {

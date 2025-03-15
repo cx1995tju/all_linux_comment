@@ -355,7 +355,7 @@ static int __fib_validate_source(struct sk_buff *skb, __be32 src, __be32 dst,
 	fl4.flowi4_iif = l3mdev_master_ifindex_rcu(dev);
 	if (!fl4.flowi4_iif)
 		fl4.flowi4_iif = oif ? : LOOPBACK_IFINDEX;
-	fl4.daddr = src;
+	fl4.daddr = src;	// 交互 src / dst 来查路由, 然后验证报文进来的口(dev)是否符合预期
 	fl4.saddr = dst;
 	fl4.flowi4_tos = tos;
 	fl4.flowi4_scope = RT_SCOPE_UNIVERSE;

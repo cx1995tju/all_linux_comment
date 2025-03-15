@@ -825,7 +825,7 @@ static int arp_process(struct net *net, struct sock *sk, struct sk_buff *skb)
 			if (!dont_send && IN_DEV_ARPFILTER(in_dev))
 				dont_send = arp_filter(sip, tip, dev);
 			if (!dont_send) {
-				n = neigh_event_ns(&arp_tbl, sha, &sip, dev);
+				n = neigh_event_ns(&arp_tbl, sha, &sip, dev);	// HERE: arp request 处理
 				if (n) {
 					arp_send_dst(ARPOP_REPLY, ETH_P_ARP,
 						     sip, dev, tip, sha,
@@ -865,6 +865,7 @@ static int arp_process(struct net *net, struct sock *sk, struct sk_buff *skb)
 	/* Update our ARP tables */
 
 	// 在 发送 arp 请求的时候会创建对应的 neigh 项，此时应该就可以 lookup 到
+	// 如果是处理 arp request 呢 ? 不在这里出里, 在前面的 neigh_event_ns 处理
 	n = __neigh_lookup(&arp_tbl, &sip, dev, 0);
 
 	addr_type = -1;
