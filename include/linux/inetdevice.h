@@ -22,6 +22,7 @@ struct ipv4_devconf {
 
 #define MC_HASH_SZ_LOG 9
 
+// inet device
 struct in_device {
 	struct net_device	*dev;
 	refcount_t		refcnt;
@@ -50,6 +51,7 @@ struct in_device {
 	struct rcu_head		rcu_head;
 };
 
+// 找 sysctl attribute
 #define IPV4_DEVCONF(cnf, attr) ((cnf).data[IPV4_DEVCONF_ ## attr - 1])
 #define IPV4_DEVCONF_ALL(net, attr) \
 	IPV4_DEVCONF((*(net)->ipv4.devconf_all), attr)
