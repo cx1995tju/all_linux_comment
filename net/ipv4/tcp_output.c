@@ -1251,7 +1251,7 @@ INDIRECT_CALLABLE_DECLARE(void tcp_v4_send_check(struct sock *sk, struct sk_buff
  * SKB, or a fresh unique copy made by the retransmit engine.
  */
 
-// 进入这个函数的时候，skb 还没有被填充头部。头部的所有信息都还在 sk 的 tcp_skb_cb 里
+// 进入这个函数的时候，在这里面才会被填充, skb 还没有被填充头部。头部的所有信息都还在 sk 的 tcp_skb_cb 里
 // 当然数据已经在 skb 的 buffer 里了
 static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 			      int clone_it, gfp_t gfp_mask, u32 rcv_nxt)

@@ -154,7 +154,7 @@ static inline int virtio_net_hdr_from_skb(const struct sk_buff *skb,
 
 	if (skb->ip_summed == CHECKSUM_PARTIAL) {
 		hdr->flags = VIRTIO_NET_HDR_F_NEEDS_CSUM;
-		hdr->csum_start = __cpu_to_virtio16(little_endian,
+		hdr->csum_start = __cpu_to_virtio16(little_endian, // ref: __tcp_v4_send_check
 			skb_checksum_start_offset(skb) + vlan_hlen);
 		hdr->csum_offset = __cpu_to_virtio16(little_endian,
 				skb->csum_offset);

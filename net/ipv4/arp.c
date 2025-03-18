@@ -653,6 +653,8 @@ static bool arp_is_garp(struct net *net, struct net_device *dev,
 
 	/* Gratuitous ARP _replies_ also require target hwaddr to be
 	 * the same as source.
+	 *
+	 * 免费 arp 报文的 reply
 	 */
 	if (is_garp && ar_op == htons(ARPOP_REPLY))
 		is_garp =
@@ -807,6 +809,7 @@ static int arp_process(struct net *net, struct sock *sk, struct sk_buff *skb)
 		if (arp->ar_op == htons(ARPOP_REQUEST) &&
 		    inet_addr_type_dev_table(net, dev, tip) == RTN_LOCAL &&
 		    !arp_ignore(in_dev, sip, tip))
+			// 这里很有趣, 交换了 sip 和 tip 来回复. refe arp_send_dst() prototype
 			arp_send_dst(ARPOP_REPLY, ETH_P_ARP, sip, dev, tip,
 				     sha, dev->dev_addr, sha, reply_dst);
 		goto out_consume_skb;
@@ -827,6 +830,7 @@ static int arp_process(struct net *net, struct sock *sk, struct sk_buff *skb)
 			if (!dont_send) {
 				n = neigh_event_ns(&arp_tbl, sha, &sip, dev);	// HERE: arp request 处理
 				if (n) {
+					// 这里很有趣, 交换了 sip 和 tip 来回复. refe arp_send_dst() prototype
 					arp_send_dst(ARPOP_REPLY, ETH_P_ARP,
 						     sip, dev, tip, sha,
 						     dev->dev_addr, sha,

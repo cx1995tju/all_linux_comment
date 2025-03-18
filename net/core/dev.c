@@ -3322,7 +3322,7 @@ struct sk_buff *skb_mac_gso_segment(struct sk_buff *skb,
 	rcu_read_lock();
 	list_for_each_entry_rcu(ptype, &offload_base, list) {
 		if (ptype->type == type && ptype->callbacks.gso_segment) {
-			segs = ptype->callbacks.gso_segment(skb, features);
+			segs = ptype->callbacks.gso_segment(skb, features); /* %inet_gso_segment, %ipv6_gso_segment */
 			break;
 		}
 	}

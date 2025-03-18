@@ -1244,7 +1244,7 @@ conflict with actual kernel options now or in the future.
 In addition, some boot loaders add the following options to the
 user-specified command line:
 
-  BOOT_IMAGE=<file>
+  BOOT_IMAGE=<file>                                                     # 这个参数, 内核并不需要, 仅仅是起到一个记录的作用, 方便系统管理咯
 	The boot image which was loaded.  Again, the meaning of <file>
 	is obviously bootloader-dependent.
 

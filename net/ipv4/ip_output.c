@@ -101,7 +101,7 @@ int __ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 	struct iphdr *iph = ip_hdr(skb);
 
 	iph->tot_len = htons(skb->len);
-	ip_send_check(iph);
+	ip_send_check(iph); // 计算 ip 头 csum
 
 	/* if egress device is enslaved to an L3 master device pass the
 	 * skb to its handler for processing

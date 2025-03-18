@@ -208,26 +208,24 @@ struct virtio_net_hdr_v1_hash {
 /* This header comes first in the scatter-gather list.
  * For legacy virtio, if VIRTIO_F_ANY_LAYOUT is not negotiated, it must
  * be the first element of the scatter-gather list.  If you don't
- * specify GSO or CSUM features, you can simply ignore the header. */
+ * specify GSO or CSUM features, you can simply ignore the header. 
 
- /* - tx 方向，enable VIRTIO_NET_F_CSUM 的时候，driver 可以设置: NEEDS_CSUM、csum_start、csum_offset 向 device 表达下述信息 */
- /* - rx 方向，enable VIRTIO_NET_F_GUEST_CSUM 的时候, device 可以设置: NEEDS_CSUM, csum_start, csum_offset 向 driver 表达下述信息 */
- /* 信息: */
- /* - [start, csum_start + csum_offset] 这个范围内的 checksum 都校验过 */
- /* - [csum_start + csum_offset, end] 这个范围内的数据都特别设置过, 确保: */
- /* 	- 对其做 16b one's complement checksum 计算，并且将计算结果放到 csum_start + csum_offset 位置。就可以得到一个 fully checksummed packet 了。 */
-	/* - 这里也间接表达了 [start, csum_start + csum_offset] 内如果有 checksum 的话，那么肯定是计算好的。因为这样才能得到一个 fully checksummed packet */
- /* - 对于 tx 方向(CSUM) tcp/udp 报文，其 packet checksum 位置必须放置 tcp/udp 的伪头部的循环加法计算结果。 */
+# CSUM / GUETS_CSUM 两个 feature __重要__
+- 这两个 feature 是对称的，CSUM 是 driver 通过 NEEDS_CSUM 告诉 device 一些信息；GUET_CSUM 是 device 告诉 driver 一些信息
+- 另外 GUEST_CSUM 开启后，还可以设置 DATA_VALID 这个 flag，用来表示最外面一层 checksum 已经校验过了
 
-/* 注：不管是 driver -> device 还是 device -> driver。csum_start csum_offset 表达信息都是一样的，不过在使用上有些区别: */
-/* - tx: driver -> device 方向 */
- /*     - 一般是为了实现 checksum 卸载的。所以 device 仅仅关系还要哪些checksum 计算工作需要，即 [csum_start + csum_offset, end] 范围。而不关心哪些 checksum 被校验了 */
-/* - rx: device -> driver 方向 */
- /*     - 一般是为了让 device 帮忙校验 checksum。所以 driver 并不关心哪些checksum 需要计算。仅仅关心哪些已经被校验了 [start, csum_start + csum_offset】。这部分不需要自己继续校验了 */
+也就是说不管是 tx(driver 设置, device 读) 还是 rx 方向(device 设置, driver 读), 都表达了一样的信息, 即:
+ - driver/device 必须校验 [csum_start, csum_offset] 位置的
+ - driver/device 必须将 pkt 头部的 checksum 设置为 tcp/udp 伪头部校验和
+ - driver/device 必须正确设置 csum_start, csum_offset 使得满足:
+         - 即从 csum_start 位置到 pkt end 位置开始计算校验和(16b one's complement checksum), 然后将计算的结果放置到 csum_start + csum_offset 位置的时候, 得到的 pkt 就是 fully checksummed packet
+         - 注: 其实和前面一点的意思差不多
 
-/* 一句话: */
-/* - [start, csum_start + csum_offset] 范围的数据具有下述性质：即这个范围内若存在 checksum，那么肯定得到了校验 */
-/* - [csum_start + csum_offset, end] 范围的数据具有下述性质：即只需要计算 [csum_start + csum_offset, end] 范围内的 checksum，然后将其放置到 csum_start + csum_offset 位置，就可以得到 fully checksummed packet */
+
+总的来说, csum_start, csum_offset 将 pkt 数据分成了两部分, 具有不同的性质:
+- [csum_start, csum_offset] 这里的数据都校验过
+- [csum_start, pkt_end] 对这里的数据做 (16b one's complement checksum) 然后将计算的结果放到 csum_start + csum_offset 位置, 就得到一个 fully checksummed packet
+ * */
 struct virtio_net_hdr {
 	/* See VIRTIO_NET_HDR_F_* */
 	__u8 flags;

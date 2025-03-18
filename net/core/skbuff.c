@@ -4777,7 +4777,7 @@ bool skb_partial_csum_set(struct sk_buff *skb, u16 start, u16 off)
 	skb->ip_summed = CHECKSUM_PARTIAL; // 表示有部分 checksum 校验了？？？
 	skb->csum_start = csum_start;
 	skb->csum_offset = off;
-	skb_set_transport_header(skb, start); // start 这个位置及之前的 checksum 都被计算了
+	skb_set_transport_header(skb, start); // start 到 offset 位置的 checksum 都被计算/校验了, 而且计算后的值放置在 csum_end 位置
 	return true;
 }
 EXPORT_SYMBOL_GPL(skb_partial_csum_set);

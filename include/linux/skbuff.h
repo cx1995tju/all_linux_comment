@@ -133,13 +133,13 @@
  *     skb->csum, it MUST use CHECKSUM_COMPLETE, not CHECKSUM_UNNECESSARY.
  *   - CHECKSUM_COMPLETE is not applicable to SCTP and FCoE protocols.
  *
- * CHECKSUM_PARTIAL:							// 校验了部分checksum。即[start, csum_start + csum_offset] 之前的 checksum 都验证了
+ * CHECKSUM_PARTIAL:							// 校验了部分checksum。即[start, csum_start + csum_offset] 之间(含)的 checksum 都验证了
  *
  *   A checksum is set up to be offloaded to a device as described in the
  *   output description for CHECKSUM_PARTIAL. This may occur on a packet
  *   received directly from another Linux OS, e.g., a virtualized Linux kernel
  *   on the same host, or it may be set in the input path in GRO or remote
- *   checksum offload. For the purposes of checksum verification, the checksum
+ *   checksum offload. For the purposes of checksum verification, the checksum		// _HERE_
  *   referred to by skb->csum_start + skb->csum_offset and any preceding
  *   checksums in the packet are considered verified. Any checksums in the
  *   packet that are after the checksum being offloaded are not considered to
@@ -221,7 +221,7 @@
 #define CHECKSUM_NONE		0
 #define CHECKSUM_UNNECESSARY	1
 #define CHECKSUM_COMPLETE	2
-#define CHECKSUM_PARTIAL	3
+#define CHECKSUM_PARTIAL	3 // 计算了部分 checksum, refer: %skb_partial_csum_set,
 
 /* Maximum value in skb->csum_level */
 #define SKB_MAX_CSUM_LEVEL	3
