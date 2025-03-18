@@ -654,7 +654,7 @@ static bool arp_is_garp(struct net *net, struct net_device *dev,
 	/* Gratuitous ARP _replies_ also require target hwaddr to be
 	 * the same as source.
 	 *
-	 * 免费 arp 报文的 reply
+	 * 免费 arp 报文的 reply, 收到 reply 说明冲突了
 	 */
 	if (is_garp && ar_op == htons(ARPOP_REPLY))
 		is_garp =
@@ -816,7 +816,7 @@ static int arp_process(struct net *net, struct sock *sk, struct sk_buff *skb)
 	}
 
 	if (arp->ar_op == htons(ARPOP_REQUEST) &&
-	    ip_route_input_noref(skb, tip, sip, 0, dev) == 0) {
+	    ip_route_input_noref(skb, tip, sip, 0, dev) == 0) { // 在 noref 里, 免费 arp request 的 sip 如果冲突的话, 无法通过检查, 也就不会为冲突的免费 arp request 回复 reply 的
 
 		rt = skb_rtable(skb);
 		addr_type = rt->rt_type;

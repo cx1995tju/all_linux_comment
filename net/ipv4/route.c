@@ -2139,7 +2139,7 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	if (ipv4_is_loopback(daddr)) {
 		if (!IN_DEV_NET_ROUTE_LOCALNET(in_dev, net))
 			goto martian_destination;
-	} else if (ipv4_is_loopback(saddr)) {
+	} else if (ipv4_is_loopback(saddr)) { // src addr 是 loopback, 免费 arp 报文会在这里无法通过检查, 然后 arp_process() 就不会处理 免费 arp request 了, ref: arp_process() -> ip_route_input_noref() ->* ip_route_input_slow() -> HERE
 		if (!IN_DEV_NET_ROUTE_LOCALNET(in_dev, net))
 			goto martian_source;
 	}
