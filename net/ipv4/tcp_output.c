@@ -1871,7 +1871,7 @@ unsigned int tcp_current_mss(struct sock *sk)
 	 * we have to adjust mss_now correspondingly */
 	if (header_len != tp->tcp_header_len) {
 		int delta = (int) header_len - tp->tcp_header_len;
-		mss_now -= delta;
+		mss_now -= delta; // 这里根据 可能的 sack 值做修正
 	}
 
 	return mss_now;

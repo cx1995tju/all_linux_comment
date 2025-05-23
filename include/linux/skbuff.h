@@ -133,7 +133,7 @@
  *     skb->csum, it MUST use CHECKSUM_COMPLETE, not CHECKSUM_UNNECESSARY.
  *   - CHECKSUM_COMPLETE is not applicable to SCTP and FCoE protocols.
  *
- * CHECKSUM_PARTIAL:							// 校验了部分checksum。即[start, csum_start + csum_offset] 之间(含)的 checksum 都验证了
+ * CHECKSUM_PARTIAL:							// 校验了部分checksum。即 csum_start + csum_offset 位以及其之前的 checksum 都被校验了
  *
  *   A checksum is set up to be offloaded to a device as described in the
  *   output description for CHECKSUM_PARTIAL. This may occur on a packet
@@ -564,7 +564,26 @@ enum {
 	SKB_GSO_DODGY = 1 << 1,
 
 	/* This indicates the tcp segment has CWR set. */
-	SKB_GSO_TCP_ECN = 1 << 2,
+
+	// ref: commit b0da8537037f337103348f239ad901477e907aa8
+	/* [NET]: Add ECN support for TSO */
+
+	/* In the current TSO implementation, NETIF_F_TSO and ECN cannot be */
+	/* turned on together in a TCP connection.  The problem is that most */
+	/* hardware that supports TSO does not handle CWR correctly if it is set */
+	/* in the TSO packet.  Correct handling requires CWR to be set in the */
+	/* first packet only if it is set in the TSO header. */
+
+	/* This patch adds the ability to turn on NETIF_F_TSO and ECN using */
+	/* GSO if necessary to handle TSO packets with CWR set.  Hardware */
+	/* that handles CWR correctly can turn on NETIF_F_TSO_ECN in the dev-> */
+	/* features flag. */
+
+	/* All TSO packets with CWR set will have the SKB_GSO_TCPV4_ECN set.  If */
+	/* the output device does not have the NETIF_F_TSO_ECN feature set, GSO */
+	/* will split the packet up correctly with CWR only set in the first */
+	/* segment. */
+	SKB_GSO_TCP_ECN = 1 << 2, // 表示硬件设备可以正确处理带有 CWR 的 TSO 报文。
 
 	SKB_GSO_TCP_FIXEDID = 1 << 3,
 
