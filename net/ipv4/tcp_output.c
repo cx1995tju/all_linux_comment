@@ -3791,6 +3791,7 @@ static int tcp_send_syn_data(struct sock *sk, struct sk_buff *syn)
 	 */
 	tp->rx_opt.mss_clamp = tcp_mss_clamp(tp, tp->rx_opt.mss_clamp);
 
+	// 这里可以看出来 fast open 路径发送的报文数量是被限制在 mss 内的，不会基于 tso 发送大报文的。
 	space = __tcp_mtu_to_mss(sk, inet_csk(sk)->icsk_pmtu_cookie) -
 		MAX_TCP_OPTION_SPACE;
 
