@@ -628,6 +628,7 @@ out:
 	return 0;
 }
 
+// 计算了伪头部的 checksum
 void __tcp_v4_send_check(struct sk_buff *skb, __be32 saddr, __be32 daddr)
 {
 	struct tcphdr *th = tcp_hdr(skb);
