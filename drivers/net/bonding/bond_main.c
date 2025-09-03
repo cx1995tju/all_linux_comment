@@ -1368,6 +1368,7 @@ static bool bond_should_deliver_exact_match(struct sk_buff *skb,
 	return false;
 }
 
+// 注册 rxhandler, 用来将 slave 的报文截获到 bond 设备后，做一些修改再送到协议栈, ref: __netif_receive_skb_core
 static rx_handler_result_t bond_handle_frame(struct sk_buff **pskb)
 {
 	struct sk_buff *skb = *pskb;

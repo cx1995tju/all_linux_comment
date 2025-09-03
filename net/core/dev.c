@@ -5156,6 +5156,8 @@ another_round:
 	if (pfmemalloc)
 		goto skip_taps;
 
+	// 这里的两个 for 循环是为了 AF_PACKE / bridge 的。比如 packet_rcv
+	// 具体协议的 arp_rcv ip_rcv 见后面的 deliver_ptype_list_skb
 	list_for_each_entry_rcu(ptype, &ptype_all, list) {
 		if (pt_prev)
 			ret = deliver_skb(skb, pt_prev, orig_dev);
@@ -5200,7 +5202,7 @@ skip_classify:
 			goto out;
 	}
 
-	rx_handler = rcu_dereference(skb->dev->rx_handler);
+	rx_handler = rcu_dereference(skb->dev->rx_handler); // bond 设备，bridge 设备的收包都是在这里实现的
 	if (rx_handler) {
 		if (pt_prev) {
 			ret = deliver_skb(skb, pt_prev, orig_dev);
