@@ -5205,6 +5205,7 @@ skip_classify:
 	rx_handler = rcu_dereference(skb->dev->rx_handler); // bond 设备，bridge 设备的收包都是在这里实现的
 	if (rx_handler) {
 		if (pt_prev) {
+			// 在 rx_handler 里可能修改 skb->dev，所以前面记录了 orig_dev. ref: bond_handle_frame
 			ret = deliver_skb(skb, pt_prev, orig_dev);
 			pt_prev = NULL;
 		}
@@ -5212,7 +5213,7 @@ skip_classify:
 		case RX_HANDLER_CONSUMED:
 			ret = NET_RX_SUCCESS;
 			goto out;
-		case RX_HANDLER_ANOTHER:
+		case RX_HANDLER_ANOTHER: // 对于 bond 设备，在 slave 上注册了 handler，然后返回 ANOTHER，这样可以又被处理一次。
 			goto another_round;
 		case RX_HANDLER_EXACT:
 			deliver_exact = true;

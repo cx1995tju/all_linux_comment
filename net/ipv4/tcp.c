@@ -890,7 +890,7 @@ struct sk_buff *sk_stream_alloc_skb(struct sock *sk, int size, gfp_t gfp,
 	if (unlikely(tcp_under_memory_pressure(sk)))
 		sk_mem_reclaim_partial(sk);
 
-	skb = alloc_skb_fclone(size + sk->sk_prot->max_header, gfp);
+	skb = alloc_skb_fclone(size + sk->sk_prot->max_header, gfp); // %tcp_prot
 	if (likely(skb)) {
 		bool mem_scheduled;
 
@@ -901,7 +901,7 @@ struct sk_buff *sk_stream_alloc_skb(struct sock *sk, int size, gfp_t gfp,
 			mem_scheduled = sk_wmem_schedule(sk, skb->truesize);
 		}
 		if (likely(mem_scheduled)) {
-			skb_reserve(skb, sk->sk_prot->max_header);
+			skb_reserve(skb, sk->sk_prot->max_header); // 预留了 headroom 位置. 在 tcp 场景下，由于传入的 size 是 0.所以这里所有的空间都是 headroom
 			/*
 			 * Make sure that we have exactly size bytes
 			 * available to the caller, no more, no less.
@@ -1298,7 +1298,7 @@ new_segment:
 			}
 			first_skb = tcp_rtx_and_write_queues_empty(sk);
 			skb = sk_stream_alloc_skb(sk, 0, sk->sk_allocation,
-						  first_skb);
+						  first_skb); // 这里分配的 skb 没有预留数据区
 			if (!skb)
 				goto wait_for_space;
 
@@ -1321,18 +1321,18 @@ new_segment:
 			copy = msg_data_left(msg);
 
 		/* Where to copy to? */
-		if (skb_availroom(skb) > 0 && !zc) {	// skb 有空间，那么就cop有进去
+		if (skb_availroom(skb) > 0 && !zc) {	// skb 有空间，那么就 copy 进去
 			/* We have some space in skb head. Superb! */
 			copy = min_t(int, copy, skb_availroom(skb));
 			err = skb_add_data_nocache(sk, skb, &msg->msg_iter, copy);
 			if (err)
 				goto do_fault;
-		} else if (!zc) { // skb 没有空间了，那么分配 frag ，copy 到 frag 里
+		} else if (!zc) { // skb 没有空间了，那么分配 frag ，copy 到 frag 里. skb 刚分配的时候是没有空间的，会进入这里
 			bool merge = true;
 			int i = skb_shinfo(skb)->nr_frags;
 			struct page_frag *pfrag = sk_page_frag(sk);
 
-			if (!sk_page_frag_refill(sk, pfrag))
+			if (!sk_page_frag_refill(sk, pfrag)) // 这里给 skb 去添加了一些 frag
 				goto wait_for_space;
 
 			if (!skb_can_coalesce(skb, i, pfrag->page,

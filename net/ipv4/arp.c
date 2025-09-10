@@ -945,12 +945,15 @@ static int arp_is_multicast(const void *pkey)
  *	Receive an arp request from the device layer.
  */
 
+// 像 bond 这种情况下，dev 就是 bond 设备，orig_dev 才是真实的 slave 设备
+// ref: __netif_receive_skb_core
 static int arp_rcv(struct sk_buff *skb, struct net_device *dev,
 		   struct packet_type *pt, struct net_device *orig_dev)
 {
 	const struct arphdr *arp;
 
 	/* do not tweak dropwatch on an ARP we will ignore */
+	// 注意这里是一个丢包点
 	if (dev->flags & IFF_NOARP ||
 	    skb->pkt_type == PACKET_OTHERHOST ||
 	    skb->pkt_type == PACKET_LOOPBACK)
