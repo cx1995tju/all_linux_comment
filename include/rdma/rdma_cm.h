@@ -24,7 +24,7 @@ enum rdma_cm_event_type {
 	RDMA_CM_EVENT_ADDR_ERROR,             // 地址解析失败
 	RDMA_CM_EVENT_ROUTE_RESOLVED,         // 路由解析成功
 	RDMA_CM_EVENT_ROUTE_ERROR,            // 路由解析失败
-	RDMA_CM_EVENT_CONNECT_REQUEST,
+	RDMA_CM_EVENT_CONNECT_REQUEST,        // 有外部连接
 	RDMA_CM_EVENT_CONNECT_RESPONSE,
 	RDMA_CM_EVENT_CONNECT_ERROR,
 	RDMA_CM_EVENT_UNREACHABLE,
@@ -111,6 +111,14 @@ typedef int (*rdma_cm_event_handler)(struct rdma_cm_id *id,
 				     struct rdma_cm_event *event);
 
 // 一个连接的 ctx, 类似于 tcp 中的一个 socket
+//
+// 关于各种 id 结构
+//
+/* rdma 库和内核的实现里, 有一系列名为 id 的结构, 这个结构类似于 socket, 但是 */
+/* 比 socket 全面, 保存了很多信息. 在构造 rdma 报文的时候, 很多信息直接从这里 */
+/* 就可以拿到了. 和 tcp 编程不同, 是报文在协议栈各层穿越的时候, 慢慢收集的. 这 */
+/* 也体现在 librdmacm 库的实现, 在创建 id 的时候, 总是伴随着调用 resolve_addr, */
+/* resolve_route 的操作, 这些操作就是让内核解析相关信息然后保存到 id 结构里. */
 struct rdma_cm_id {
 	struct ib_device	*device;
 	void			*context;

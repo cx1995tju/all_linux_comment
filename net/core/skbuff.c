@@ -1228,7 +1228,7 @@ void sock_zerocopy_callback(struct ubuf_info *uarg, bool success)
 	}
 	spin_unlock_irqrestore(&q->lock, flags);
 
-	sk->sk_error_report(sk);
+	sk->sk_error_report(sk); // 通过 error queue 来通知 send 方向完成了
 
 release:
 	consume_skb(skb);

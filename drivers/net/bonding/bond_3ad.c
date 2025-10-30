@@ -455,6 +455,8 @@ static void __choose_matched(struct lacpdu *lacpdu, struct port *port)
 	 * or this is individual link(aggregation == FALSE)
 	 * then update the state machine Matched variable.
 	 */
+	// 这里怎么可能全部 match 呢 ? 注意:收到的 lacpdu 中的 partner 表达的正好是我们的信息.
+	// 所以这里必须要匹配
 	if (((ntohs(lacpdu->partner_port) == port->actor_port_number) &&
 	     (ntohs(lacpdu->partner_port_priority) == port->actor_port_priority) &&
 	     MAC_ADDRESS_EQUAL(&(lacpdu->partner_system), &(port->actor_system)) &&
@@ -501,7 +503,7 @@ static void __record_pdu(struct lacpdu *lacpdu, struct port *port)
 		 * and the port is matched
 		 */
 		if ((port->sm_vars & AD_PORT_MATCHED) &&
-		    (lacpdu->actor_state & LACP_STATE_SYNCHRONIZATION)) {
+		    (lacpdu->actor_state & LACP_STATE_SYNCHRONIZATION)) { // 这里的 actor_state 是对端发过来的, 所以对端必须是 SYNC 状态后, 我们才会进入 SYNC 状态的
 			partner->port_state |= LACP_STATE_SYNCHRONIZATION;
 			slave_dbg(port->slave->bond->dev, port->slave->dev,
 				  "partner sync=1\n");
@@ -1263,8 +1265,10 @@ static void ad_tx_machine(struct port *port)
 	/* check if tx timer expired, to verify that we do not send more than
 	 * 3 packets per second
 	 */
+	// 外面的循环控制最大发送速率
 	if (port->sm_tx_timer_counter && !(--port->sm_tx_timer_counter)) {
 		/* check if there is something to send */
+		// ntt 控制真实的发送速率
 		if (port->ntt && (port->sm_vars & AD_PORT_LACP_ENABLED)) {
 			__update_lacpdu_from_port(port);
 
@@ -1309,23 +1313,23 @@ static void ad_periodic_machine(struct port *port)
 	/* check if state machine should change state */
 	else if (port->sm_periodic_timer_counter) {
 		/* check if periodic state machine expired */
-		if (!(--port->sm_periodic_timer_counter)) {
+		if (!(--port->sm_periodic_timer_counter)) { // lacp 发送周期
 			/* if expired then do tx */
-			port->sm_periodic_state = AD_PERIODIC_TX;
+			port->sm_periodic_state = AD_PERIODIC_TX; // 这里设置后会触发 lacpdu 的发送
 		} else {
 			/* If not expired, check if there is some new timeout
 			 * parameter from the partner state
 			 */
 			switch (port->sm_periodic_state) {
 			case AD_FAST_PERIODIC:
-				if (!(port->partner_oper.port_state
-				      & LACP_STATE_LACP_TIMEOUT))
+				if (!(port->partner_oper.port_state // partner 的 port_state 没有 timeout 也会进入 slow 状态的
+				      & LACP_STATE_LACP_TIMEOUT)) // 没有 timeout 就开始 slow 阶段, 就 30s 发一次 ?
 					port->sm_periodic_state = AD_SLOW_PERIODIC;
 				break;
 			case AD_SLOW_PERIODIC:
 				if ((port->partner_oper.port_state & LACP_STATE_LACP_TIMEOUT)) {
 					port->sm_periodic_timer_counter = 0;
-					port->sm_periodic_state = AD_PERIODIC_TX;
+					port->sm_periodic_state = AD_PERIODIC_TX; // 这里设置后会触发 lacpdu 的发送
 				}
 				break;
 			default:
@@ -1339,7 +1343,7 @@ static void ad_periodic_machine(struct port *port)
 			break;
 		case AD_PERIODIC_TX:
 			if (!(port->partner_oper.port_state &
-			    LACP_STATE_LACP_TIMEOUT))
+			    LACP_STATE_LACP_TIMEOUT)) // tx 后没有 TIMEOUT 为什么就进入 SLOW 阶段 ?
 				port->sm_periodic_state = AD_SLOW_PERIODIC;
 			else
 				port->sm_periodic_state = AD_FAST_PERIODIC;
@@ -1363,7 +1367,7 @@ static void ad_periodic_machine(struct port *port)
 			/* decrement 1 tick we lost in the PERIODIC_TX cycle */
 			port->sm_periodic_timer_counter = __ad_timer_to_ticks(AD_PERIODIC_TIMER, (u16)(AD_FAST_PERIODIC_TIME))-1;
 			break;
-		case AD_SLOW_PERIODIC:
+		case AD_SLOW_PERIODIC: //  slow 阶段会将 lacpdu 的发送设置为 30s
 			/* decrement 1 tick we lost in the PERIODIC_TX cycle */
 			port->sm_periodic_timer_counter = __ad_timer_to_ticks(AD_PERIODIC_TIMER, (u16)(AD_SLOW_PERIODIC_TIME))-1;
 			break;
@@ -2701,7 +2705,7 @@ void bond_3ad_update_lacp_rate(struct bonding *bond)
 		port = &(SLAVE_AD_INFO(slave)->port);
 		if (lacp_fast)
 			port->actor_oper_port_state |= LACP_STATE_LACP_TIMEOUT;
-		else
+		else // 进入 slow 模式
 			port->actor_oper_port_state &= ~LACP_STATE_LACP_TIMEOUT;
 	}
 	spin_unlock_bh(&bond->mode_lock);

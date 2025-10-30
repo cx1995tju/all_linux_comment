@@ -74,7 +74,7 @@ enum {
 // 这个信息最终是体现在 services ID 上
 // roce 里是规定了 低 16b 放 port 号, [31:16]b 放这里的 port space 号
 // IB spec 没有规定 ib 的 serivce id 的 format
-// 不过 linux 实现的时候, 在其基础上统一搞了一个 port space 的概念, RDMA_PS_IB, 然后将 低 16b 也编码为 port, [31:16]b 编码为 port space
+// XXX: 不过 linux 实现的时候, 在其基础上统一搞了一个 port space 的概念, RDMA_PS_IB, 然后将 低 16b 也编码为 port, [31:16]b 编码为 port space
 /* ref: ucma_get_qp_type / rdma_ps_from_service_id() */
 enum rdma_ucm_port_space {
 	RDMA_PS_IPOIB = 0x0002, // iponib 用这个
@@ -292,7 +292,7 @@ struct rdma_ucm_get_event {
 };
 
 struct rdma_ucm_event_resp {
-	__aligned_u64 uid;
+	__aligned_u64 uid; // 用户态使用的 user id
 	__u32 id;
 	__u32 event;
 	__u32 status;

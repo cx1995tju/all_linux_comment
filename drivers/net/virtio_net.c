@@ -196,7 +196,7 @@ struct virtnet_info {
 	u16 xdp_queue_pairs;
 
 	/* I like... big packets and I cannot lie! */
-	bool big_packets;
+	bool big_packets; // MTU > 1500 或者 有 guest_gso feature
 
 	/* Host will merge rx buffers for big packets (shake it! shake it!) */
 	bool mergeable_rx_bufs;
@@ -1249,8 +1249,8 @@ static bool try_fill_recv(struct virtnet_info *vi, struct receive_queue *rq,
 	do {
 		if (vi->mergeable_rx_bufs)	// 如果开启了 mergeable 的话，会按照平均报文大小分配
 			err = add_recvbuf_mergeable(vi, rq, gfp);
-		else if (vi->big_packets) // 如果没有开启，但是 mtu > 1500 的话，就会分配 big packet
-			err = add_recvbuf_big(vi, rq, gfp);
+		else if (vi->big_packets) // 如果没有开启 mergeable，但是 mtu > 1500 的话，就会分配 big packet
+			err = add_recvbuf_big(vi, rq, gfp); // 这时候填充的是 4K page 的 chain
 		else
 			err = add_recvbuf_small(vi, rq, gfp);
 

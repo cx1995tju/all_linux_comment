@@ -488,7 +488,7 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 			desc[i].addr = cpu_to_virtio64(_vq->vdev, addr);
 			desc[i].len = cpu_to_virtio32(_vq->vdev, sg->length);
 			prev = i;
-			i = virtio16_to_cpu(_vq->vdev, desc[i].next);
+			i = virtio16_to_cpu(_vq->vdev, desc[i].next); // detach 的时候建立了 desc 里的 next 关系，所以 添加的时候不需要去建立 next 关系了。直接顺着 next 去索引就可以了。  初始值在: __vring_new_virtqueue() 初始化的
 		}
 	}
 	for (; n < (out_sgs + in_sgs); n++) {
@@ -637,6 +637,8 @@ static void detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
 
 	vring_unmap_one_split(vq, &vq->split.vring.desc[i]);
 	// 将desc chain  的 last desc 指向 free_head, 然后更新 free_head
+	// detach 的时候设置了 next 关系. 另外在初始化的时候也设置了 next 关系, ref: __vring_new_virtqueue
+	// 这里就是将 free 的部分放到之前的 free_head 前面, 然后更新 free_head, 造成的逻辑就是 desc 总是倾向于使用 desc 开头的那些, 而不是按照顺序往下用
 	vq->split.vring.desc[i].next = cpu_to_virtio16(vq->vq.vdev,
 						vq->free_head);
 	vq->free_head = head; // 不是按着之前 填充 buffer 时的 next 往下用, 而是回到了开头去使用.  即 desc 总是倾向于使用 desc 开头的那些, 而不是按照顺序往下用. 这里只要 free 一下, 就将 free_head 往回拨
@@ -2126,7 +2128,7 @@ struct virtqueue *__vring_new_virtqueue(unsigned int index,
 
 	/* Put everything in free lists. */
 	vq->free_head = 0;
-	for (i = 0; i < vring.num-1; i++)
+	for (i = 0; i < vring.num-1; i++) // 这里设置了 next 的初始值, next 一次被设置为 1, 2, ..., qsize-1. 最后一个 next 没有设置, 是随机值 ??? 不是随机值, 在 vring_create_virtqueue_split() -> vrint_alloc_queue() 分配的时候, 分配的 zeroed page, 所以最后一个 next 是 0. 即回绕了
 		vq->split.vring.desc[i].next = cpu_to_virtio16(vdev, i + 1);
 	memset(vq->split.desc_state, 0, vring.num *
 			sizeof(struct vring_desc_state_split));

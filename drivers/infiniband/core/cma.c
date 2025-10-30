@@ -3196,6 +3196,9 @@ static __be32 cma_get_roce_udp_flow_label(struct rdma_id_private *id_priv)
 
 // 路由主要就是 path_rec 结构咯
 // 根据 id_priv 中的信息来解析得到路由信息 path_rec 并且保存到 id_priv->id.route->path_rec
+//
+// 本质就是解析地址路由信息, 将其保存起来. 将 ip 的 路由信息, 转换为 ib 格式的
+// path_rec 供后续使用咯
 static int cma_resolve_iboe_route(struct rdma_id_private *id_priv)
 {
 	struct rdma_route *route = &id_priv->id.route;
@@ -3458,6 +3461,7 @@ static int cma_resolve_loopback(struct rdma_id_private *id_priv)
 			goto err;
 	}
 
+	// 将 sgid 读出来, 然后写进去, 这样 id 里的 sgid == dgid, 就是 loopback 了
 	rdma_addr_get_sgid(&id_priv->id.route.addr.dev_addr, &gid);
 	rdma_addr_set_dgid(&id_priv->id.route.addr.dev_addr, &gid);
 
@@ -3987,7 +3991,7 @@ int rdma_listen(struct rdma_cm_id *id, int backlog)
 	id_priv->backlog = backlog;
 	if (id->device) { // 就是看 listen 的时候有没有指定设备咯
 		if (rdma_cap_ib_cm(id->device, 1)) { // RoCE 也走这里
-			ret = cma_ib_listen(id_priv);
+			ret = cma_ib_listen(id_priv); // XXX
 			if (ret)
 				goto err;
 		} else if (rdma_cap_iw_cm(id->device, 1)) {
@@ -3999,7 +4003,7 @@ int rdma_listen(struct rdma_cm_id *id, int backlog)
 			goto err;
 		}
 	} else
-		cma_listen_on_all(id_priv);  // 里面又会递归调用到 rdma_listen()->cma_ib_lieten()
+		cma_listen_on_all(id_priv);  // 里面又会递归调用到 rdma_listen()->cma_ib_listen()
 
 	return 0;
 err:
@@ -4563,8 +4567,8 @@ static int cma_send_sidr_rep(struct rdma_id_private *id_priv,
  */
 
 // 比较有趣的是, 与 TCP 不同, 第二次握手的报文是 accept 触发的(ib_send_cm_rep()), 是因为第二次握手需要一些用户提供的信息
-// 第二点与 TCP 不同的时, accept 传入的这个 id 不是 listen id. 而是在收到 mad req 请求的时候, 内核通过 RDMA_CM_EVENT_CONNECT_REQUEST 通知了用户空间, 这时候在 EVENT 里已经携带了一个 id 给 userspace 了, userspace 用那个 id 直接来 accept. ref: cma_ib_req_handler
-// 第三点不同的是, 不是通过 accept() 的返回来告诉 usersapce 或者其他模块有连接来了, 而是通过 RDMA_CM_EVENT_CONNECT_REQUEST 事件通知 userspace, 而且直接将新的 id(类似 socket) 直接返回回去了. 二 usespace 或者其他模块可以选择 reject (rdma_reject())这个连接出发 REJ 报文的发送
+// 第二点与 TCP 不同的是, accept 传入的这个 id 不是 listen id. 而是在收到 mad req 请求的时候, 内核通过 RDMA_CM_EVENT_CONNECT_REQUEST 通知了用户空间, 这时候在 EVENT 里已经携带了一个 id 给 userspace 了, userspace 用那个 id 直接来 accept. ref: cma_ib_req_handler
+// 第三点不同的是, 不是通过 accept() 的返回来告诉 usersapce 或者其他模块有连接来了, 而是通过 RDMA_CM_EVENT_CONNECT_REQUEST 事件通知 userspace, 而且直接将新的 id(类似 socket) 直接返回回去了. 而 usespace 或者其他模块可以选择 reject (rdma_reject())这个连接出发 REJ 报文的发送
 int rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param)
 {
 	struct rdma_id_private *id_priv =

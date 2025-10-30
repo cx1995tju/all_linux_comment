@@ -381,6 +381,8 @@ static int ucma_event_handler(struct rdma_cm_id *cm_id,
 // refer to: ucma_event_handler
 //
 // 通过 wake_up_interruptible(&ctx->file->poll_wait);  唤醒用户态进程后, 其会调用这个函数来判断到底发生了什么事件
+//
+// 很多信息不是直接返回给用户态的, 而是让用户态调用这个函数来获取信息.
 static ssize_t ucma_get_event(struct ucma_file *file, const char __user *inbuf,
 			      int in_len, int out_len)
 {
@@ -406,6 +408,7 @@ static ssize_t ucma_get_event(struct ucma_file *file, const char __user *inbuf,
 			return -EAGAIN;
 
 		// if O_BLOCK then sleep in here
+		// 这里会 block 住
 		if (wait_event_interruptible(file->poll_wait,
 					     !list_empty(&file->event_list)))
 			return -ERESTARTSYS;
@@ -445,7 +448,7 @@ static int ucma_get_qp_type(struct rdma_ucm_create_id *cmd, enum ib_qp_type *qp_
 	case RDMA_PS_IPOIB:
 		*qp_type = IB_QPT_UD;
 		return 0;
-	case RDMA_PS_IB:
+	case RDMA_PS_IB: // 之后 native ib 才支持多种 qp_type, 其他情况仅仅支持 RC / UD 服务. XRC 都不支持
 		*qp_type = cmd->qp_type;
 		return 0;
 	default:
@@ -470,6 +473,7 @@ static ssize_t ucma_create_id(struct ucma_file *file, const char __user *inbuf,
 	if (copy_from_user(&cmd, inbuf, sizeof(cmd)))
 		return -EFAULT;
 
+	// cmd 里其实也传递了 qp_type, 但是不直接用它的, 要做修正
 	ret = ucma_get_qp_type(&cmd, &qp_type);
 	if (ret)
 		return ret;
@@ -664,7 +668,7 @@ static ssize_t ucma_bind_ip(struct ucma_file *file, const char __user *inbuf,
 	return ret;
 }
 
-// 让 userspace 直接 bind AF_IB af, 老版本 kernel 不支持的, 所有现在在 librdmacm 里有一个 af_ib_support 的变量
+// 让 userspace 直接 bind AF_IB af, 老版本 kernel 不支持的, 所以现在在 librdmacm 里有一个 af_ib_support 的变量
 // af_ib_support 是在用户态尝试 bind AF_IB 来判断的. 
 // sockaddr_ib 的 大小比 sockaddr_in6 大的
 //
@@ -1167,6 +1171,7 @@ static ssize_t ucma_accept(struct ucma_file *file, const char __user *inbuf,
 	if (copy_from_user(&cmd, inbuf, in_size))
 		return -EFAULT;
 
+	// 这里的 cmd.id 已经不是 listen id 了, 而是新 id 了
 	ctx = ucma_get_ctx_dev(file, cmd.id);
 	if (IS_ERR(ctx))
 		return PTR_ERR(ctx);
@@ -1726,15 +1731,57 @@ file_put:
 	return ret;
 }
 
+/* XXX: 下述接口划分为几类:
+ * - create_id/destroy_id
+ * - 信息收集: 内核 ucma 层将各种信息收集到 id 结构里
+ *   - ucma_resolve_ip
+ *   - ucma_resolve_route
+ *   - ucma_init_qp_attr
+ *   - ucma_resolve_addr
+ * - socket-like 操作:
+ *   - ucma_bind_ip
+ *   - ucma_bind
+ *   - ucma_connect
+ *   - ucma_listen
+ *   - ucma_accept  // 特别注意这里: ref: rdma_accept
+ *	- 这个函数的语义和 socket accept 差别特别大.
+ *	- 和 socket accept 语义类似的接口是 librdmacm:rdma_get_request() -> linux:ucma_get_event()
+ *	- 这个接口本质是用户态提供一些信息(比如: QPN), 让内核态将 rdma 连接建立的最后一个报文发出
+ *	- 而 tcp 中, 连接建立的报文都是内核负责的, 用户态完全不感知. 
+ *   - ucma_reject // 特别注意这里
+ *	- 类似 ucma_accept, 当用户态需要拒绝连接的时候调用这个接口.
+ *   - ucma_disconnect
+ *   - ucma_set_option
+ * - 用户态, 内核态信息同步:
+ *   - ucma_get_event // 内核 callback 唤醒用户态后, 用户态通过这个接口获取事件. 当然有时候其也会直接调用这个函数获取事件结果.
+ *   - ucma_notify // user 通知 内核 user 发生的事件. 因为 数据面完全绕过内核了, 所以数据面上如果发生了什么, 需要通知到内核
+ *   - ucma_query // 还是因为数据面和控制面分离的原因, user 需要去内核查询一些信息保存到 user 使用的
+ *   - ucma_query_route
+ *   - ucma_migrate_id // 将 id 和一个新的 file 重新绑定, 本质就是切换了内核通知用户的通道.
+ * - 多播
+ *   - ucma_join_ip_multicast
+ *   - ucma_leave_multicast
+ *   - ucma_join_multicast
+ *
+ *
+ * 关于 ucma 给用户态提供了 resolve_addr, resolve_route 等接口
+ * rdma 库和内核的实现里, 有一系列名为 id 的结构, 这个结构类似于 socket, 但是
+ * 比 socket 全面, 保存了很多信息. 在构造 rdma 报文的时候, 很多信息直接从这里
+ * 就可以拿到了. 和 tcp 编程不同, 是报文在协议栈各层穿越的时候, 慢慢收集的. 这
+ * 也体现在 librdmacm 库的实现, 在创建 id 的时候, 总是伴随着调用 resolve_addr,
+ * resolve_route 的操作, 这些操作就是让内核解析相关信息然后保存到 id 结构里.
+ *
+ * */
+
 static ssize_t (*ucma_cmd_table[])(struct ucma_file *file,
 				   const char __user *inbuf,
 				   int in_len, int out_len) = {
-	[RDMA_USER_CM_CMD_CREATE_ID] 	 = ucma_create_id, // 后面的函数, 核心都是围绕这个 id 结构
+	[RDMA_USER_CM_CMD_CREATE_ID] 	 = ucma_create_id, // 后面的函数, 核心都是围绕这个 id 结构, 类似 socket 结构. 调用这个函数就类似于创建 socket.
 	[RDMA_USER_CM_CMD_DESTROY_ID]	 = ucma_destroy_id,
 	[RDMA_USER_CM_CMD_BIND_IP]	 = ucma_bind_ip, // 老内核用的是这个
 	[RDMA_USER_CM_CMD_RESOLVE_IP]	 = ucma_resolve_ip,
 	[RDMA_USER_CM_CMD_RESOLVE_ROUTE] = ucma_resolve_route,
-	[RDMA_USER_CM_CMD_QUERY_ROUTE]	 = ucma_query_route,
+	[RDMA_USER_CM_CMD_QUERY_ROUTE]	 = ucma_query_route, // 老内核用这个
 	[RDMA_USER_CM_CMD_CONNECT]	 = ucma_connect,
 	[RDMA_USER_CM_CMD_LISTEN]	 = ucma_listen,
 	[RDMA_USER_CM_CMD_ACCEPT]	 = ucma_accept,
@@ -1743,13 +1790,13 @@ static ssize_t (*ucma_cmd_table[])(struct ucma_file *file,
 	[RDMA_USER_CM_CMD_INIT_QP_ATTR]	 = ucma_init_qp_attr,
 	[RDMA_USER_CM_CMD_GET_EVENT]	 = ucma_get_event,
 	[RDMA_USER_CM_CMD_GET_OPTION]	 = NULL,
-	[RDMA_USER_CM_CMD_SET_OPTION]	 = ucma_set_option,
+	[RDMA_USER_CM_CMD_SET_OPTION]	 = ucma_set_option, // 类似于 setsockopt
 	[RDMA_USER_CM_CMD_NOTIFY]	 = ucma_notify,
 	[RDMA_USER_CM_CMD_JOIN_IP_MCAST] = ucma_join_ip_multicast,
 	[RDMA_USER_CM_CMD_LEAVE_MCAST]	 = ucma_leave_multicast,
 	[RDMA_USER_CM_CMD_MIGRATE_ID]	 = ucma_migrate_id,
-	[RDMA_USER_CM_CMD_QUERY]	 = ucma_query,
-	[RDMA_USER_CM_CMD_BIND]		 = ucma_bind,	// 新内核都支持 AF_IB 了, 会用这个
+	[RDMA_USER_CM_CMD_QUERY]	 = ucma_query, // 新内核支持 AF_IB, 用这个了
+	[RDMA_USER_CM_CMD_BIND]		 = ucma_bind,	// 新内核都支持 AF_IB 了, 会用这个, ref: librdmacm:af_ib_support, rdma_bind_addr()
 	[RDMA_USER_CM_CMD_RESOLVE_ADDR]	 = ucma_resolve_addr,
 	[RDMA_USER_CM_CMD_JOIN_MCAST]	 = ucma_join_multicast
 };
@@ -1899,6 +1946,7 @@ static int __init ucma_init(void)
 {
 	int ret;
 
+	// 关键
 	ret = misc_register(&ucma_misc);
 	if (ret)
 		return ret;

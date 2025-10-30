@@ -178,6 +178,7 @@ struct bond_3ad_stats {
 
 /* aggregator structure(43.4.5 in the 802.3ad standard) */
 //表示一个bonding 口
+// oper 实际生效的 参数 ???
 typedef struct aggregator {
 	struct mac_addr aggregator_mac_address;
 	u16 aggregator_identifier;

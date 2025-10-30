@@ -102,6 +102,30 @@ struct vring_desc {
 	/* The flags as indicated above. */
 	__virtio16 flags;
 	/* We chain unused descriptors via this, too */
+	/* 内核 split queue desc next 指针的设置逻辑:
+	 * - 初始化:
+	 *   - vring_create_virtqueue_split() -> vring_alloc_queue() 分配 zeroed page, next 也被初始化为 0
+	 *   - __vring_new_virtqueue() 在这里将 0->qsize-2 的 next 设置为 1->qsize-1
+	 *   - 所以最终整个 queue next 就是 1, 2, ..., qsize-1, 0 回绕
+	 * - 添加 buffer:
+	 *   - 不需要设置 next 指针, 只要从 free_head 取出 desc 即可, next 是在初始化和 detach_buf_split 的时候设置的
+	 * - detach_buf_split:
+	 *   - 将 free 出来的 desc chain (大部分时候只有一个) 放到 free_head 前面(通过设置 next 指针实现的), 然后将 free_head 设置为新的 desc chain 的头
+	 *   - XXX: 特别需要注意的其不会将最后一个 desc 的 next 重新修改, 而是一直保持是 0
+	 *
+	 * 所以内核的 desc queue, 总是将回收的又放到 chain 前面, 所以总是倾向于使用 desc 开头的那些, 而不是按照顺序往下用.
+	 * 内核最终的 next chain 的状态就是: 从 free_head 开始按照 next 将 free
+	 * desc chain 到一起了. 其中 chain 最后一个的值在不停的分配释放的过程中
+	 * 就会被打乱, 但是由于初始化时的范围是 0->qsize-1, 所以就算乱了, 也不
+	 * 会超出这个范围.
+	 *
+	 *
+	 * DPDK split queue desc next 指针的设置逻辑:
+	 * - 初始化时: 0, 1, ..., 32768 // 最后一个是特殊的 flag
+	 * - 回收的时候将新的回收到队尾, 然后将之前的 32768 修改为新的回收 desc 的 index, 然后将回收的尾巴改成 32768
+	 *    XXX: DPDK 这里的逻辑有一个问题, 因为尾巴的 32768 可能正在被硬件读取, 所以可能会出现竞态条件
+	 *
+	 * */
 	__virtio16 next;
 };
 
@@ -194,7 +218,7 @@ static inline void vring_init(struct vring *vr, unsigned int num, void *p,
 			      unsigned long align)
 {
 	vr->num = num;
-	vr->desc = p;
+	vr->desc = p; // desc 的内容是随机值, 没有初始化 ??? vrint_create_virtqueue_split() -> vring_alloc_queue()
 	vr->avail = (struct vring_avail *)((char *)p + num * sizeof(struct vring_desc));
 	vr->used = (void *)(((uintptr_t)&vr->avail->ring[num] + sizeof(__virtio16)
 		+ align-1) & ~(align - 1));
