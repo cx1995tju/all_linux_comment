@@ -261,7 +261,7 @@ struct ip_reply_arg {
 	__wsum 	    csum;
 	int	    csumoffset; /* u16 offset of csum in iov[0].iov_base */
 				/* -1 if not needed */
-	int	    bound_dev_if;
+	int	    bound_dev_if; // 地址来自于这个设备 ???
 	u8  	    tos;
 	kuid_t	    uid;
 };

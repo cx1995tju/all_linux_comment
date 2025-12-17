@@ -28,6 +28,33 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
+ * RoCE/RoCEv2 中 GID 的管理
+ * - 相关结构
+ * - gid 的增删
+ * - gid 和 设备的关联
+ * - 基于 notifier_block 的事件处理机制
+ *
+ *
+ * 提供给外部的接口:
+ *
+ * - rdma_roce_rescan_device(struct ib_device * ib_dev)
+ * - roce_gid_mgmt_cleanup(void)
+ * - roce_gid_mgmt_init(void)
+ * - roce_gid_type_mask_support(struct ib_device * ib_dev,u8 port)
+ *
+ *
+ * 核心逻辑: 监测内核子系统中网络设备和 IP 地址的变化, 并据此更新 RoCE 设备的 GID 表, 三个 handler
+ * - netdevice_event: 监测网络设备的变化, 包括设备的注册/注销, 地址变化, 设备上下层关系变化等
+ * - inetaddr_event / inet6addr_event: 监测设备 up/down 事件
+ *
+ *
+ * 因为 roce 的 gid 是通过 ip 转换来的. roce 也依附于内核的以太网设备. 所以这里
+ * 就是在内核以太网设备和 ib_device 之间做了个中间转换层.
+ *
+ * 将以太网设备的事件同步到 ib_device 层. 说到底就两件事, gid 的添加删除. 不过
+ * 对于 vlan 和 bonding 的 slave 设备要做一些特殊的处理罢了.
+ *
  */
 
 #include "core_priv.h"
@@ -154,14 +181,15 @@ is_eth_port_of_netdev_filter(struct ib_device *ib_dev, u8 port,
 		return false;
 
 	rcu_read_lock();
+	// 如果是 vlan 设备会找到其依附的真正的设备的
 	real_dev = rdma_vlan_dev_real_dev(cookie);
 	if (!real_dev)
 		real_dev = cookie;
 
 	res = ((rdma_is_upper_dev_rcu(rdma_ndev, cookie) &&
 	       (is_eth_active_slave_of_bonding_rcu(rdma_ndev, real_dev) &
-		REQUIRED_BOND_STATES)) ||
-	       real_dev == rdma_ndev);
+		REQUIRED_BOND_STATES)) ||        // bond slave 的特殊处理 (?)
+	       real_dev == rdma_ndev); // 正常路径
 
 	rcu_read_unlock();
 	return res;
@@ -806,6 +834,9 @@ static void update_gid_event_work_handler(struct work_struct *_work)
 	struct update_gid_event_work *work =
 		container_of(_work, struct update_gid_event_work, work);
 
+	// 遍历所有 RoCE 设备, 对符合过滤条件(filter 返回 true)的设备执行回调
+	// work->gid_attr.ndev 是 filter 参数
+	// work 是 scan 参数
 	ib_enum_all_roce_netdevs(is_eth_port_of_netdev_filter,
 				 work->gid_attr.ndev,
 				 callback_for_addr_gid_device_scan, work);
@@ -820,7 +851,7 @@ static int addr_event(struct notifier_block *this, unsigned long event,
 	struct update_gid_event_work *work;
 	enum gid_op_type gid_op;
 
-	if (ndev->type != ARPHRD_ETHER)
+	if (ndev->type != ARPHRD_ETHER) // RoCE 是基于以太网的, 所以这里必然是处理以太网的设备
 		return NOTIFY_DONE;
 
 	switch (event) {
@@ -842,6 +873,7 @@ static int addr_event(struct notifier_block *this, unsigned long event,
 
 	INIT_WORK(&work->work, update_gid_event_work_handler);
 
+	// ip 转换为 gid
 	rdma_ip2gid(sa, &work->gid);
 	work->gid_op = gid_op;
 
@@ -849,6 +881,8 @@ static int addr_event(struct notifier_block *this, unsigned long event,
 	dev_hold(ndev);
 	work->gid_attr.ndev   = ndev;
 
+	// 然后调度一个 worker
+	// worker 有的信息: gid, ndev, gid_op
 	queue_work(gid_cache_wq, &work->work);
 
 	return NOTIFY_DONE;
@@ -896,10 +930,15 @@ static struct notifier_block nb_inet6addr = {
 
 int __init roce_gid_mgmt_init(void)
 {
+	// 分一个 workqueue
 	gid_cache_wq = alloc_ordered_workqueue("gid-cache-wq", 0);
 	if (!gid_cache_wq)
 		return -ENOMEM;
 
+	// 向三个通知链注册 handler:
+	// - ipv4 地址变化
+	// - ipv6 地址变化
+	// - 网络设备变化
 	register_inetaddr_notifier(&nb_inetaddr);
 	if (IS_ENABLED(CONFIG_IPV6))
 		register_inet6addr_notifier(&nb_inet6addr);

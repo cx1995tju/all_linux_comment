@@ -31,6 +31,55 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
+ *
+ * 辅助模块主要是提供接口和功能给其他模块使用:
+ *
+ * 地址解析:
+ *   - struct addr_req, 表示地址解析请求
+ *
+ *
+ * 路由查找, 邻居解析
+ *   - addr4_resolve addr6_resolve
+ *   - addr_resolve_neigh
+ *
+ *
+ * 异步请求支持:
+ *   - rdma_resolve_ip() 发起异步请求
+ *   - process_one_req() 工作队列处理异步请求
+ *   - rdma_addr_cancel() 取消请求
+ *
+ * utils:
+ *   - 地址转换: rdma_translate_ip, rdma_copy_src_l2_addr 等
+ *   - L2 地址查找: rdma_addr_find_l2_eth_by_grh
+ *   - 网络子系统 NETEVENT_NEIGH_UPDATE 事件的监听处理
+ *   - 支持 netlink 系统的 ip 解析: ib_nl_handle_ip_res_resp
+ *
+ * init/cleanup:
+ *   - addr_cleanup(void)
+ *   - addr_init(void)
+ *     - 创建一个 workqueue 来支持异步处理机制
+ *     - 监听 NETEVENT_NEIGH_UPDATE 事件
+ *
+ *
+ * 接口
+ *   - rdma_resolve_ip
+ *   - rdma_addr_cancel
+ *
+ *   - rdma_translate_ip
+ *   - roce_resolve_route_from_path
+ *
+ *   - rdma_copy_src_l2_addr
+ *
+ *   - rdma_addr_find_l2_eth_by_grh
+*
+ *   - rdma_addr_size / rdma_addr_size_in6 / rdma_addr_size_kss
+ *
+ *
+ * Key Points to Study
+ * - 内部管理结构的理解
+ * - 外部接口的语义
+ *
  */
 
 #include <linux/mutex.h>
@@ -95,6 +144,7 @@ static inline bool ib_nl_is_good_ip_resp(const struct nlmsghdr *nlh)
 	return true;
 }
 
+// netlink 消息的处理
 static void ib_nl_process_good_ip_rsep(const struct nlmsghdr *nlh)
 {
 	const struct nlattr *head, *curr;
@@ -106,14 +156,14 @@ static void ib_nl_process_good_ip_rsep(const struct nlmsghdr *nlh)
 	head = (const struct nlattr *)nlmsg_data(nlh);
 	len = nlmsg_len(nlh);
 
-	nla_for_each_attr(curr, head, len, rem) {
+	nla_for_each_attr(curr, head, len, rem) { // 遍历 nlh 的 attr, 提取其中的 GID
 		if (curr->nla_type == LS_NLA_TYPE_DGID)
 			memcpy(&gid, nla_data(curr), nla_len(curr));
 	}
 
 	spin_lock_bh(&lock);
 	list_for_each_entry(req, &req_list, list) {
-		if (nlh->nlmsg_seq != req->seq)
+		if (nlh->nlmsg_seq != req->seq) // why ??? 必须先提交了 req, 才能用这个函数来设置解析结果 ??? 所以这里本质是 req 的 response. 得到了目的 hw addr ?
 			continue;
 		/* We set the DGID part, the rest was set earlier */
 		rdma_addr_set_dgid(req->addr, &gid);
@@ -142,6 +192,13 @@ int ib_nl_handle_ip_res_resp(struct sk_buff *skb,
 	return 0;
 }
 
+// 发出的是广播消息
+//
+// 内核向用户态请求地址信息 ??? gid 是用户态维护的 ???
+//
+// dev_addr->bound_dev_if 上的 daddr 对应的 hw 地址?
+// 
+// 只有 native ib 使用(???)
 static int ib_nl_ip_send_msg(struct rdma_dev_addr *dev_addr,
 			     const void *daddr,
 			     u32 seq, u16 family)
@@ -169,6 +226,7 @@ static int ib_nl_ip_send_msg(struct rdma_dev_addr *dev_addr,
 	if (!skb)
 		return -ENOMEM;
 
+	// XXX: RDMA_NL_LS_OP_IP_RESOLVE
 	data = ibnl_put_msg(skb, &nlh, seq, 0, RDMA_NL_LS,
 			    RDMA_NL_LS_OP_IP_RESOLVE, NLM_F_REQUEST);
 	if (!data) {
@@ -231,6 +289,8 @@ EXPORT_SYMBOL(rdma_addr_size_kss);
  * This includes unicast address, broadcast address, device type and
  * interface index.
  */
+
+// 将 dev 的 hw addr 复制到 dev_addr 里
 void rdma_copy_src_l2_addr(struct rdma_dev_addr *dev_addr,
 			   const struct net_device *dev)
 {
@@ -241,6 +301,8 @@ void rdma_copy_src_l2_addr(struct rdma_dev_addr *dev_addr,
 }
 EXPORT_SYMBOL(rdma_copy_src_l2_addr);
 
+// input: ip 地址
+// output: net device
 static struct net_device *
 rdma_find_ndev_for_src_ip_rcu(struct net *net, const struct sockaddr *src_in)
 {
@@ -271,6 +333,8 @@ rdma_find_ndev_for_src_ip_rcu(struct net *net, const struct sockaddr *src_in)
 	return ret ? ERR_PTR(ret) : dev;
 }
 
+// 给一个 ip 地址 addr, 找到对应的设备, 然后提取 hw 地址保存到 dev_addr 里
+// ip -> hw addr (e.g. mac)
 int rdma_translate_ip(const struct sockaddr *addr,
 		      struct rdma_dev_addr *dev_addr)
 {
@@ -295,6 +359,7 @@ int rdma_translate_ip(const struct sockaddr *addr,
 }
 EXPORT_SYMBOL(rdma_translate_ip);
 
+// 设置 req 的 timeout
 static void set_timeout(struct addr_req *req, unsigned long time)
 {
 	unsigned long delay;
@@ -314,6 +379,8 @@ static void queue_req(struct addr_req *req)
 	spin_unlock_bh(&lock);
 }
 
+// dev_addr->bound_dev_if 上的 daddr 对应的 hw 地址?
+// 只有 ib 网络会使用 ???
 static int ib_nl_fetch_ha(struct rdma_dev_addr *dev_addr,
 			  const void *daddr, u32 seq, u16 family)
 {
@@ -323,6 +390,14 @@ static int ib_nl_fetch_ha(struct rdma_dev_addr *dev_addr,
 	return ib_nl_ip_send_msg(dev_addr, daddr, seq, family);
 }
 
+// IN:
+// - dst: routing entry, 因为可能是要查找 gw 的 hw 信息, 所以需要提供 dst
+// - daddr: 用来查找的 key (e.g. ip)
+//
+// OUT:
+// - dev_addr: 最终查到的结果保存到这里
+//
+// XXX: 拿 gw(dst) 或者 neigh(daddr) 的 hw addr 信息
 static int dst_fetch_ha(const struct dst_entry *dst,
 			struct rdma_dev_addr *dev_addr,
 			const void *daddr)
@@ -335,9 +410,9 @@ static int dst_fetch_ha(const struct dst_entry *dst,
 		return -ENODATA;
 
 	if (!(n->nud_state & NUD_VALID)) {
-		neigh_event_send(n, NULL);
+		neigh_event_send(n, NULL); // 要重新 probe neigh (?)
 		ret = -ENODATA;
-	} else {
+	} else { // 正常走这里: 将 neigh n 的 hw addr 保存到 dst_dev_addr 里
 		neigh_ha_snapshot(dev_addr->dst_dev_addr, n, dst->dev);
 	}
 
@@ -360,6 +435,7 @@ static bool has_gateway(const struct dst_entry *dst, sa_family_t family)
 	return rt6->rt6i_flags & RTF_GATEWAY;
 }
 
+// 根据情况 (dst). 获取 neigh 或者 gateway 的 hw addr
 static int fetch_ha(const struct dst_entry *dst, struct rdma_dev_addr *dev_addr,
 		    const struct sockaddr *dst_in, u32 seq)
 {
@@ -376,11 +452,22 @@ static int fetch_ha(const struct dst_entry *dst, struct rdma_dev_addr *dev_addr,
 
 	/* If we have a gateway in IB mode then it must be an IB network */
 	if (has_gateway(dst, family) && dev_addr->network == RDMA_NETWORK_IB)
+		// 如果有 gateway 且是 native IB 网络, 那么走这条路径
 		return ib_nl_fetch_ha(dev_addr, daddr, seq, family);
 	else
 		return dst_fetch_ha(dst, dev_addr, daddr);
 }
 
+// 查 ipv4 路由:
+// input: 
+// - 源地址: @src_sock
+// - 目地址: @dst_sock
+// - 出口设备: @addr->bound_dev_if
+//
+// output:
+// - 路由 entry: @prt
+// - 填充 addr->hoplimit
+//
 static int addr4_resolve(struct sockaddr *src_sock,
 			 const struct sockaddr *dst_sock,
 			 struct rdma_dev_addr *addr,
@@ -413,6 +500,7 @@ static int addr4_resolve(struct sockaddr *src_sock,
 	return 0;
 }
 
+// 查 ipv6 路由:
 #if IS_ENABLED(CONFIG_IPV6)
 static int addr6_resolve(struct sockaddr *src_sock,
 			 const struct sockaddr *dst_sock,
@@ -452,6 +540,14 @@ static int addr6_resolve(struct sockaddr *src_sock,
 }
 #endif
 
+// 找下一跳 hw addr, 可能是 gw (dst), 也可能是同子网 neigh (dst_in)
+//
+// input: dst. dst_in
+// 根据情况:
+//   - 查找 dst 里保存的 gw 的 hw addr
+//   - 或者查找 dst_in 里的 neigh 的 hw addr
+//
+// output: addr
 static int addr_resolve_neigh(const struct dst_entry *dst,
 			      const struct sockaddr *dst_in,
 			      struct rdma_dev_addr *addr,
@@ -460,7 +556,7 @@ static int addr_resolve_neigh(const struct dst_entry *dst,
 {
 	int ret = 0;
 
-	if (ndev_flags & IFF_LOOPBACK) {
+	if (ndev_flags & IFF_LOOPBACK) { // 这里体现了 rdma 网络的 loopback. 是 dst == src. 而不是预留了一段特殊的 loopback 地址
 		memcpy(addr->dst_dev_addr, addr->src_dev_addr, MAX_ADDR_LEN);
 	} else {
 		if (!(ndev_flags & IFF_NOARP)) {
@@ -471,6 +567,14 @@ static int addr_resolve_neigh(const struct dst_entry *dst,
 	return ret;
 }
 
+// 复制 dst->dev 的 l2 addr 到 dev_addr 里
+//
+// 对于 rocev2
+// INPUT:
+// - dst->dev
+//
+// OUTPUT:
+// - dev_addr
 static int copy_src_l2_addr(struct rdma_dev_addr *dev_addr,
 			    const struct sockaddr *dst_in,
 			    const struct dst_entry *dst,
@@ -479,9 +583,9 @@ static int copy_src_l2_addr(struct rdma_dev_addr *dev_addr,
 	int ret = 0;
 
 	if (dst->dev->flags & IFF_LOOPBACK)
-		ret = rdma_translate_ip(dst_in, dev_addr);
+		ret = rdma_translate_ip(dst_in, dev_addr); // rdma 里 loopback 不是特殊的 127 网段, 而是 dst == src
 	else
-		rdma_copy_src_l2_addr(dev_addr, dst->dev);
+		rdma_copy_src_l2_addr(dev_addr, dst->dev); // 关键是这里
 
 	/*
 	 * If there's a gateway and type of device not ARPHRD_INFINIBAND,
@@ -499,6 +603,8 @@ static int copy_src_l2_addr(struct rdma_dev_addr *dev_addr,
 	return ret;
 }
 
+//  RoCEv2 的 normal path:
+//  将 dst 记录的 dev(路由出口设备) 的 l2 addr 复制到 dev_addr 里
 static int rdma_set_src_addr_rcu(struct rdma_dev_addr *dev_addr,
 				 unsigned int *ndev_flags,
 				 const struct sockaddr *dst_in,
@@ -880,10 +986,12 @@ static struct notifier_block nb = {
 
 int addr_init(void)
 {
+	// 一个 workqueue 实现异步处理机制
 	addr_wq = alloc_ordered_workqueue("ib_addr", 0);
 	if (!addr_wq)
 		return -ENOMEM;
 
+	// 监听 NETEVENT_NEIGH_UPDATE 事件
 	register_netevent_notifier(&nb);
 
 	return 0;

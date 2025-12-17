@@ -246,7 +246,8 @@ DEFINE_IDTENTRY_IRQ(common_interrupt)
 	/* entry code tells RCU that we're not quiescent.  Check it. */
 	RCU_LOCKDEP_WARN(!rcu_is_watching(), "IRQ failed to wake up RCU");
 
-	desc = __this_cpu_read(vector_irq[vector]); //每个CPU有一个这表，记录了中断vector -> 软件的irq号的映射关系
+	// ref: apic_update_vector
+	desc = __this_cpu_read(vector_irq[vector]); //每个CPU有一个这表，记录了中断vector -> 软件的desc的映射关系, 这里的 vector 就是 /proc/interrupts 开头的那个数字
 	if (likely(!IS_ERR_OR_NULL(desc))) {
 		handle_irq(desc, regs);
 	} else {

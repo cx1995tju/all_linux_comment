@@ -89,6 +89,7 @@ int __ipv6_addr_type(const struct in6_addr *addr)
 }
 EXPORT_SYMBOL(__ipv6_addr_type);
 
+// ipv6 地址相关通知链
 static ATOMIC_NOTIFIER_HEAD(inet6addr_chain);
 static BLOCKING_NOTIFIER_HEAD(inet6addr_validator_chain);
 

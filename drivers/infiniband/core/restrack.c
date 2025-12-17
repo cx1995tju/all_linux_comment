@@ -14,23 +14,68 @@
 #include "cma_priv.h"
 #include "restrack.h"
 
+/* XXX: 资源跟踪功能
+ * - 从各个函数的参数看, 资源的粒度是 device
+ *
+ * - 重要函数
+ *
+ *  1. **资源跟踪初始化与清理**  
+ *     - `rdma_restrack_init`：初始化资源跟踪结构，为每种资源类型分配跟踪根节点。
+ *     - `rdma_restrack_clean`：清理资源跟踪结构，检测并报告未释放的资源泄漏。
+ *
+ *  2. **资源添加、删除与引用计数**  
+ *     - `rdma_restrack_add`：将新创建的资源对象添加到跟踪数据库。
+ *     - `rdma_restrack_del`：从数据库中删除资源对象，并处理引用计数和同步。
+ *     - `rdma_restrack_get`/`rdma_restrack_put`：实现资源对象的引用计数，确保资源安全释放。
+ *
+ *  3. **资源属性设置与查询**  
+ *     - `rdma_restrack_set_name`/`rdma_restrack_parent_name`：设置资源的拥有者信息（如任务或内核模块名）。
+ *     - `rdma_restrack_count`：查询某类资源的当前使用数量。
+ *     - `rdma_restrack_get_byid`：通过资源 ID 查找并获取资源对象。
+ *
+ *  4. **辅助工具函数**  
+ *     - `type2str`：将资源类型转换为字符串。
+ *     - `res_to_dev`：根据资源对象获取所属设备。
+ *
+ *
+ * - 重要数据结构
+ *   - ~rdma_restrack_root~   per-device 的组织所有资源的 root
+ *   - ~rdma_restrack_entry~  每个资源一个 entry
+ *
+ *
+ *
+ * - 接口
+ *
+ *
+ * - Q&A:
+ *   - resource 是什么?
+ *   - 为什么要 track ?
+ *     - 因为 bypass 内核了, 所以用户态用的有些资源需要额外 track ???
+ *
+ * */
+
 /**
  * rdma_restrack_init() - initialize and allocate resource tracking
  * @dev:  IB device
  *
  * Return: 0 on success
+ *
+ *
+ * 创建 ib 设备的时候调用
  */
 int rdma_restrack_init(struct ib_device *dev)
 {
 	struct rdma_restrack_root *rt;
 	int i;
 
+	// 每种资源一个 entry
 	dev->res = kcalloc(RDMA_RESTRACK_MAX, sizeof(*rt), GFP_KERNEL);
 	if (!dev->res)
 		return -ENOMEM;
 
 	rt = dev->res;
 
+	// 然后每类资源初始化一个数组 xarray
 	for (i = 0; i < RDMA_RESTRACK_MAX; i++)
 		xa_init_flags(&rt[i].xa, XA_FLAGS_ALLOC);
 
@@ -65,6 +110,7 @@ void rdma_restrack_clean(struct ib_device *dev)
 	const char *owner;
 	int i;
 
+	// 计算资源还是被持有的, 也还是会去释放的, 只不过是打印一些 log 而已
 	for (i = 0 ; i < RDMA_RESTRACK_MAX; i++) {
 		struct xarray *xa = &dev->res[i].xa;
 
@@ -116,7 +162,7 @@ int rdma_restrack_count(struct ib_device *dev, enum rdma_restrack_type type)
 	u32 cnt = 0;
 
 	xa_lock(&rt->xa);
-	xas_for_each(&xas, e, U32_MAX)
+	xas_for_each(&xas, e, U32_MAX) // 检查这类资源里的 entry 数量
 		cnt++;
 	xa_unlock(&rt->xa);
 	return cnt;
@@ -152,6 +198,8 @@ static struct ib_device *res_to_dev(struct rdma_restrack_entry *res)
  * valid for user space restrack entries.
  * @res:  resource entry
  * @task: the task to attach
+ *
+ * 资源分配给用户态的 task
  */
 static void rdma_restrack_attach_task(struct rdma_restrack_entry *res,
 				      struct task_struct *task)
@@ -187,6 +235,8 @@ EXPORT_SYMBOL(rdma_restrack_set_name);
  * on parent restrack
  * @dst: destination resource entry
  * @parent: parent resource entry
+ *
+ * 用 parent resource 的属性来设置 dst resource 的属性
  */
 void rdma_restrack_parent_name(struct rdma_restrack_entry *dst,
 			       const struct rdma_restrack_entry *parent)
@@ -203,6 +253,8 @@ EXPORT_SYMBOL(rdma_restrack_parent_name);
  * to release memory in fully automatic way.
  * @res - Entry to initialize
  * @type - REstrack type
+ *
+ * 创建资源
  */
 void rdma_restrack_new(struct rdma_restrack_entry *res,
 		       enum rdma_restrack_type type)
@@ -216,6 +268,13 @@ EXPORT_SYMBOL(rdma_restrack_new);
 /**
  * rdma_restrack_add() - add object to the reource tracking database
  * @res:  resource entry
+ *
+ * resource 加入到 ib_device 里去管理
+ *
+ * 不同资源的 id 还是不同的:
+ * - QP 用 QPN
+ * - COUNTER 用 couter id
+ * - 其他资源用分配的 resource id
  */
 void rdma_restrack_add(struct rdma_restrack_entry *res)
 {
@@ -253,6 +312,7 @@ EXPORT_SYMBOL(rdma_restrack_add);
 
 int __must_check rdma_restrack_get(struct rdma_restrack_entry *res)
 {
+	// 增加引用计数 (在当前引用计数不为 0 的情况下)
 	return kref_get_unless_zero(&res->kref);
 }
 EXPORT_SYMBOL(rdma_restrack_get);
@@ -264,6 +324,8 @@ EXPORT_SYMBOL(rdma_restrack_get);
  * @id: ID to take a look
  *
  * Return: Pointer to restrack entry or -ENOENT in case of error.
+ *
+ * 获取资源结构
  */
 struct rdma_restrack_entry *
 rdma_restrack_get_byid(struct ib_device *dev,
@@ -296,6 +358,7 @@ static void restrack_release(struct kref *kref)
 
 int rdma_restrack_put(struct rdma_restrack_entry *res)
 {
+	// 释放引用计数
 	return kref_put(&res->kref, restrack_release);
 }
 EXPORT_SYMBOL(rdma_restrack_put);
@@ -303,6 +366,8 @@ EXPORT_SYMBOL(rdma_restrack_put);
 /**
  * rdma_restrack_del() - delete object from the reource tracking database
  * @res:  resource entry
+ *
+ * 资源删除后要等待 release 调用
  */
 void rdma_restrack_del(struct rdma_restrack_entry *res)
 {
@@ -331,6 +396,6 @@ void rdma_restrack_del(struct rdma_restrack_entry *res)
 	res->valid = false;
 
 	rdma_restrack_put(res);
-	wait_for_completion(&res->comp);
+	wait_for_completion(&res->comp); // 阻塞的
 }
 EXPORT_SYMBOL(rdma_restrack_del);

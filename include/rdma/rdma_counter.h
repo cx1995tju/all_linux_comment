@@ -25,9 +25,11 @@ struct rdma_counter_mode {
 	struct auto_mode_param param;
 };
 
+// per-port 的. ref: ib_device->port_data[].port_counter
+// 记录这个 port 上有多少 couters
 struct rdma_port_counter {
 	struct rdma_counter_mode mode;
-	struct rdma_hw_stats *hstats;
+	struct rdma_hw_stats *hstats; // 用来收集其 counter 上的信息. ref: counter_history_stat_update
 	unsigned int num_counters;
 	struct mutex lock;
 };
@@ -39,7 +41,7 @@ struct rdma_counter {
 	struct kref			kref;
 	struct rdma_counter_mode	mode;
 	struct mutex			lock;
-	struct rdma_hw_stats		*stats;
+	struct rdma_hw_stats		*stats; // 由具体的底层 device 实现. ref: rdma_counter_alloc
 	u8				port;
 };
 

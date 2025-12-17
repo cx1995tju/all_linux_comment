@@ -1298,7 +1298,7 @@ new_segment:
 			}
 			first_skb = tcp_rtx_and_write_queues_empty(sk);
 			skb = sk_stream_alloc_skb(sk, 0, sk->sk_allocation,
-						  first_skb); // 这里分配的 skb 没有预留数据区
+						  first_skb); // 这里分配的 skb 没有预留数据区, 只有 headroom
 			if (!skb)
 				goto wait_for_space;
 

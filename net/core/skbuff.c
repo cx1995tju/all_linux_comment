@@ -595,7 +595,9 @@ static void skb_release_data(struct sk_buff *skb)
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	int i;
 
-	if (skb->cloned &&
+	/* 关键. 对于 tcp 协议栈, 会 copy 一份 skb 送到 driver, 其携带有 cloned  flag, 所以在 driver 里释放 skb 的时候是不会去释放数据的, 即直接从这里返回了. */
+	// ref: s__tcp_transmit_skb() -> kb_clone() -> __skb_cone()
+	if (skb->cloned && 
 	    atomic_sub_return(skb->nohdr ? (1 << SKB_DATAREF_SHIFT) + 1 : 1,
 			      &shinfo->dataref))
 		return;
@@ -984,7 +986,7 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
 	C(data_len);
 	C(mac_len);
 	n->hdr_len = skb->nohdr ? skb_headroom(skb) : skb->hdr_len;
-	n->cloned = 1;
+	n->cloned = 1; // 两个 skb 都设置为 cloned
 	n->nohdr = 0;
 	n->peeked = 0;
 	C(pfmemalloc);
@@ -997,7 +999,7 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
 	C(truesize);
 	refcount_set(&n->users, 1);
 
-	atomic_inc(&(skb_shinfo(skb)->dataref));
+	atomic_inc(&(skb_shinfo(skb)->dataref)); // shareinfo 引用计数增加
 	skb->cloned = 1;
 
 	return n;

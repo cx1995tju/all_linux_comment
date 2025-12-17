@@ -3037,7 +3037,7 @@ static void __netif_reschedule(struct Qdisc *q)
 	q->next_sched = NULL;
 	*sd->output_queue_tailp = q;
 	sd->output_queue_tailp = &q->next_sched;
-	raise_softirq_irqoff(NET_TX_SOFTIRQ);
+	raise_softirq_irqoff(NET_TX_SOFTIRQ); // 调度一次 nettx sotirq
 	local_irq_restore(flags);
 }
 
@@ -3804,7 +3804,7 @@ static inline int __dev_xmit_skb(struct sk_buff *skb, struct Qdisc *q,
 				spin_unlock(&q->busylock);
 				contended = false;
 			}
-			__qdisc_run(q);
+			__qdisc_run(q); // 走这条路会去直接发送一定量的报文, 一次发不完就调度 nettx softirq
 			qdisc_run_end(q);
 		}
 	}
@@ -4108,7 +4108,7 @@ static int __dev_queue_xmit(struct sk_buff *skb, struct net_device *sb_dev)
 	q = rcu_dereference_bh(txq->qdisc);
 
 	trace_net_dev_queue(skb);
-	if (q->enqueue) {
+	if (q->enqueue) { // HERE
 		rc = __dev_xmit_skb(skb, q, dev, txq);
 		goto out;
 	}
@@ -10932,6 +10932,7 @@ static int __net_init netdev_init(struct net *net)
 	if (net->dev_index_head == NULL)
 		goto err_idx;
 
+	// 网络设备变化通知链, per namespace 的
 	RAW_INIT_NOTIFIER_HEAD(&net->netdev_chain);
 
 	return 0;

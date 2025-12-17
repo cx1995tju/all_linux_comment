@@ -1729,6 +1729,9 @@ int bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev,
 
 	/* If this is the first slave, then we need to set the master's hardware
 	 * address to be the same as the slave's.
+	 *
+	 *
+	 * 将第一个 slave 的 addr 配置给 bond 设备
 	 */
 	if (!bond_has_slaves(bond) &&
 	    bond->dev->addr_assign_type == NET_ADDR_RANDOM) {

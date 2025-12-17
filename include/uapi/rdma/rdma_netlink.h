@@ -164,7 +164,7 @@ enum {
  * Local service operations:
  *   RESOLVE - The client requests the local service to resolve a path.
  *   SET_TIMEOUT - The local service requests the client to set the timeout.
- *   IP_RESOLVE - The client requests the local service to resolve an IP to GID.
+ *   IP_RESOLVE - The client requests the local service to resolve an IP to GID. // 输入 ip, 输出 gid
  */
 enum {
 	RDMA_NL_LS_OP_RESOLVE = 0,
@@ -549,12 +549,17 @@ enum rdma_nl_counter_mode {
 	/*
 	 * A qp is bound with a counter automatically during initialization
 	 * based on the auto mode (e.g., qp type, ...)
+	 *
+	 * qp 初始化的时候会基于 auto mode 自动绑定 counter. ref: rdma_nl_counter_mask. 
+	 * 目前有两类被支持 qp_type, pid
 	 */
 	RDMA_COUNTER_MODE_AUTO,
 
 	/*
 	 * Which qp are bound with which counter is explicitly specified
 	 * by the user
+	 *
+	 * 用户手动为 qp 绑定 counter
 	 */
 	RDMA_COUNTER_MODE_MANUAL,
 

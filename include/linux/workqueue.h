@@ -420,6 +420,8 @@ struct workqueue_struct *alloc_workqueue(const char *fmt,
  *
  * RETURNS:
  * Pointer to the allocated workqueue on success, %NULL on failure.
+ *
+ * 可以保证其上的 work 是串行执行的
  */
 #define alloc_ordered_workqueue(fmt, flags, args...)			\
 	alloc_workqueue(fmt, WQ_UNBOUND | __WQ_ORDERED |		\

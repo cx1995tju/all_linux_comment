@@ -182,7 +182,9 @@ rdma_node_get_transport(unsigned int node_type);
 enum rdma_network_type {
 	RDMA_NETWORK_IB,
 	RDMA_NETWORK_ROCE_V1,
+	// rocev2 in ipv4
 	RDMA_NETWORK_IPV4,
+	// rocev2 in ipv6
 	RDMA_NETWORK_IPV6
 };
 
@@ -2735,7 +2737,7 @@ struct ib_device {
 	spinlock_t                   cq_pools_lock;
 	struct list_head             cq_pools[IB_POLL_LAST_POOL_TYPE + 1];
 
-	struct rdma_restrack_root *res;
+	struct rdma_restrack_root *res; // ref: rdma_restrack_init(), 用来进行资源跟踪的
 
 	const struct uapi_definition   *driver_def;
 

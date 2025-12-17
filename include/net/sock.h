@@ -470,7 +470,7 @@ struct sock {
 	u8			sk_pacing_shift;
 	u16			sk_type;
 	u16			sk_protocol;
-	u16			sk_gso_max_segs;
+	u16			sk_gso_max_segs; // ref: sk_setup_caps
 	unsigned long	        sk_lingertime;
 	struct proto		*sk_prot_creator;
 	rwlock_t		sk_callback_lock;

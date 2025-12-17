@@ -27,15 +27,16 @@
  * @dst_dev_addr:	Destination MAC address.
  * @broadcast:		Broadcast address of the device.
  * @dev_type:		The interface hardware type of the device.
- * @bound_dev_if:	An optional device interface index.
+ * @bound_dev_if:	An optional device interface index. ref: set_addr_netns_by_gid_rcu
  * @transport:		The transport type used.
  * @net:		Network namespace containing the bound_dev_if net_dev.
  * @sgid_attr:		GID attribute to use for identified SGID
  */
 // 注: 显然在 IB 场景, dst/src_dev_addr 不是 MAC 地址, 具体存储了什么参考: %rdma_addr_get_sgid() 系列函数
+// 这里面保存的是 ha 信息
 struct rdma_dev_addr {
-	unsigned char src_dev_addr[MAX_ADDR_LEN]; // ref: rdma_copy_src_l2_addr
-	unsigned char dst_dev_addr[MAX_ADDR_LEN];
+	unsigned char src_dev_addr[MAX_ADDR_LEN]; // ref: rdma_copy_src_l2_addr, src mac
+	unsigned char dst_dev_addr[MAX_ADDR_LEN]; // dst mac
 	unsigned char broadcast[MAX_ADDR_LEN];
 	unsigned short dev_type;
 	int bound_dev_if;
@@ -114,6 +115,7 @@ static inline u16 rdma_vlan_dev_vlan_id(const struct net_device *dev)
 	return is_vlan_dev(dev) ? vlan_dev_vlan_id(dev) : 0xffff;
 }
 
+// XXX: ip 地址和 gid 的转换
 static inline int rdma_ip2gid(struct sockaddr *addr, union ib_gid *gid)
 {
 	switch (addr->sa_family) {

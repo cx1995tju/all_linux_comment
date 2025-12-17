@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
  * Copyright (c) 2019 Mellanox Technologies. All rights reserved.
+ *
+ * counter 是一种资源, 可以通过 restrack 追踪的, 可以绑定到 qp
+ *
+ * 核心结构:
+ * - rdma_counter
+ * - rdma_port_counter
+ *
+ *
  */
 #include <rdma/ib_verbs.h>
 #include <rdma/rdma_counter.h>
@@ -173,7 +181,7 @@ static int __rdma_counter_bind_qp(struct rdma_counter *counter,
 		return -EOPNOTSUPP;
 
 	mutex_lock(&counter->lock);
-	ret = qp->device->ops.counter_bind_qp(counter, qp);
+	ret = qp->device->ops.counter_bind_qp(counter, qp); // 底层 driver 支持的. 给 qp 绑定 counter
 	mutex_unlock(&counter->lock);
 
 	return ret;
@@ -206,6 +214,7 @@ static void counter_history_stat_update(struct rdma_counter *counter)
 
 	rdma_counter_query_stats(counter);
 
+	// 将 counter 的信息收集到 port_counter 上
 	for (i = 0; i < counter->stats->num_counters; i++)
 		port_counter->hstats->value[i] += counter->stats->value[i];
 }

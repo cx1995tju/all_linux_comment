@@ -1282,7 +1282,7 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 			if (unlikely(skb_cloned(oskb)))
 				skb = pskb_copy(oskb, gfp_mask);
 			else
-				skb = skb_clone(oskb, gfp_mask);
+				skb = skb_clone(oskb, gfp_mask); // clone 一份向底层送, 最后会在driver 的 txq 里被 free
 		} tcp_skb_tsorted_restore(oskb);
 
 		if (unlikely(!skb))
@@ -1341,7 +1341,7 @@ static int __tcp_transmit_skb(struct sock *sk, struct sk_buff *skb,
 
 	skb_orphan(skb);
 	skb->sk = sk;
-	skb->destructor = skb_is_tcp_pure_ack(skb) ? __sock_wfree : tcp_wfree;
+	skb->destructor = skb_is_tcp_pure_ack(skb) ? __sock_wfree : tcp_wfree; // 挂一个 skb destructor, 这样 skb free 的时候完成 tcp 协议栈层相关的回收工作.
 	skb_set_hash_from_sk(skb, sk);
 	refcount_add(skb->truesize, &sk->sk_wmem_alloc);
 
@@ -2148,7 +2148,7 @@ static int tso_fragment(struct sock *sk, struct sk_buff *skb, unsigned int len,
 		return tcp_fragment(sk, TCP_FRAG_IN_WRITE_QUEUE,
 				    skb, len, mss_now, gfp);
 
-	buff = sk_stream_alloc_skb(sk, 0, gfp, true);
+	buff = sk_stream_alloc_skb(sk, 0, gfp, true); // 分配的 skb 还是只有 headroom 的
 	if (unlikely(!buff))
 		return -ENOMEM;
 	skb_copy_decrypted(buff, skb);
@@ -2703,7 +2703,7 @@ static bool tcp_write_xmit(struct sock *sk, unsigned int mss_now, int nonagle,
 						    nonagle);
 
 		if (skb->len > limit &&
-		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp)))
+		    unlikely(tso_fragment(sk, skb, limit, mss_now, gfp))) // 这里要拆分 skb 数据区, 此时都还没有 tcp 头
 			break;
 
 		if (tcp_small_queue_check(sk, skb, 0))

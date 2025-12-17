@@ -1169,6 +1169,7 @@ static inline bool skb_fclone_busy(const struct sock *sk,
 static inline struct sk_buff *alloc_skb_fclone(unsigned int size,
 					       gfp_t priority)
 {
+	// 会分配一对 skb 的. 指向同一块数据区. 其中一个后续会被送到 driver 里
 	return __alloc_skb(size, priority, SKB_ALLOC_FCLONE, NUMA_NO_NODE);
 }
 

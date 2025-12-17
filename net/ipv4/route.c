@@ -443,7 +443,7 @@ static struct neighbour *ipv4_neigh_lookup(const struct dst_entry *dst,
 		n = ip_neigh_gw4(dev, rt->rt_gw4);
 	} else if (rt->rt_gw_family == AF_INET6) {
 		n = ip_neigh_gw6(dev, &rt->rt_gw6);
-        } else {
+        } else { // 没有 gateway 走这里(???)
 		__be32 pkey;
 
 		pkey = skb ? ip_hdr(skb)->daddr : *((__be32 *) daddr);

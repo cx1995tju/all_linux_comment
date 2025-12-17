@@ -376,6 +376,7 @@ static inline bool qdisc_restart(struct Qdisc *q, int *packets)
 	return sch_direct_xmit(skb, q, dev, txq, root_lock, validate);
 }
 
+// 直接发送一定量的报文, 一次发不完就调度 nettx softirq
 void __qdisc_run(struct Qdisc *q)
 {
 	int quota = dev_tx_weight;

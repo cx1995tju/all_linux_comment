@@ -9,6 +9,7 @@
 #include <rdma/ib_verbs.h>
 #include <uapi/linux/if_ether.h>
 
+/* 来自于 spec */
 enum {
 	IB_LRH_BYTES		= 8,
 	IB_ETH_BYTES		= 14,
@@ -23,6 +24,7 @@ enum {
 	IB_ICRC_BYTES		= 4
 };
 
+/* XXX: 最关键的结构 */
 struct ib_field {
 	size_t struct_offset_bytes;
 	size_t struct_size_bytes;
@@ -48,6 +50,14 @@ struct ib_field {
 	IB_OPCODE_ ## transport ## _ ## op = \
 		IB_OPCODE_ ## transport + IB_OPCODE_ ## op
 
+/* XXX: ref: spec 1.4 table 38.
+ *
+ * opcode 是作为 BTH 的第一个字节出现的
+ *
+ * code[7-5]: 3b 是 qptype
+ * code[4-0]: 5b 是 operation
+ *
+ * */
 enum {
 	/* transport types -- just used to define real constants */
 	IB_OPCODE_RC                                = 0x00,
@@ -55,7 +65,8 @@ enum {
 	IB_OPCODE_RD                                = 0x40,
 	IB_OPCODE_UD                                = 0x60,
 	/* per IBTA 1.3 vol 1 Table 38, A10.3.2 */
-	IB_OPCODE_CNP                               = 0x80,
+	IB_OPCODE_CNP                               = 0x80, // 用于拥塞控制的消息
+	// 没有定义 XRC(截止到 20251124 v6.18) (???)
 	/* Manufacturer specific */
 	IB_OPCODE_MSP                               = 0xe0,
 
@@ -155,23 +166,30 @@ enum {
 	IB_OPCODE(UD, SEND_ONLY_WITH_IMMEDIATE)
 };
 
+// LRH 头里的 LNH 字段: link next header
 enum {
-	IB_LNH_RAW        = 0,
-	IB_LNH_IP         = 1,
-	IB_LNH_IBA_LOCAL  = 2,
-	IB_LNH_IBA_GLOBAL = 3
+	IB_LNH_RAW        = 0, // next header: RWH (EtherType)
+	IB_LNH_IP         = 1, // next header: IPv6
+	IB_LNH_IBA_LOCAL  = 2, // next header: BTH
+	IB_LNH_IBA_GLOBAL = 3  // next header: grh
 };
 
+// LRH: local route header, 链路层, rocev2 没有这一层的
+// 这里的结构定义不是报文头的定义, 要用 pack 函数将其转换为报文头的
+// 所以注意这里的大小和报文头的真实大小是对不上的
+// ref vol 1.4 Ch7.7
 struct ib_unpacked_lrh {
 	u8        virtual_lane;
 	u8        link_version;
 	u8        service_level;
-	u8        link_next_header;
+	u8        link_next_header; // LNH
 	__be16    destination_lid;
-	__be16    packet_length;
+	__be16    packet_length;    // 单位是 4B, 包含 LRH 包含 ICRC, 但是不包含 VCRC
 	__be16    source_lid;
 };
 
+// GRH: global route header, 网络层
+// Rocev2 没有这个 头
 struct ib_unpacked_grh {
 	u8    	     ip_version;
 	u8    	     traffic_class;
@@ -183,23 +201,58 @@ struct ib_unpacked_grh {
 	union ib_gid destination_gid;
 };
 
+// BTH: base transport header
+// XXX: 这里的结构定义不是报文头的定义, 要用 pack 函数将其转换为报文头的所以注
+// 意这里的大小和报文头的真实大小是对不上的
+// ref: spec1.4 vol1 ch9.2
+//
+// XXX: SE. 关于 SE 字段的设置
+// - 只在 last or only packet of a send, send wit imm, rdma write with imm 里设置. send with invalidate 操作也可以使用
+// - 对于 HCA 的影响, ref: spec 1.4 vol1 ch11.4.2.2
+//
+// XXX: mig_req.
+// - 1 表示 connection or EE ctx has been migrated
+// - 0. 表示 current migration state is no change. ref: Ch17: Automatic Path Migration
+//
+// XXX; 下述结构没有 FECN BECN
+// - FECN: 0. 表示 FECN indiction 没有收到. 1 表示 packet 经过了拥塞点
+// - BECN: 0 表示 packet 没有经过拥塞点. 1 表示 forward congestion. // 这个 bit 通过 ACK 包或者 CN BTH 包带回来的
+//
+// XXX; reserved 字段要设置为 0. ICRC 是包含 reserved 字段的
+//
+//
+// XXX: PSN 的产生规则. ref: spec1.4 vol1 Ch9.7.3.1
+// - 连接建立的时候 requester 选择一个随机 PSN 值. responder 记下来, 称做 expected PSN
+// - requester 每发送一个 packet, PSN 增加 1. 但是 RDMA read 操作有例外. 即跟在 rdma read 操作后的请求, 其 PSN 要跳的足够多的(根据 paylaod len 和 MTU 计算)
+// - responder ack 包里要将 PSN 带回来的 (这里也是累积确认). 注意一个特殊情况: read request 的 respond 是多个包的. 所幸 requester 发送 rdma request 的时候预留了足够的 PSN 空间的.
+//
+// 术语:
+// - currentPSN: BTH:PSN 字段里的值
 struct ib_unpacked_bth {
-	u8           opcode;
-	u8           solicited_event;
-	u8           mig_req;
-	u8           pad_count;
-	u8           transport_header_version;
-	__be16       pkey;
-	__be32       destination_qpn;
-	u8           ack_req;
-	__be32       psn;
+	u8           opcode;                   // 8b, ref: IB_OPCODE_XXX
+	u8           solicited_event;          // 1b, responder 侧是否要产生 CQ event. 不作为 packet header validation 的一部分, 即这个字段是怎么设置都不会导致 NAK 的产生的
+	u8           mig_req;                  // 1b, migration request, 表示 migration state
+	u8           pad_count;                // 2b. 表示 payload 里的 pad bytes 数量 (报文长度是 4B 对齐的)
+	u8           transport_header_version; // 4b, 目前设置为 0
+	__be16       pkey;                     // partition key
+	__be32       destination_qpn;          // 24b, dst QP number
+	u8           ack_req;                  // 1b, 指示 responder 要发回 ack 了
+	__be32       psn;                      // 24b, packet sequence number
 };
 
+
+// XXX: 不支持 RD, 所以没有 RDETH 的定义
+
+// deth: datagram extended transport header
+// ref: spec1.4 vol1 Ch9.3.1
+//
+// 还有更多的 rdma 操作相关的 extended transport header 是没有在这里定义的
 struct ib_unpacked_deth {
-	__be32       qkey;
-	__be32       source_qpn;
+	__be32       qkey;       // 32b
+	__be32       source_qpn; // 24b source qpn. 对端回复的时候用这个做 dst qpn(在 BTH 里).
 };
 
+// 以太头
 struct ib_unpacked_eth {
 	u8	dmac_h[4];
 	u8	dmac_l[2];
@@ -208,6 +261,7 @@ struct ib_unpacked_eth {
 	__be16	type;
 };
 
+// ipv4 头
 struct ib_unpacked_ip4 {
 	u8	ver;
 	u8	hdr_len;
@@ -222,6 +276,7 @@ struct ib_unpacked_ip4 {
 	__be32	daddr;
 };
 
+// udp 头
 struct ib_unpacked_udp {
 	__be16	sport;
 	__be16	dport;
@@ -229,11 +284,13 @@ struct ib_unpacked_udp {
 	__be16	csum;
 };
 
+// vlan 标签
 struct ib_unpacked_vlan {
 	__be16  tag;
 	__be16  type;
 };
 
+// 完整的 UD header 信息
 struct ib_ud_header {
 	int                     lrh_present;
 	struct ib_unpacked_lrh  lrh;

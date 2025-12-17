@@ -543,6 +543,7 @@ struct neighbour_cb {
 
 #define NEIGH_CB(skb)	((struct neighbour_cb *)(skb)->cb)
 
+// 将 neigh 的 ha 保存到 dst 里
 static inline void neigh_ha_snapshot(char *dst, const struct neighbour *n,
 				     const struct net_device *dev)
 {

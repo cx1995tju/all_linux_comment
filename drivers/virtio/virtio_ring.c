@@ -209,6 +209,7 @@ static inline bool virtqueue_use_indirect(struct virtqueue *_vq,
 	 * If the host supports indirect descriptor tables, and we have multiple
 	 * buffers, then go indirect. FIXME: tune this threshold
 	 */
+	// 如果是 1 个 desc 就不用 indirect 的
 	return (vq->indirect && total_sg > 1 && vq->vq.num_free);
 }
 
