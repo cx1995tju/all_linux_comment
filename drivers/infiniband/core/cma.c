@@ -996,8 +996,8 @@ __rdma_create_id(struct net *net, rdma_cm_event_handler event_handler,
 		return ERR_PTR(-ENOMEM);
 
 	id_priv->state = RDMA_CM_IDLE;
-	id_priv->id.context = context;	// rdma_cm 层 opaque 的, 上层知道是什么
-	id_priv->id.event_handler = event_handler; // 参数是 id_priv->id
+	id_priv->id.context = context;	// rdma_cm 层 opaque 的, 上层知道是什么, 比如: ucma_context
+	id_priv->id.event_handler = event_handler; // 参数是 id_priv->id, 即 rdma_cm_id, e.g. ucma_event_handler
 	id_priv->id.ps = ps;
 	id_priv->id.qp_type = qp_type;
 	id_priv->tos_set = false;
@@ -1046,6 +1046,7 @@ struct rdma_cm_id *rdma_create_user_id(rdma_cm_event_handler event_handler,
 {
 	struct rdma_id_private *ret;
 
+	// 分配并初始化 rdma_id_privat 结构咯
 	ret = __rdma_create_id(current->nsproxy->net_ns, event_handler, context,
 			       ps, qp_type, NULL);
 	if (IS_ERR(ret))
@@ -2040,8 +2041,9 @@ static void cma_leave_mc_groups(struct rdma_id_private *id_priv)
 	}
 }
 
+// 根据销毁时 id_priv 的状态来决定要取消什么样的操作, 以及要干掉什么样的资源
 static void _destroy_id(struct rdma_id_private *id_priv,
-			enum rdma_cm_state state)
+		enum rdma_cm_state state)
 {
 	cma_cancel_operation(id_priv, state);
 
@@ -5260,6 +5262,7 @@ static void cma_remove_one(struct ib_device *device, void *client_data)
 	kfree(cma_dev);
 }
 
+// port space 是 per net 的
 static int cma_init_net(struct net *net)
 {
 	struct cma_pernet *pernet = cma_pernet(net);

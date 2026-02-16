@@ -1085,6 +1085,7 @@ enum ib_sig_type {
 	IB_SIGNAL_REQ_WR
 };
 
+// 1. 从 ib_qp_type 的可以看到 RD 类型是完全没有支持
 enum ib_qp_type {
 	/*
 	 * IB_QPT_SMI and IB_QPT_GSI have to be the first two entries
@@ -2715,7 +2716,7 @@ struct ib_device {
 	u64			     uverbs_ex_cmd_mask;
 
 	char			     node_desc[IB_DEVICE_NODE_DESC_MAX];
-	__be64			     node_guid;
+	__be64			     node_guid; // 硬件不变的一个 id ?
 	u32			     local_dma_lkey;
 	u16                          is_switch:1;
 	/* Indicates kernel verbs support, should not be used in drivers */
@@ -3250,6 +3251,7 @@ static inline bool rdma_cap_iw_cm(const struct ib_device *device, u8 port_num)
  * Administration interface.  This does not imply that the SA service is
  * running locally.
  */
+// 真正的 ib 才有, rocev2 是没有的
 static inline bool rdma_cap_ib_sa(const struct ib_device *device, u8 port_num)
 {
 	return device->port_data[port_num].immutable.core_cap_flags &

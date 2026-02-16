@@ -38,20 +38,22 @@
 
 
 // ADDR_BOUND -> ADDR_RESOLVED -> ROUTE_ERSOLVED -> CONNECT
+// rdma_bind_addr() IDLE -> ADDR_BOUND
 enum rdma_cm_state {
-	RDMA_CM_IDLE,
+	RDMA_CM_IDLE,             // 初始状态 __rdma_create_id()
 	RDMA_CM_ADDR_QUERY,
 	RDMA_CM_ADDR_RESOLVED,
-	RDMA_CM_ROUTE_QUERY, // 一个中间的临时状态
+	RDMA_CM_ROUTE_QUERY, // 一个中间的临时状态, 正在做 route query, ref: rdma_resolve_route
 	RDMA_CM_ROUTE_RESOLVED,
 	RDMA_CM_CONNECT,
 	RDMA_CM_DISCONNECT,
 	RDMA_CM_ADDR_BOUND,
 	RDMA_CM_LISTEN,
 	RDMA_CM_DEVICE_REMOVAL,
-	RDMA_CM_DESTROYING
+	RDMA_CM_DESTROYING // 正在destroy, ref destroy_id_handler_unlock
 };
 
+// ref: __rdma_create_id()
 struct rdma_id_private {
 	struct rdma_cm_id	id;	// HERE: first-member inherit
 

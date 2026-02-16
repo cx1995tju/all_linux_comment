@@ -92,6 +92,7 @@ struct rdma_ucm_cmd_hdr {
 	__u16 out;
 };
 
+// ref: ucma_create_id
 struct rdma_ucm_create_id {
 	__aligned_u64 uid;
 	__aligned_u64 response;

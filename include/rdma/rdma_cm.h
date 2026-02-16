@@ -119,12 +119,14 @@ typedef int (*rdma_cm_event_handler)(struct rdma_cm_id *id,
 /* 就可以拿到了. 和 tcp 编程不同, 是报文在协议栈各层穿越的时候, 慢慢收集的. 这 */
 /* 也体现在 librdmacm 库的实现, 在创建 id 的时候, 总是伴随着调用 resolve_addr, */
 /* resolve_route 的操作, 这些操作就是让内核解析相关信息然后保存到 id 结构里. */
+//
+// ref: __rdma_create_id
 struct rdma_cm_id {
 	struct ib_device	*device;
-	void			*context;
+	void			*context; // opaque, e.g.: ucma_context
 	struct ib_qp		*qp;
-	rdma_cm_event_handler	 event_handler;
-	struct rdma_route	 route;
+	rdma_cm_event_handler	 event_handler; // e.g. ucma_event_handler
+	struct rdma_route	 route; // 存路由信息
 	enum rdma_ucm_port_space ps;
 	enum ib_qp_type		 qp_type;
 	u8			 port_num;

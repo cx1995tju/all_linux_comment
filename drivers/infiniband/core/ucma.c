@@ -1,3 +1,8 @@
+/* 这一层就是将 rdma 接口通过 /dev/infiniband/rdma_cm 设备暴露给用户态了,做一些
+ * 简单的参数检查, 然后帮用户态程序调用 core/cma.c 的接口. 当然为了实现这个功能
+ * 要维护一些 ctx 的 rdma_cm_id. 当然还实现了一套内核和用户态互相通知的机制
+ *
+ * */
 /*
  * Copyright (c) 2005-2006 Intel Corporation.  All rights reserved.
  *
@@ -94,10 +99,10 @@ struct ucma_context {
 	int			events_reported;
 	atomic_t		backlog;
 
-	struct ucma_file	*file;
+	struct ucma_file	*file;  // 对应到用户态 socket-like fd 的
 	struct rdma_cm_id	*cm_id; // rdma_cm 层的 id, 可以理解为另一层的 socket
 	struct mutex		mutex;
-	u64			uid;
+	u64			uid;    // 用户态创建的时候 userspace 提供的 uid, ref: ucma_create_id
 
 	struct list_head	list;
 	/* sync between removal event and id destroy, protected by file mut */
@@ -219,6 +224,7 @@ static struct ucma_context *ucma_alloc_ctx(struct ucma_file *file)
 	ctx->file = file;
 	mutex_init(&ctx->mutex);
 
+	// ctx_table 里占据了一个位置
 	if (xa_alloc(&ctx_table, &ctx->id, NULL, xa_limit_32b, GFP_KERNEL)) {
 		kfree(ctx);
 		return NULL;
@@ -438,6 +444,7 @@ static ssize_t ucma_get_event(struct ucma_file *file, const char __user *inbuf,
 }
 
 // helper
+// 这里可以看到 ucm 层提供的 port space 和 qp_type 的抽象
 static int ucma_get_qp_type(struct rdma_ucm_create_id *cmd, enum ib_qp_type *qp_type)
 {
 	switch (cmd->ps) {
@@ -448,7 +455,7 @@ static int ucma_get_qp_type(struct rdma_ucm_create_id *cmd, enum ib_qp_type *qp_
 	case RDMA_PS_IPOIB:
 		*qp_type = IB_QPT_UD;
 		return 0;
-	case RDMA_PS_IB: // 之后 native ib 才支持多种 qp_type, 其他情况仅仅支持 RC / UD 服务. XRC 都不支持
+	case RDMA_PS_IB: // 除了 RC 和 UD 之外, 想通过 ucm 使用其他 qp type 必须使用 PS_IB
 		*qp_type = cmd->qp_type;
 		return 0;
 	default:
@@ -652,7 +659,7 @@ static ssize_t ucma_bind_ip(struct ucma_file *file, const char __user *inbuf,
 	if (copy_from_user(&cmd, inbuf, sizeof(cmd)))
 		return -EFAULT;
 
-	// 和 ucma_bind_ip 就是这里的 size 的检查有一点不同
+	// 和 ucma_bind 就是这里的 size 的检查有一点不同
 	if (!rdma_addr_size_in6(&cmd.addr))
 		return -EINVAL;
 
@@ -817,7 +824,7 @@ static void ucma_copy_iboe_route(struct rdma_ucm_query_route_resp *resp,
 
 	resp->num_paths = route->num_paths;
 	switch (route->num_paths) {
-	case 0:
+	case 0: // ip 转换为 gid
 		rdma_ip2gid((struct sockaddr *)&route->addr.dst_addr,
 			    (union ib_gid *)&resp->ib_route[0].dgid);
 		rdma_ip2gid((struct sockaddr *)&route->addr.src_addr,
@@ -847,6 +854,15 @@ static void ucma_copy_iw_route(struct rdma_ucm_query_route_resp *resp,
 	rdma_addr_get_sgid(dev_addr, (union ib_gid *) &resp->ib_route[0].sgid);
 }
 
+// 不同的 rdma 底层网络不同, 路由的概念也是不同的
+// 但是总的来说, route 都已经存储在 ctx 里了, copy 给用户态就可以了
+// 路由信息:
+// - saddr
+// - daddr
+// - device 相关
+//	- node_guid
+//	- device index
+//	- rdma port num (一个 device 有多个 port 的)
 static ssize_t ucma_query_route(struct ucma_file *file,
 				const char __user *inbuf,
 				int in_len, int out_len)
@@ -981,6 +997,7 @@ static ssize_t ucma_query_path(struct ucma_context *ctx,
 	return ret;
 }
 
+// 比 rdma_query_gid 做的事情多
 static ssize_t ucma_query_gid(struct ucma_context *ctx,
 			      void __user *response, int out_len)
 {
@@ -1733,11 +1750,13 @@ file_put:
 
 /* XXX: 下述接口划分为几类:
  * - create_id/destroy_id
+ *
  * - 信息收集: 内核 ucma 层将各种信息收集到 id 结构里
  *   - ucma_resolve_ip
  *   - ucma_resolve_route
  *   - ucma_init_qp_attr
  *   - ucma_resolve_addr
+ *
  * - socket-like 操作:
  *   - ucma_bind_ip
  *   - ucma_bind
@@ -1752,12 +1771,14 @@ file_put:
  *	- 类似 ucma_accept, 当用户态需要拒绝连接的时候调用这个接口.
  *   - ucma_disconnect
  *   - ucma_set_option
+ *
  * - 用户态, 内核态信息同步:
  *   - ucma_get_event // 内核 callback 唤醒用户态后, 用户态通过这个接口获取事件. 当然有时候其也会直接调用这个函数获取事件结果.
  *   - ucma_notify // user 通知 内核 user 发生的事件. 因为 数据面完全绕过内核了, 所以数据面上如果发生了什么, 需要通知到内核
  *   - ucma_query // 还是因为数据面和控制面分离的原因, user 需要去内核查询一些信息保存到 user 使用的
  *   - ucma_query_route
  *   - ucma_migrate_id // 将 id 和一个新的 file 重新绑定, 本质就是切换了内核通知用户的通道.
+ *
  * - 多播
  *   - ucma_join_ip_multicast
  *   - ucma_leave_multicast
@@ -1946,20 +1967,19 @@ static int __init ucma_init(void)
 {
 	int ret;
 
-	// 关键
+	// 1*. /dev/infiniband/rdma_cm
 	ret = misc_register(&ucma_misc);
 	if (ret)
 		return ret;
 
-	// sysfs file for ucma_misc
-	// /sys/devices/virtual/misc/rdma_cm/abi_version
+	// 2. sysfs file for ucma_misc /sys/devices/virtual/misc/rdma_cm/abi_version
 	ret = device_create_file(ucma_misc.this_device, &dev_attr_abi_version);
 	if (ret) {
 		pr_err("rdma_ucm: couldn't create abi_version attr\n");
 		goto err1;
 	}
 
-	// sysctl 注册: net.rdma_ucm.max_backlog
+	// 3. sysctl 注册: net.rdma_ucm.max_backlog
 	ucma_ctl_table_hdr = register_net_sysctl(&init_net, "net/rdma_ucm", ucma_ctl_table);
 	if (!ucma_ctl_table_hdr) {
 		pr_err("rdma_ucm: couldn't register sysctl paths\n");
@@ -1967,8 +1987,7 @@ static int __init ucma_init(void)
 		goto err2;
 	}
 
-	// 向 ib_core 模块注册一个 client
-	// 仅仅实现了一个 get_nl_info 的功能
+	// 4. 向 ib_core 模块注册一个 client 仅仅实现了一个 get_nl_info 的功能
 	ret = ib_register_client(&rdma_cma_client);
 	if (ret)
 		goto err3;
