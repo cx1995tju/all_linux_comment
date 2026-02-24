@@ -1,3 +1,12 @@
+/* 
+ * - ib_device v.s. ib_port_data
+ *   - ib_device 理解为一张硬件网卡. 其上的硬件资源是共享的
+ *   - ib_port_data, 表示一个 ib_port, 依附于 ib_device 设备. 网络是隔离的. 但是硬件资源是共享的.
+ *
+ *
+ * ib capabilities 定义
+ *
+ * */
 /* SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB */
 /*
  * Copyright (c) 2004 Mellanox Technologies Ltd.  All rights reserved.
@@ -127,6 +136,7 @@ static inline
 void ibdev_dbg_ratelimited(const struct ib_device *ibdev, const char *format, ...) {}
 #endif
 
+// ipv6 格式
 union ib_gid {
 	u8	raw[16];
 	struct {
@@ -137,6 +147,8 @@ union ib_gid {
 
 extern union ib_gid zgid;
 
+// rdma_network_type 和 ib_gid_type 有对应关系
+// ref: ib_network_to_gid_type, rdma_gid_attr_network_type
 enum ib_gid_type {
 	IB_GID_TYPE_IB = IB_UVERBS_GID_TYPE_IB,
 	IB_GID_TYPE_ROCE = IB_UVERBS_GID_TYPE_ROCE_V1,
@@ -162,7 +174,7 @@ enum {
 };
 
 enum rdma_transport_type {
-	RDMA_TRANSPORT_IB,
+	RDMA_TRANSPORT_IB, // rocev2 transport 层也是这个
 	RDMA_TRANSPORT_IWARP,
 	RDMA_TRANSPORT_USNIC,
 	RDMA_TRANSPORT_USNIC_UDP,
@@ -171,7 +183,7 @@ enum rdma_transport_type {
 
 enum rdma_protocol_type {
 	RDMA_PROTOCOL_IB,
-	RDMA_PROTOCOL_IBOE,
+	RDMA_PROTOCOL_IBOE, // roce/rocev2 在 wire 上的 protocol 是这个
 	RDMA_PROTOCOL_IWARP,
 	RDMA_PROTOCOL_USNIC_UDP
 };
@@ -179,13 +191,15 @@ enum rdma_protocol_type {
 __attribute_const__ enum rdma_transport_type
 rdma_node_get_transport(unsigned int node_type);
 
+// rdma_network_type 和 ib_gid_type 有对应关系
+// ref: ib_network_to_gid_type, rdma_gid_attr_network_type
 enum rdma_network_type {
 	RDMA_NETWORK_IB,
 	RDMA_NETWORK_ROCE_V1,
 	// rocev2 in ipv4
 	RDMA_NETWORK_IPV4,
 	// rocev2 in ipv6
-	RDMA_NETWORK_IPV6
+	RDMA_NETWORK_IPV6	// network 层
 };
 
 static inline enum ib_gid_type ib_network_to_gid_type(enum rdma_network_type network_type)
@@ -221,20 +235,57 @@ enum rdma_link_layer {
 };
 
 enum ib_device_cap_flags {
+	// [QP] 支持在创建 QP 后 resize SQ/RQ 的 WR 数量
+	// ref 1.4 vol1 ch11.2.5.2 The maximum number of outstanding Work Requests...
 	IB_DEVICE_RESIZE_MAX_WR			= (1 << 0),
+
+	// [Partition] 支持 bad pkey/qkey counter, IB 规范的 port 计数器功能
+	// ref vol1 ch10.9.4 bad p_key trap and p_key violations counter
 	IB_DEVICE_BAD_PKEY_CNTR			= (1 << 1),
 	IB_DEVICE_BAD_QKEY_CNTR			= (1 << 2),
+
+	// [QP] 支持 raw multicast
+	// raw pkt qp 直接发送原始 L2 frame
 	IB_DEVICE_RAW_MULTI			= (1 << 3),
+
+	// [QP] 支持 Automatic Path Migration
 	IB_DEVICE_AUTO_PATH_MIG			= (1 << 4),
+
+	// [QP] 支持 QP 迁移到不同的 port 上, 通过 modify_qp 操作, 不常用
+	// ref 1.4 vol1 ch11.2.5.2 Primary physical port associated with this QP...
 	IB_DEVICE_CHANGE_PHY_PORT		= (1 << 5),
+
+	// [QP] UD AV 强制端口校验
+	// 严格检查 UD QP 发送时 Address Vector 里指定的 port_num 和 QP 绑定的是否一致
 	IB_DEVICE_UD_AV_PORT_ENFORCE		= (1 << 6),
+
+	// [QP] 允许 QP modify 时不显式提供当前的 state, 内核自己会校验当前的 state
+	// QP 状态的修改必须严格满足状态机器, 这个 feature 表明设备自己有能力校验状态机, 所以用户在 modify_qp 时不需要显式提供当前的 state, 设备会自己校验 modify qp state 是否合法
 	IB_DEVICE_CURR_QP_STATE_MOD		= (1 << 7),
+
+	// [HCA] 是否支持通过 verbs 将某个 port 设置为 shutodwn
+	// ref: 1.4 vol1 ch11.2.1.2 shutdown port capability support indicator
 	IB_DEVICE_SHUTDOWN_PORT			= (1 << 8),
+
 	/* Not in use, former INIT_TYPE		= (1 << 9),*/
+	// [HCA] 支持端口 active 事件通知
+	// ref: 1.4 vol1 ch11.2.1.2 port active event support indicator
 	IB_DEVICE_PORT_ACTIVE_EVENT		= (1 << 10),
+
+	// [HCA] HCA 可以报告系统级 GUID, 多个 HCA 可以共享的
+	// system image guid 1.4 vol1 ch14.2.5.3 Table 160
 	IB_DEVICE_SYS_IMAGE_GUID		= (1 << 11),
+
+	// [HCA] 支持 RC 服务的 RNR NAK
+	// ref vol1 1.4 Ch11.2.1.2 Indicator that the RNR-NAK generation for RC service is support
 	IB_DEVICE_RC_RNR_NAK_GEN		= (1 << 12),
+
+	// [QP] 支持 resize SRQ
+	// ref: 1.4 vol1 ch11.2.3.3 The maximum number of outstanding WOrk Requests...
 	IB_DEVICE_SRQ_RESIZE			= (1 << 13),
+
+	// [QP] notify next N completions. CQ 可以设置 N 次完成后再发送通知, 支持减少中断
+	// vol1 ch11.4.2.2
 	IB_DEVICE_N_NOTIFY_CQ			= (1 << 14),
 
 	/*
@@ -244,9 +295,14 @@ enum ib_device_cap_flags {
 	 * instead of use the local_dma_lkey flag in the ib_pd structure,
 	 * which will always contain a usable lkey.
 	 */
+	// [MEM] 支持 per-device local_dma_lkey, 不用注册都可以做 local DMA
+	// ULP 需要通过 pd->local_dma_lkey  来判断这个 cap 是否支持
 	IB_DEVICE_LOCAL_DMA_LKEY		= (1 << 15),
+
 	/* Reserved, old SEND_W_INV		= (1 << 16),*/
+	// [MEM] 支持 Memory Window
 	IB_DEVICE_MEM_WINDOW			= (1 << 17),
+
 	/*
 	 * Devices should set IB_DEVICE_UD_IP_SUM if they support
 	 * insertion of UDP and TCP checksum on outgoing UD IPoIB
@@ -254,8 +310,14 @@ enum ib_device_cap_flags {
 	 * incoming messages.  Setting this flag implies that the
 	 * IPoIB driver may set NETIF_F_IP_CSUM for datagram mode.
 	 */
+	// 针对 IPonIB 场景
+	// [Offload] 支持 UD 模式下, 插入 UDP/TCP checksum, 并且验证收到的消息的 checksum
 	IB_DEVICE_UD_IP_CSUM			= (1 << 18),
+
+	// UD TSO
 	IB_DEVICE_UD_TSO			= (1 << 19),
+
+	// [QP] 支持 XRC
 	IB_DEVICE_XRC				= (1 << 20),
 
 	/*
@@ -267,30 +329,61 @@ enum ib_device_cap_flags {
 	 * IB_WR_RDMA_READ_WITH_INV verb for RDMA READs that invalidate the
 	 * stag.
 	 */
+	// [MEM] 支持 Base Memory Management Extension // 这是现代 HCA 必备能力
+	// IB_WR_REG_MR(Fast Reg) / IB_WR_LOCAL_INV / IB_WR_SEND_WITH_INV
 	IB_DEVICE_MEM_MGT_EXTENSIONS		= (1 << 21),
+
+	// [MultiCast] 阻止 multicast loopback
 	IB_DEVICE_BLOCK_MULTICAST_LOOPBACK	= (1 << 22),
+
+	// [MEM] 支持 type 2a mw
 	IB_DEVICE_MEM_WINDOW_TYPE_2A		= (1 << 23),
+
+	// [MEM] 支持 type 2b mw
 	IB_DEVICE_MEM_WINDOW_TYPE_2B		= (1 << 24),
+
+	// [Offload] 支持 RC 上的 ip csum offload
 	IB_DEVICE_RC_IP_CSUM			= (1 << 25),
+
 	/* Deprecated. Please use IB_RAW_PACKET_CAP_IP_CSUM. */
+	// [Offload] raw packet csm offload
 	IB_DEVICE_RAW_IP_CSUM			= (1 << 26),
+
 	/*
 	 * Devices should set IB_DEVICE_CROSS_CHANNEL if they
 	 * support execution of WQEs that involve synchronization
 	 * of I/O operations with single completion queue managed
 	 * by hardware.
 	 */
+	// [QP] ???
 	IB_DEVICE_CROSS_CHANNEL			= (1 << 27),
+
+	// [Flow steering] 支持 managed flow steering
 	IB_DEVICE_MANAGED_FLOW_STEERING		= (1 << 29),
+
 	IB_DEVICE_INTEGRITY_HANDOVER		= (1 << 30),
+
+	// [MEM] ODP: on demand paging
 	IB_DEVICE_ON_DEMAND_PAGING		= (1ULL << 31),
+
+	// [MEM] 支持带 gap 的 scatter-gather list
 	IB_DEVICE_SG_GAPS_REG			= (1ULL << 32),
+
+	// 设备是 vf
 	IB_DEVICE_VIRTUAL_FUNCTION		= (1ULL << 33),
+
 	/* Deprecated. Please use IB_RAW_PACKET_CAP_SCATTER_FCS. */
+	// [Offload] raw pkt 支持 scatter fcs
 	IB_DEVICE_RAW_SCATTER_FCS		= (1ULL << 34),
+
+	// 支持 OPA, omni-path
 	IB_DEVICE_RDMA_NETDEV_OPA		= (1ULL << 35),
+
 	/* The device supports padding incoming writes to cacheline. */
+	// 支持 write cachline padding
 	IB_DEVICE_PCI_WRITE_END_PADDING		= (1ULL << 36),
+
+	// [MEM] 允许用户态支持 unreg MR
 	IB_DEVICE_ALLOW_USER_UNREG		= (1ULL << 37),
 };
 
@@ -603,6 +696,7 @@ static inline struct rdma_hw_stats *rdma_alloc_hw_stats_struct(
 /* Define bits for the various functionality this port needs to be supported by
  * the core.
  */
+// 底层 driver 根据自己的能力来设置这些 flags
 /* Management                           0x00000FFF */
 #define RDMA_CORE_CAP_IB_MAD            0x00000001
 #define RDMA_CORE_CAP_IB_SMI            0x00000002
@@ -989,6 +1083,7 @@ enum ib_wc_flags {
 	IB_WC_WITH_NETWORK_HDR_TYPE	= (1<<6),
 };
 
+// work completion
 struct ib_wc {
 	union {
 		u64		wr_id;
@@ -2208,6 +2303,8 @@ struct ib_port_immutable {
 	u32                           max_mad_size;
 };
 
+// 理解为一个网络设备
+// ib_device 理解为一个硬件网卡, 因为硬件资源是固定的是共享的.
 struct ib_port_data {
 	struct ib_device *ib_dev;
 
@@ -2219,7 +2316,7 @@ struct ib_port_data {
 	struct ib_port_cache cache;
 
 	spinlock_t netdev_lock;
-	struct net_device __rcu *netdev;
+	struct net_device __rcu *netdev; // ref: free_netdevs. 如果 port 是关联到 netdev 的话, 这里就有值. roce 需要
 	struct hlist_node ndev_hash_link;
 	struct rdma_port_counter port_counter;
 	struct rdma_hw_stats *hw_stats;
@@ -2330,20 +2427,25 @@ rdma_user_mmap_get_offset(const struct rdma_user_mmap_entry *entry)
  * This structure defines all the InfiniBand device operations, providers will
  * need to define the supported operations, otherwise they will be set to null.
  */
+// ref: ib_device_check_mandatory, 有些操作是 required 的
 struct ib_device_ops {
 	struct module *owner;
 	enum rdma_driver_id driver_id;
 	u32 uverbs_abi_ver;
 	unsigned int uverbs_no_driver_id_binding:1;
 
+	// Mandatory
 	int (*post_send)(struct ib_qp *qp, const struct ib_send_wr *send_wr,
 			 const struct ib_send_wr **bad_send_wr);
+	// Mandatory
 	int (*post_recv)(struct ib_qp *qp, const struct ib_recv_wr *recv_wr,
 			 const struct ib_recv_wr **bad_recv_wr);
 	void (*drain_rq)(struct ib_qp *qp);
 	void (*drain_sq)(struct ib_qp *qp);
+	// Mandatory
 	int (*poll_cq)(struct ib_cq *cq, int num_entries, struct ib_wc *wc);
 	int (*peek_cq)(struct ib_cq *cq, int wc_cnt);
+	// Mandatory
 	int (*req_notify_cq)(struct ib_cq *cq, enum ib_cq_notify_flags flags);
 	int (*req_ncomp_notif)(struct ib_cq *cq, int wc_cnt);
 	int (*post_srq_recv)(struct ib_srq *srq,
@@ -2354,16 +2456,20 @@ struct ib_device_ops {
 			   const struct ib_grh *in_grh,
 			   const struct ib_mad *in_mad, struct ib_mad *out_mad,
 			   size_t *out_mad_size, u16 *out_mad_pkey_index);
+	// Mandatory
 	int (*query_device)(struct ib_device *device,
 			    struct ib_device_attr *device_attr,
 			    struct ib_udata *udata);
+	// ib_modify_device
 	int (*modify_device)(struct ib_device *device, int device_modify_mask,
 			     struct ib_device_modify *device_modify);
 	void (*get_dev_fw_str)(struct ib_device *device, char *str);
 	const struct cpumask *(*get_vector_affinity)(struct ib_device *ibdev,
 						     int comp_vector);
+	// Mandatory
 	int (*query_port)(struct ib_device *device, u8 port_num,
 			  struct ib_port_attr *port_attr);
+	// ib_modify_port
 	int (*modify_port)(struct ib_device *device, u8 port_num,
 			   int port_modify_mask,
 			   struct ib_port_modify *port_modify);
@@ -2373,6 +2479,7 @@ struct ib_device_ops {
 	 * structure to avoid cache line misses when accessing struct ib_device
 	 * in fast paths.
 	 */
+	// Mandatory
 	int (*get_port_immutable)(struct ib_device *device, u8 port_num,
 				  struct ib_port_immutable *immutable);
 	enum rdma_link_layer (*get_link_layer)(struct ib_device *device,
@@ -2430,6 +2537,7 @@ struct ib_device_ops {
 	 * This function is only called when roce_gid_table is used.
 	 */
 	int (*del_gid)(const struct ib_gid_attr *attr, void **context);
+	// ib_query_pkey
 	int (*query_pkey)(struct ib_device *device, u8 port_num, u16 index,
 			  u16 *pkey);
 	int (*alloc_ucontext)(struct ib_ucontext *context,
@@ -2444,7 +2552,9 @@ struct ib_device_ops {
 	 */
 	void (*mmap_free)(struct rdma_user_mmap_entry *entry);
 	void (*disassociate_ucontext)(struct ib_ucontext *ibcontext);
+	// Mandatory
 	int (*alloc_pd)(struct ib_pd *pd, struct ib_udata *udata);
+	// Mandatory
 	int (*dealloc_pd)(struct ib_pd *pd, struct ib_udata *udata);
 	int (*create_ah)(struct ib_ah *ah, struct rdma_ah_init_attr *attr,
 			 struct ib_udata *udata);
@@ -2459,19 +2569,25 @@ struct ib_device_ops {
 			  struct ib_udata *udata);
 	int (*query_srq)(struct ib_srq *srq, struct ib_srq_attr *srq_attr);
 	int (*destroy_srq)(struct ib_srq *srq, struct ib_udata *udata);
+	// Mandatory
 	struct ib_qp *(*create_qp)(struct ib_pd *pd,
 				   struct ib_qp_init_attr *qp_init_attr,
 				   struct ib_udata *udata);
+	// Mandatory
 	int (*modify_qp)(struct ib_qp *qp, struct ib_qp_attr *qp_attr,
 			 int qp_attr_mask, struct ib_udata *udata);
 	int (*query_qp)(struct ib_qp *qp, struct ib_qp_attr *qp_attr,
 			int qp_attr_mask, struct ib_qp_init_attr *qp_init_attr);
+	// Mandatory
 	int (*destroy_qp)(struct ib_qp *qp, struct ib_udata *udata);
+	// Mandatory
 	int (*create_cq)(struct ib_cq *cq, const struct ib_cq_init_attr *attr,
 			 struct ib_udata *udata);
 	int (*modify_cq)(struct ib_cq *cq, u16 cq_count, u16 cq_period);
+	// Mandatory
 	int (*destroy_cq)(struct ib_cq *cq, struct ib_udata *udata);
 	int (*resize_cq)(struct ib_cq *cq, int cqe, struct ib_udata *udata);
+	// Mandatory
 	struct ib_mr *(*get_dma_mr)(struct ib_pd *pd, int mr_access_flags);
 	struct ib_mr *(*reg_user_mr)(struct ib_pd *pd, u64 start, u64 length,
 				     u64 virt_addr, int mr_access_flags,
@@ -2479,6 +2595,7 @@ struct ib_device_ops {
 	int (*rereg_user_mr)(struct ib_mr *mr, int flags, u64 start, u64 length,
 			     u64 virt_addr, int mr_access_flags,
 			     struct ib_pd *pd, struct ib_udata *udata);
+	// Mandatory
 	int (*dereg_mr)(struct ib_mr *mr, struct ib_udata *udata);
 	struct ib_mr *(*alloc_mr)(struct ib_pd *pd, enum ib_mr_type mr_type,
 				  u32 max_num_sg);
@@ -2661,6 +2778,8 @@ struct ib_device_ops {
 	DECLARE_RDMA_OBJ_SIZE(ib_xrcd);
 };
 
+// ref: cebe556bd755d16559c8bc0d1fe5545db6bbeaf0
+// for net namespace
 struct ib_core_device {
 	/* device must be the first element in structure until,
 	 * union of ib_core_device and device exists in ib_device.
@@ -2674,6 +2793,12 @@ struct ib_core_device {
 
 struct rdma_restrack_root;
 // ib 对设备的抽象
+// - ib_device_rename
+// - ib_device_set_dim
+// - ib_device_release
+//
+// ref: _ib_alloc_device
+// 提供一个在其他 namespace 访问 ib 设备 sysfs 的机制. 通过创建 ib_core_device 结构
 struct ib_device {
 	/* Do not access @dma_device directly from ULP nor from HW drivers. */
 	struct device                *dma_device;
@@ -2689,7 +2814,7 @@ struct ib_device {
 	spinlock_t qp_open_list_lock;
 
 	struct rw_semaphore	      client_data_rwsem;
-	struct xarray                 client_data;
+	struct xarray                 client_data;	// 记录有哪些 client 要访问这个设备
 	struct mutex                  unregistration_lock;
 
 	/* Synchronize GID, Pkey cache entries, subnet prefix, LMC */
@@ -2697,7 +2822,7 @@ struct ib_device {
 	/**
 	 * port_data is indexed by port number
 	 */
-	struct ib_port_data *port_data;
+	struct ib_port_data *port_data; // ref: alloc_port_data, 注意从 1 开始, 0 号位置不使用
 
 	int			      num_comp_vectors;
 
@@ -2724,7 +2849,7 @@ struct ib_device {
 	/* CQ adaptive moderation (RDMA DIM) */
 	u16                          use_cq_dim:1;
 	u8                           node_type;
-	u8                           phys_port_cnt;
+	u8                           phys_port_cnt;	// port 数目
 	struct ib_device_attr        attrs;
 	struct attribute_group	     *hw_stats_ag;
 	struct rdma_hw_stats         *hw_stats;
@@ -2755,7 +2880,7 @@ struct ib_device {
 	/* Protects compat_devs xarray modifications */
 	struct mutex compat_devs_mutex;
 	/* Maintains compat devices for each net namespace */
-	struct xarray compat_devs;
+	struct xarray compat_devs;	// 存储 ib_core_device 的, ref: add_one_compat_dev
 
 	/* Used by iWarp CM */
 	char iw_ifname[IFNAMSIZ];

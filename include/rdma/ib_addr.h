@@ -176,6 +176,7 @@ static inline void rdma_addr_set_dgid(struct rdma_dev_addr *dev_addr, union ib_g
 	memcpy(dev_addr->dst_dev_addr + rdma_addr_gid_offset(dev_addr), gid, sizeof *gid);
 }
 
+// roce mtu 必须是 2 的幂, 所以对于一般的以太网设备, 其对应的 roce mtu 就是 1024 了
 static inline enum ib_mtu iboe_get_mtu(int mtu)
 {
 	/*

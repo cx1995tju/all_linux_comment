@@ -91,10 +91,10 @@ extern void class_unregister(struct class *class);
 /* This is a #define to keep the compiler from merging different
  * instances of the __key variable */
 #define class_register(class)			\
-({						\
-	static struct lock_class_key __key;	\
-	__class_register(class, &__key);	\
-})
+	({						\
+	 static struct lock_class_key __key;	\
+	 __class_register(class, &__key);	\
+	 })
 
 struct class_compat;
 struct class_compat *class_compat_register(const char *name);

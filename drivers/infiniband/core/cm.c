@@ -1407,7 +1407,7 @@ struct ib_cm_id *ib_cm_insert_listen(struct ib_device *device,
 
 	spin_lock_irq(&cm_id_priv->lock);
 	listen_id_priv = cm_insert_listen(cm_id_priv, cm_handler);
-	if (listen_id_priv != cm_id_priv) { // 什么时候会不等呢? 由于冲突无法插入的时候返回 NULL, 或者由于 shared usage 返回已经存在的 cm_id_priv; 这时候会复用之前的, 所以将当起啊的 cm_id_priv destroy 掉
+	if (listen_id_priv != cm_id_priv) { // 什么时候会不等呢? 由于冲突无法插入的时候返回 NULL, 或者由于 shared usage 返回已经存在的 cm_id_priv; 这时候会复用之前的, 所以将当前的 cm_id_priv destroy 掉
 		spin_unlock_irq(&cm_id_priv->lock);
 		ib_destroy_cm_id(&cm_id_priv->id);
 		if (!listen_id_priv)

@@ -1,3 +1,5 @@
+//  优化 mr 的使用, 搞一个 mr pool 来复用. mr-pool 是 per QP 的
+//
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016 HGST, a Western Digital Company.
@@ -5,6 +7,7 @@
 #include <rdma/ib_verbs.h>
 #include <rdma/mr_pool.h>
 
+// 从 qp 的 mr pool 里拿一个来使用
 struct ib_mr *ib_mr_pool_get(struct ib_qp *qp, struct list_head *list)
 {
 	struct ib_mr *mr;

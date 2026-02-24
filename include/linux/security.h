@@ -1,4 +1,5 @@
-/*
+// lsm: linux security module
+/* 
  * Linux Security plug
  *
  * Copyright (C) 2001 WireX Communications, Inc <chris@wirex.com>

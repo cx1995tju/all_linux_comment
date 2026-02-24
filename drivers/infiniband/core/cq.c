@@ -1,3 +1,11 @@
+/* 给内核里其他模块使用的 cq 接口, 用户态不用这个
+ *  ib_cq_pool_destroy(struct ib_device * dev)
+ *  ib_cq_pool_get(struct ib_device * dev,unsigned int nr_cqe,int comp_vector_hint,enum ib_poll_context poll_ctx)
+ *  ib_cq_pool_init(struct ib_device * dev)
+ *  ib_cq_pool_put(struct ib_cq * cq,unsigned int nr_cqe)
+ *  ib_free_cq(struct ib_cq * cq)
+ *  ib_process_cq_direct(struct ib_cq * cq,int budget)
+ * */
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015 HGST, a Western Digital Company.
@@ -24,6 +32,10 @@
 #define IB_POLL_FLAGS \
 	(IB_CQ_NEXT_COMP | IB_CQ_REPORT_MISSED_EVENTS)
 
+/* 支持把 CQE 的中断攒到一起聚合一下 ???
+ *
+ * CQ 支持
+ * */
 static const struct dim_cq_moder
 rdma_dim_prof[RDMA_DIM_PARAMS_NUM_PROFILES] = {
 	{1,   0, 1,  0},
@@ -37,6 +49,7 @@ rdma_dim_prof[RDMA_DIM_PARAMS_NUM_PROFILES] = {
 	{32,  0, 32, 0},
 };
 
+// 控制 cq 打中断的间隔
 static void ib_cq_rdma_dim_work(struct work_struct *w)
 {
 	struct dim *dim = container_of(w, struct dim, work);
@@ -121,6 +134,9 @@ static int __ib_process_cq(struct ib_cq *cq, int budget, struct ib_wc *wcs,
 
 	return completed;
 }
+
+/* 各种 polling 接口 for kernel, alloc_cq 的时候指定用哪种.
+ * */
 
 /**
  * ib_process_direct_cq - process a CQ in caller context
@@ -244,6 +260,7 @@ struct ib_cq *__ib_alloc_cq(struct ib_device *dev, void *private, int nr_cqe,
 
 	rdma_dim_init(cq);
 
+	// cq 在不同的 ctx polling 要用不同的函数
 	switch (cq->poll_ctx) {
 	case IB_POLL_DIRECT:
 		cq->comp_handler = ib_cq_completion_direct;
@@ -302,6 +319,7 @@ struct ib_cq *__ib_alloc_cq_any(struct ib_device *dev, void *private,
 	static atomic_t counter;
 	int comp_vector = 0;
 
+	// 自动给 cq 选择中断
 	if (dev->num_comp_vectors > 1)
 		comp_vector =
 			atomic_inc_return(&counter) %

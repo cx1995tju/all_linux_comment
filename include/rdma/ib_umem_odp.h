@@ -9,6 +9,9 @@
 #include <rdma/ib_umem.h>
 #include <rdma/ib_verbs.h>
 
+// on demand paging
+// ODP: page fault 的时候再 pin
+// GPU direct / 大内存系统关键
 struct ib_umem_odp {
 	struct ib_umem umem;
 	struct mmu_interval_notifier notifier;

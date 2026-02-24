@@ -1,3 +1,48 @@
+/* 重要概念:
+ * - ib_client: ulp(upper layer protocol) 注册一个 client 监听 ib device 的 add/remove 事件
+ *	- ib_register_client()
+ *	- ib 中的概念, 上层使用 ib 功能的时候抽象一个 client 概念出来. 所有
+ *	client 被组织在 static DEFINE_XARRAY_FLAGS(clients, XA_FLAGS_ALLOC); 同
+ *	时每个设备创建的时候, 所有 client 都会注册到该设备 ref:
+ *	   - enable_device_and_get() -> add_client_context
+ *	   - ib_registr_client() -> add_client_cotext
+ *
+ * - ib_device
+ * - ib_device v.s. ib_port_data
+ *   - ib_device 理解为一张硬件网卡. 其上的硬件资源是共享的
+ *   - ib_port_data, 表示一个 ib_port, 依附于 ib_device 设备. 网络是隔离的. 但是硬件资源是共享的.
+ *
+ * 重要常量
+ * - rdma_driver_id, 记录了当前系统中支持的 rdma 设备的 driver 类型
+ *
+ * 1. sys/class/infiniband/* 机制: ib_class
+ * 2. ib_device 设备的增删查, register
+ * 3. pernet 机制
+ *
+ *
+ *
+ *
+ * port_data 机制. 一个 ib device 可以有多个 port, 在 rocev2 里 device 和 port 是 1:1 么?
+ *
+ *
+ * ib_device_set_netdev // 重要, 通过 ib_device.port_data 来建立 ib_device 和 netdev 的关系. roce 设备需要底层的 netdevice.
+ *
+ *
+ * compat_dev 机制, 提供一个在其他 namespace 访问 ib 设备 sysfs 的机制. 通过创建 ib_core_device 结构
+ * RDMA/core: Implement compat device/sysfs tree in net namespace
+ * 
+ * Implement compatibility layer sysfs entries of ib_core so that non
+ * init_net net namespaces can also discover rdma devices.
+ * 
+ * Each non init_net net namespace has ib_core_device created in it.
+ * Such ib_core_device sysfs tree resembles rdma devices found in
+ * init_net namespace.
+ * 
+ * This allows discovering rdma devices in multiple non init_net net
+ * namespaces via sysfs entries and helpful to rdma-core userspace.
+ *
+ * */
+
 /*
  * Copyright (c) 2004 Topspin Communications.  All rights reserved.
  * Copyright (c) 2005 Sun Microsystems, Inc. All rights reserved.
@@ -89,12 +134,15 @@ EXPORT_SYMBOL_GPL(ib_wq);
  * registered, and keep it registered, for the required duration.
  *
  */
+// 存储 ib device 的
+// - ib_device_get_by_index()
 static DEFINE_XARRAY_FLAGS(devices, XA_FLAGS_ALLOC);
-static DECLARE_RWSEM(devices_rwsem);
+static DECLARE_RWSEM(devices_rwsem);	// 锁保护 devices
 #define DEVICE_REGISTERED XA_MARK_1
 
 static u32 highest_client_id;
 #define CLIENT_REGISTERED XA_MARK_1
+// 组织所有的 ib 层上面的 client
 static DEFINE_XARRAY_FLAGS(clients, XA_FLAGS_ALLOC);
 static DECLARE_RWSEM(clients_rwsem);
 
@@ -150,6 +198,11 @@ EXPORT_SYMBOL(rdma_dev_access_netns);
  * the array. This does the same thing as xa_for_each except that it also
  * returns NULL valued entries if the array is allocating. Simplified to only
  * work on simple xarrays.
+ *
+ * 查找带有特定 mark 的条目
+ * 1. 找到 → 返回条目指针（void *）
+ * 2. 找到但条目是“zero entry” → 返回 NULL
+ * 3. 找不到 → 返回 XA_ERROR(-ENOENT)
  */
 static void *xan_find_marked(struct xarray *xa, unsigned long *indexp,
 			     xa_mark_t filter)
@@ -187,6 +240,7 @@ static void ib_unregister_work(struct work_struct *work);
 static void __ib_unregister_device(struct ib_device *device);
 static int ib_security_change(struct notifier_block *nb, unsigned long event,
 			      void *lsm_data);
+// not used now ??? for lsm ???
 static void ib_policy_change_task(struct work_struct *work);
 static DECLARE_WORK(ib_policy_change_work, ib_policy_change_task);
 
@@ -263,6 +317,7 @@ struct ib_port_data_rcu {
 	struct ib_port_data pdata[];
 };
 
+// 检查必须的 ops 是否存在
 static void ib_device_check_mandatory(struct ib_device *device)
 {
 #define IB_MANDATORY_FUNC(x) { offsetof(struct ib_device_ops, x), #x }
@@ -293,7 +348,7 @@ static void ib_device_check_mandatory(struct ib_device *device)
 	for (i = 0; i < ARRAY_SIZE(mandatory_table); ++i) {
 		if (!*(void **) ((void *) &device->ops +
 				 mandatory_table[i].offset)) {
-			device->kverbs_provider = false;
+			device->kverbs_provider = false;	// 有接口没有实现, 则标记为 false
 			break;
 		}
 	}
@@ -342,6 +397,7 @@ static struct ib_device *__ib_device_get_by_name(const char *name)
 	struct ib_device *device;
 	unsigned long index;
 
+	// 遍历匹配 name
 	xa_for_each (&devices, index, device)
 		if (!strcmp(name, dev_name(&device->dev)))
 			return device;
@@ -409,7 +465,7 @@ int ib_device_rename(struct ib_device *ibdev, const char *name)
 		return 0;
 	}
 
-	if (__ib_device_get_by_name(name)) {
+	if (__ib_device_get_by_name(name)) { // 防止重名
 		up_write(&devices_rwsem);
 		return -EEXIST;
 	}
@@ -448,6 +504,8 @@ int ib_device_set_dim(struct ib_device *ibdev, u8 use_dim)
 	return 0;
 }
 
+// name: 格式字符串, e.g. mlx5_%d
+// 所有设备的 %d id 一起分配么??? mlx5_1 bnxt_2 ...
 static int alloc_name(struct ib_device *ibdev, const char *name)
 {
 	struct ib_device *device;
@@ -461,14 +519,18 @@ static int alloc_name(struct ib_device *ibdev, const char *name)
 	xa_for_each (&devices, index, device) {
 		char buf[IB_DEVICE_NAME_MAX];
 
+		// 解析 dev_name, 按照 name 的字符串, 然后解析到 i 里
 		if (sscanf(dev_name(&device->dev), name, &i) != 1)
 			continue;
+
 		if (i < 0 || i >= INT_MAX)
 			continue;
 		snprintf(buf, sizeof buf, name, i);
+		// 防止相同 driver 同名了
 		if (strcmp(buf, dev_name(&device->dev)) != 0)
 			continue;
 
+		// 标记 i 被使用了
 		rc = ida_alloc_range(&inuse, i, i, GFP_KERNEL);
 		if (rc < 0)
 			goto out;
@@ -507,6 +569,7 @@ static void ib_device_release(struct device *device)
 	kfree_rcu(dev, rcu_head);
 }
 
+// /sys/class/infiniband/rxe_0/uevent
 static int ib_device_uevent(struct device *device,
 			    struct kobj_uevent_env *env)
 {
@@ -536,6 +599,8 @@ static struct class ib_class = {
 	.namespace = net_namespace,
 };
 
+// 嵌入到 linux device 机制
+// 允许每个 namespace sysfs 都可以发现 ib  设备
 static void rdma_init_coredev(struct ib_core_device *coredev,
 			      struct ib_device *dev, struct net *net)
 {
@@ -548,6 +613,7 @@ static void rdma_init_coredev(struct ib_core_device *coredev,
 	BUILD_BUG_ON(offsetof(struct ib_device, coredev.dev) !=
 		     offsetof(struct ib_device, dev));
 
+	// 设备被放到 /sys/class/infiniband 目录下
 	coredev->dev.class = &ib_class;
 	coredev->dev.groups = dev->groups;
 	device_initialize(&coredev->dev);
@@ -566,6 +632,7 @@ static void rdma_init_coredev(struct ib_core_device *coredev,
  * ib_dealloc_device() must be used to free structures allocated with
  * ib_alloc_device().
  */
+// size 是为了针对 vendor-spec 搞的 first-member inherit 机制
 struct ib_device *_ib_alloc_device(size_t size)
 {
 	struct ib_device *device;
@@ -582,9 +649,20 @@ struct ib_device *_ib_alloc_device(size_t size)
 		return NULL;
 	}
 
+	// /sys/class/infiniband 机制
 	device->groups[0] = &ib_dev_attr_group;
 	rdma_init_coredev(&device->coredev, device, &init_net);
 
+	/* - event handler list/rwsem
+	 * - lock:
+	 *   - qp open lock
+	 * - client data xarray + rwsem
+	 * - compat_devs xarray + mutex
+	 * - unreg
+	 *   - unreg completion
+	 *   - unreg lock
+	 *   - unreg work
+	 * */ 
 	INIT_LIST_HEAD(&device->event_handler_list);
 	spin_lock_init(&device->qp_open_list_lock);
 	init_rwsem(&device->event_handler_rwsem);
@@ -758,6 +836,7 @@ static int alloc_port_data(struct ib_device *device)
 	 * Therefore port_data is declared as a 1 based array with potential
 	 * empty slots at the beginning.
 	 */
+	// XXX: port num 从 1 开始, 0 号位置不使用
 	pdata_rcu = kzalloc(struct_size(pdata_rcu, pdata,
 					rdma_end_port(device) + 1),
 			    GFP_KERNEL);
@@ -2110,7 +2189,7 @@ int ib_device_set_netdev(struct ib_device *ib_dev, struct net_device *ndev,
 	if (ret)
 		return ret;
 
-	if (!rdma_is_port_valid(ib_dev, port))
+	if (!rdma_is_port_valid(ib_dev, port))	// 检查 port 是否合法
 		return -EINVAL;
 
 	pdata = &ib_dev->port_data[port];
@@ -2717,6 +2796,7 @@ static int __init ib_core_init(void)
 		goto err_comp;
 	}
 
+	// sysfs 里注册一个新的 class: /sys/class/infiniband
 	ret = class_register(&ib_class);
 	if (ret) {
 		pr_warn("Couldn't create InfiniBand device class\n");

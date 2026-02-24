@@ -80,7 +80,7 @@ struct rdma_id_private {
 	union {
 		struct ib_cm_id	*ib;
 		struct iw_cm_id	*iw;
-	} cm_id;
+	} cm_id; // cma_ib_listen
 
 	u32			seq_num;
 	u32			qkey;
@@ -89,7 +89,7 @@ struct rdma_id_private {
 	u8			srq;
 	u8			tos;
 	u8			tos_set:1;
-	u8                      timeout_set:1;
+	u8                      timeout_set:1; // ref: cma_resolve_iboe_route, 设置 pkt 的 lifetime
 	u8			reuseaddr;
 	u8			afonly;
 	u8			timeout; // ref: rdma_set_ack_timeout(), ib spec vol1 ch12.7.34

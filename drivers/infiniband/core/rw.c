@@ -1,3 +1,16 @@
+/* 
+ * rdma_rw_cleanup_mrs
+ * rdma_rw_ctx_destroy
+ * rdma_rw_ctx_destroy_signature
+ * rdma_rw_ctx_init
+ * rdma_rw_ctx_post
+ * rdma_rw_ctx_signature_init
+ * rdma_rw_ctx_wrs
+ * rdma_rw_init_mrs
+ * rdma_rw_init_qp
+ * rdma_rw_mr_factor
+ *
+ * */
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2016 HGST, a Western Digital Company.

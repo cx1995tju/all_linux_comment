@@ -669,7 +669,8 @@ static void cma_translate_ib(struct sockaddr_ib *sib, struct rdma_dev_addr *dev_
 	ib_addr_set_pkey(dev_addr, ntohs(sib->sib_pkey)); // pkey
 }
 
-// 将 addr -> dev_addr
+// rocev2 里 addr 是 3 层地址
+// dev_addr 硬件地址, 在 rocev2 里要根据 ip 找到 设备, 然后搜集一些硬件信息
 static int cma_translate_addr(struct sockaddr *addr, struct rdma_dev_addr *dev_addr)
 {
 	int ret;
@@ -997,7 +998,7 @@ __rdma_create_id(struct net *net, rdma_cm_event_handler event_handler,
 
 	id_priv->state = RDMA_CM_IDLE;
 	id_priv->id.context = context;	// rdma_cm 层 opaque 的, 上层知道是什么, 比如: ucma_context
-	id_priv->id.event_handler = event_handler; // 参数是 id_priv->id, 即 rdma_cm_id, e.g. ucma_event_handler
+	id_priv->id.event_handler = event_handler; // 参数是 id_priv->id, 即 rdma_cm_id, e.g. ucma_event_handler, cma_listen_handler
 	id_priv->id.ps = ps;
 	id_priv->id.qp_type = qp_type;
 	id_priv->tos_set = false;
@@ -2694,8 +2695,9 @@ static int cma_ib_listen(struct rdma_id_private *id_priv)
 
 	addr = cma_src_addr(id_priv);
 	svc_id = rdma_get_service_id(&id_priv->id, addr); // local 的 src addr 当然有 listen 的 port, 通过 listen port 可以得到 service id
+        // XXX: 这里有一个新的 ib_cm_id 了
 	id = ib_cm_insert_listen(id_priv->id.device,
-				 cma_ib_req_handler, svc_id);
+				 cma_ib_req_handler, svc_id); 
 	if (IS_ERR(id))
 		return PTR_ERR(id);
 	id_priv->cm_id.ib = id;
@@ -2736,7 +2738,7 @@ static int cma_iw_listen(struct rdma_id_private *id_priv, int backlog)
 static int cma_listen_handler(struct rdma_cm_id *id,
 			      struct rdma_cm_event *event)
 {
-	struct rdma_id_private *id_priv = id->context;
+	struct rdma_id_private *id_priv = id->context; // 这里提取了个 id 出来, 其 parent id, ref: cma_listen_on_dev
 
 	/* Listening IDs are always destroyed on removal */
 	if (event->event == RDMA_CM_EVENT_DEVICE_REMOVAL)
@@ -2745,9 +2747,11 @@ static int cma_listen_handler(struct rdma_cm_id *id,
 	id->context = id_priv->id.context;
 	id->event_handler = id_priv->id.event_handler;
 	trace_cm_event_handler(id_priv, event);
-	return id_priv->id.event_handler(id, event);
+	return id_priv->id.event_handler(id, event); // 通过 parent id 的事件将 新 id 返回去了
 }
 
+// 关键是创建一个新的 id, 其 handler 是不一样的
+// 这个 id 还要关联到一个 cma_dev 上
 static void cma_listen_on_dev(struct rdma_id_private *id_priv,
 			      struct cma_device *cma_dev)
 {
@@ -2760,7 +2764,8 @@ static void cma_listen_on_dev(struct rdma_id_private *id_priv,
 	if (cma_family(id_priv) == AF_IB && !rdma_cap_ib_cm(cma_dev->device, 1))
 		return;
 
-	// 给 id_priv 搞一个化身, 然后用这个 化身去 listen on cma_dev ???
+	// XXX: 给 id_priv 搞一个化身, 然后用这个 化身去 listen on cma_dev ???
+	// 同时 id_priv 会作为其 context 存在,  ref: cma_listen_handler
 	dev_id_priv =
 		__rdma_create_id(net, cma_listen_handler, id_priv,
 				 id_priv->id.ps, id_priv->id.qp_type, id_priv);
@@ -2779,7 +2784,7 @@ static void cma_listen_on_dev(struct rdma_id_private *id_priv,
 	dev_id_priv->tos_set = id_priv->tos_set;
 	dev_id_priv->tos = id_priv->tos;
 
-	// 现在才是真正的 listen
+	// 现在才是真正的 listen, ref: rdam_listen -> cma_listen_on_all -> cma_listen_on_dev, 递归dialing
 	ret = rdma_listen(&dev_id_priv->id, id_priv->backlog);
 	if (ret)
 		dev_warn(&cma_dev->device->dev,
@@ -3201,6 +3206,8 @@ static __be32 cma_get_roce_udp_flow_label(struct rdma_id_private *id_priv)
 //
 // 本质就是解析地址路由信息, 将其保存起来. 将 ip 的 路由信息, 转换为 ib 格式的
 // path_rec 供后续使用咯
+//
+// rocev2 的底层毕竟不是 ib, 所以各种信息要从 l2/l3 里去搜集转换
 static int cma_resolve_iboe_route(struct rdma_id_private *id_priv)
 {
 	struct rdma_route *route = &id_priv->id.route;
@@ -3227,13 +3234,14 @@ static int cma_resolve_iboe_route(struct rdma_id_private *id_priv)
 	route->num_paths = 1;
 
 	// 设置 path record 中 l2 fields
+	// 顺便找到其对应的 l2 device, 从里面拿一些信息
 	ndev = cma_iboe_set_path_rec_l2_fields(id_priv);
 	if (!ndev) {
 		ret = -ENODEV;
 		goto err2;
 	}
 
-	// ip 层的信息设置好
+	// ip 层的信息设置好, 来自 id 结构里的已经保存的 route 信息
 	rdma_ip2gid((struct sockaddr *)&id_priv->id.route.addr.src_addr,
 		    &route->path_rec->sgid);
 	rdma_ip2gid((struct sockaddr *)&id_priv->id.route.addr.dst_addr,
@@ -3912,6 +3920,8 @@ cma_select_ib_ps(struct rdma_id_private *id_priv)
 // 没有设置 port 那就内核分配一个
 //
 // bind sport 函数, sport 从 id_priv 的 srcaddr 里提取出来的
+//
+// 这里的 port 不是 ib 设备的概念了, 是 tcp/udp 这种协议的 port
 static int cma_get_port(struct rdma_id_private *id_priv)
 {
 	enum rdma_ucm_port_space ps;
@@ -3939,6 +3949,7 @@ static int cma_check_linklocal(struct rdma_dev_addr *dev_addr,
 			       struct sockaddr *addr)
 {
 #if IS_ENABLED(CONFIG_IPV6)
+	// 检查是不是 ipv6 linklocal 地址
 	struct sockaddr_in6 *sin6;
 
 	if (addr->sa_family != AF_INET6)
@@ -3958,6 +3969,9 @@ static int cma_check_linklocal(struct rdma_dev_addr *dev_addr,
 	return 0;
 }
 
+// 这里比较有趣: ref: cma_listen_on_all -> cma_listen_on_dev
+// 在 listen 的时候就创建了 new id, 然后这个 new id 的 handler 是不一样的. 而不
+// 是像 tcp 那样在 accept 的时候才创建. ref: cma_listen_handler.
 int rdma_listen(struct rdma_cm_id *id, int backlog)
 {
 	struct rdma_id_private *id_priv =
@@ -3991,7 +4005,7 @@ int rdma_listen(struct rdma_cm_id *id, int backlog)
 	}
 
 	id_priv->backlog = backlog;
-	if (id->device) { // 就是看 listen 的时候有没有指定设备咯
+	if (id->device) { // 有 device 说明这个 id 已经是 listen id on dev 了? ref else-clause
 		if (rdma_cap_ib_cm(id->device, 1)) { // RoCE 也走这里
 			ret = cma_ib_listen(id_priv); // XXX
 			if (ret)
@@ -4040,7 +4054,7 @@ int rdma_bind_addr(struct rdma_cm_id *id, struct sockaddr *addr)
 		return -EINVAL;
 
 	ret = cma_check_linklocal(&id->route.addr.dev_addr, addr);
-	if (ret)
+	if (ret) // ipv6 local 地址不让 bind
 		goto err1;
 
 	// 将 addr copy 到了 id_priv 的 src addr 里了
@@ -4571,6 +4585,8 @@ static int cma_send_sidr_rep(struct rdma_id_private *id_priv,
 // 比较有趣的是, 与 TCP 不同, 第二次握手的报文是 accept 触发的(ib_send_cm_rep()), 是因为第二次握手需要一些用户提供的信息
 // 第二点与 TCP 不同的是, accept 传入的这个 id 不是 listen id. 而是在收到 mad req 请求的时候, 内核通过 RDMA_CM_EVENT_CONNECT_REQUEST 通知了用户空间, 这时候在 EVENT 里已经携带了一个 id 给 userspace 了, userspace 用那个 id 直接来 accept. ref: cma_ib_req_handler
 // 第三点不同的是, 不是通过 accept() 的返回来告诉 usersapce 或者其他模块有连接来了, 而是通过 RDMA_CM_EVENT_CONNECT_REQUEST 事件通知 userspace, 而且直接将新的 id(类似 socket) 直接返回回去了. 而 usespace 或者其他模块可以选择 reject (rdma_reject())这个连接出发 REJ 报文的发送
+//
+// ref: rdma_listen
 int rdma_accept(struct rdma_cm_id *id, struct rdma_conn_param *conn_param)
 {
 	struct rdma_id_private *id_priv =

@@ -164,32 +164,33 @@ struct sa_path_rec_opa {
 // 有 subnet manager 来负责维护这些信息, 类似于 ip 网络里的 rtable / dst_entry
 //
 // IB sepc vol1 Ch15.2.5.16
+// 如果是 rocev2 这些信息的搜集方式有一点不同, ref: cma_resolve_iboe_route, cma_iboe_set_path_rec_l2_fields
 struct sa_path_rec {
 	union ib_gid dgid;
 	union ib_gid sgid;
 	__be64       service_id;
 	/* reserved */
-	__be32       flow_label;
+	__be32       flow_label; //  // rocev2 里就是 5-tuple 的 hash, ref: cma_get_roce_udp_flow_label
 	u8           hop_limit;
 	u8           traffic_class;
 	u8           reversible;
 	u8           numb_path;
 	__be16       pkey;
 	__be16       qos_class;
-	u8           sl;
+	u8           sl; // iboe_tos_to_sl
 	u8           mtu_selector;
-	u8           mtu;
+	u8           mtu; //iboe_get_mtu
 	u8           rate_selector;
-	u8           rate;
+	u8           rate; // iboe_get_rate
 	u8           packet_life_time_selector;
 	u8           packet_life_time;
 	u8           preference;
 	union {
 		struct sa_path_rec_ib ib;
-		struct sa_path_rec_roce roce;
+		struct sa_path_rec_roce roce; // l2 dmac
 		struct sa_path_rec_opa opa;
 	};
-	enum sa_path_rec_type rec_type;
+	enum sa_path_rec_type rec_type; // SA_PATH_REC_TYPE_ROCE_V2
 };
 
 static inline enum ib_gid_type

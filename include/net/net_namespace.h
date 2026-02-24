@@ -358,6 +358,7 @@ int peernet2id(const struct net *net, struct net *peer);
 bool peernet_has_id(const struct net *net, struct net *peer);
 struct net *get_net_ns_by_id(const struct net *net, int id);
 
+// net namespcae 创建删除时的 callback 函数
 struct pernet_operations {
 	struct list_head list;
 	/*
