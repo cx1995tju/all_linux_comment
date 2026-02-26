@@ -149,14 +149,15 @@ enum {
 
 /* For RDMA_NLDEV_ATTR_DEV_NODE_TYPE */
 // ref IB Spec vol1 ch14.2.5.3
+// ref: rdma_node_get_transport
 enum {
 	/* IB values map to NodeInfo:NodeType. */
 	RDMA_NODE_IB_CA = 1,
 	RDMA_NODE_IB_SWITCH,
 	RDMA_NODE_IB_ROUTER,
-	RDMA_NODE_RNIC,
-	RDMA_NODE_USNIC,
-	RDMA_NODE_USNIC_UDP,
+	RDMA_NODE_RNIC,              // 给 iwarp 准备的, roce 好像不用这个, cx 的网卡直接用的 IB_CA 这个 type, 从 software iwarp siw_main.c 也可以看出来
+	RDMA_NODE_USNIC,             // Cisco usNIC
+	RDMA_NODE_USNIC_UDP,         // Cisco usNIC UDP 版本
 	RDMA_NODE_UNSPECIFIED,
 };
 

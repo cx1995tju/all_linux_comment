@@ -63,6 +63,9 @@ EXPORT_SYMBOL(rdma_umap_priv_init);
  *
  * Return -EINVAL on wrong flags or size, -EAGAIN on failure to map. 0 on
  * success.
+ *
+ *
+ * // helper: 帮助将设备的 io 空间 mmap 到用户态
  */
 int rdma_user_mmap_io(struct ib_ucontext *ucontext, struct vm_area_struct *vma,
 		      unsigned long pfn, unsigned long size, pgprot_t prot,

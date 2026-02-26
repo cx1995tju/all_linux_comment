@@ -237,7 +237,7 @@ rdma_gid_attr_network_type(const struct ib_gid_attr *attr)
 enum rdma_link_layer {
 	IB_LINK_LAYER_UNSPECIFIED,
 	IB_LINK_LAYER_INFINIBAND,
-	IB_LINK_LAYER_ETHERNET,
+	IB_LINK_LAYER_ETHERNET,	// roce/rocev2 都是这个
 };
 
 enum ib_device_cap_flags {
@@ -2498,6 +2498,7 @@ rdma_user_mmap_get_offset(const struct rdma_user_mmap_entry *entry)
  * need to define the supported operations, otherwise they will be set to null.
  */
 // ref: ib_device_check_mandatory, 有些操作是 required 的
+// ref: mlx5_ib_dev_ops
 struct ib_device_ops {
 	struct module *owner;
 	enum rdma_driver_id driver_id;
@@ -2552,6 +2553,7 @@ struct ib_device_ops {
 	// Mandatory
 	int (*get_port_immutable)(struct ib_device *device, u8 port_num,
 				  struct ib_port_immutable *immutable);
+	// XXX: ref: rdma_port_get_link_layer() rdma_node_get_transport() rocev2 设备必须要实现这个, 不然拿到的 link layer 会出错的
 	enum rdma_link_layer (*get_link_layer)(struct ib_device *device,
 					       u8 port_num);
 	/**

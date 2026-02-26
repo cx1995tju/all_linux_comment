@@ -388,6 +388,7 @@ void ib_uverbs_comp_handler(struct ib_cq *cq, void *cq_context)
 	spin_unlock_irqrestore(&ev_queue->lock, flags);
 
 	wake_up_interruptible(&ev_queue->poll_wait);
+	// fasync 机制, 发送信号给进程
 	kill_fasync(&ev_queue->async_queue, SIGIO, POLL_IN);
 }
 
@@ -695,9 +696,13 @@ static int ib_uverbs_mmap(struct file *filp, struct vm_area_struct *vma)
 		ret = PTR_ERR(ucontext);
 		goto out;
 	}
+	// 关键就是这里赋予了一个 ops, 重点就是其中的 fault 方法, 之后 page
+	// fault 的时候就会调用这个方法
 	vma->vm_ops = &rdma_umap_ops;
+
 	// vendor 会根据 ucontext 判断要不要现在就映射, 还是等 page fault 的时候才映射
 	// 等 page fault 的时候, 就是直接取分配物理内存页面了
+	// ref: mlx5_ib_mmap
 	ret = ucontext->device->ops.mmap(ucontext, vma);
 out:
 	srcu_read_unlock(&file->device->disassociate_srcu, srcu_key);
@@ -790,10 +795,11 @@ static vm_fault_t rdma_umap_fault(struct vm_fault *vmf)
 	}
 
 	mutex_lock(&ufile->umap_lock);
-	if (!ufile->disassociate_page)
+	if (!ufile->disassociate_page) // 最多只会分一个 page  ???
 		ufile->disassociate_page =
 			alloc_pages(vmf->gfp_mask | __GFP_ZERO, 0);
 
+	// 不管多少次 page fault, 就这一个 page 用来用去的???
 	if (ufile->disassociate_page) {
 		/*
 		 * This VMA is forced to always be shared so this doesn't have

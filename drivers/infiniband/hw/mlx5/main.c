@@ -2017,6 +2017,8 @@ static u64 uar_index2paddress(struct mlx5_ib_dev *dev,
 
 static int get_command(unsigned long offset)
 {
+	// 每个 command 占据 2*8 = 256Byte
+	// 最多 0xff 个 command
 	return (offset >> MLX5_IB_MMAP_CMD_SHIFT) & MLX5_IB_MMAP_CMD_MASK;
 }
 
@@ -2287,6 +2289,7 @@ static int mlx5_ib_mmap(struct ib_ucontext *ibcontext, struct vm_area_struct *vm
 	unsigned long command;
 	phys_addr_t pfn;
 
+	// 不同的 offset 代表了 mlx 给出的不同的接口. 通过 offset 可以找到用户想要访问的接口
 	command = get_command(vma->vm_pgoff);
 	switch (command) {
 	case MLX5_IB_MMAP_WC_PAGE:

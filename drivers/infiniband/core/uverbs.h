@@ -157,7 +157,7 @@ struct ib_uverbs_file {
 
 	struct mutex umap_lock;
 	struct list_head umaps;
-	struct page *disassociate_page;
+	struct page *disassociate_page;	// ref: rdma_umap_fault
 
 	struct xarray		idr;
 };

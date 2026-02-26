@@ -1,4 +1,94 @@
-/*
+/* building blocks
+ * - event
+ * - work completion
+ * - protection domain
+ * - address handle
+ * - gid
+ * - qp
+ *   - qp_state_table: qp 状态机
+ *   - rq
+ * - srq
+ * - cq
+ * - mr
+ * - wq: work queue
+ * - mcast
+ * - XRC domain
+ * - vf
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *  __ib_alloc_pd
+ *  __ib_create_cq
+ *  __rdma_block_iter_next
+ *  __rdma_block_iter_start
+ *  ib_advise_mr
+ *  ib_alloc_mr
+ *  ib_alloc_mr_integrity
+ *  ib_alloc_xrcd_user
+ *  ib_attach_mcast
+ *  ib_check_mr_status
+ *  ib_close_qp
+ *  ib_create_ah_from_wc
+ *  ib_create_qp
+ *  ib_create_srq_user
+ *  ib_create_wq
+ *  ib_dealloc_pd_user
+ *  ib_dealloc_xrcd_user
+ *  ib_dereg_mr_user
+ *  ib_destroy_cq_user
+ *  ib_destroy_qp_user
+ *  ib_destroy_srq_user
+ *  ib_destroy_wq_user
+ *  ib_detach_mcast
+ *  ib_drain_qp
+ *  ib_drain_rq
+ *  ib_drain_sq
+ *  ib_event_msg
+ *  ib_get_eth_speed
+ *  ib_get_gids_from_rdma_hdr
+ *  ib_get_rdma_header_version
+ *  ib_get_vf_config
+ *  ib_get_vf_guid
+ *  ib_get_vf_stats
+ *  ib_init_ah_attr_from_wc
+ *  ib_map_mr_sg
+ *  ib_map_mr_sg_pi
+ *  ib_modify_qp
+ *  ib_modify_qp_is_ok
+ *  ib_modify_qp_with_udata
+ *  ib_modify_srq
+ *  ib_modify_wq
+ *  ib_open_qp
+ *  ib_query_qp
+ *  ib_query_srq
+ *  ib_rate_to_mbps
+ *  ib_rate_to_mult
+ *  ib_reg_user_mr
+ *  ib_resize_cq
+ *  ib_set_vf_guid
+ *  ib_set_vf_link_state
+ *  ib_sg_to_pages
+ *  ib_wc_status_msg
+ *  mult_to_ib_rate
+ *  rdma_alloc_netdev
+ *  rdma_copy_ah_attr
+ *  rdma_create_ah
+ *  rdma_create_user_ah
+ *  rdma_destroy_ah_attr
+ *  rdma_destroy_ah_user
+ *  rdma_init_netdev
+ *  rdma_modify_ah
+ *  rdma_move_ah_attr
+ *  rdma_move_grh_sgid_attr
+ *  rdma_node_get_transport
+ *  rdma_port_get_link_layer
+ *  rdma_query_ah
+ *  rdma_replace_ah_attr
+ *  rdma_set_cq_moderation
  * Copyright (c) 2004 Mellanox Technologies Ltd.  All rights reserved.
  * Copyright (c) 2004 Infinicon Corporation.  All rights reserved.
  * Copyright (c) 2004 Intel Corporation.  All rights reserved.
@@ -89,6 +179,7 @@ const char *__attribute_const__ ib_event_msg(enum ib_event_type event)
 }
 EXPORT_SYMBOL(ib_event_msg);
 
+// ref: 1.4 vol1 Ch11.4.2.1 Poll for Completion Table 101/102
 static const char * const wc_statuses[] = {
 	[IB_WC_SUCCESS]			= "success",
 	[IB_WC_LOC_LEN_ERR]		= "local length error",
@@ -123,6 +214,7 @@ const char *__attribute_const__ ib_wc_status_msg(enum ib_wc_status status)
 }
 EXPORT_SYMBOL(ib_wc_status_msg);
 
+// IB 中 SDR(Single Data Rate) 是 2.5Gbps
 __attribute_const__ int ib_rate_to_mult(enum ib_rate rate)
 {
 	switch (rate) {
@@ -210,6 +302,7 @@ __attribute_const__ int ib_rate_to_mbps(enum ib_rate rate)
 }
 EXPORT_SYMBOL(ib_rate_to_mbps);
 
+// 获取 transport layer
 __attribute_const__ enum rdma_transport_type
 rdma_node_get_transport(unsigned int node_type)
 {
@@ -223,13 +316,17 @@ rdma_node_get_transport(unsigned int node_type)
 	if (node_type == RDMA_NODE_UNSPECIFIED)
 		return RDMA_TRANSPORT_UNSPECIFIED;
 
-	return RDMA_TRANSPORT_IB;
+	return RDMA_TRANSPORT_IB; // IB, roce, rocev2 都是这里
 }
 EXPORT_SYMBOL(rdma_node_get_transport);
 
+// 获取 link layer
 enum rdma_link_layer rdma_port_get_link_layer(struct ib_device *device, u8 port_num)
 {
 	enum rdma_transport_type lt;
+	// XXX: RoCEv2 设备必须要实现这个, 否则由于返回的 transport_type 是
+	// RDMA_TARNSPORT_IB, 就会被误认为是 IB 设备, 从而导致一些不兼容的行为,
+	// 比如在 RoCEv2 设备上使用 IB 设备的方式来解析地址, 这就很麻烦了
 	if (device->ops.get_link_layer)
 		return device->ops.get_link_layer(device, port_num);
 
