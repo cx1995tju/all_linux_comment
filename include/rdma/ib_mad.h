@@ -570,11 +570,13 @@ typedef void (*ib_mad_recv_handler)(struct ib_mad_agent *mad_agent,
 enum {
 	IB_MAD_USER_RMPP = IB_USER_MAD_USER_RMPP,
 };
+// ref: ib_umad_file
+// ref: ib_register_mad_agent
 struct ib_mad_agent {
 	struct ib_device	*device;
-	struct ib_qp		*qp;
-	ib_mad_recv_handler	recv_handler;
-	ib_mad_send_handler	send_handler;
+	struct ib_qp		*qp;		// 这个 mad agent 用这个 qp 来交互
+	ib_mad_recv_handler	recv_handler;   // recv mad pkt 后调用?
+	ib_mad_send_handler	send_handler;	// send mad pkt 完成后调用 ???
 	void			*context;
 	u32			hi_tid;
 	u32			flags;
@@ -672,6 +674,15 @@ struct ib_mad_reg_req {
  *   MAD.
  * @context: User specified context associated with the registration.
  * @registration_flags: Registration flags to set for this agent
+ *
+ * rmpp_version 不是0, 说明这个 mad agent 会使用 rmpp pkt. 此时内核会为其运行
+ * rmpp 协议, 做重传等事情.
+ *
+ *
+ * 发送报文的时候会根据 mad 报文的信息和 rmpp_version的信息判断 rmpp_active, 进
+ * 而来判断是否要运行 rmpp 协议(针对该报文)
+ *
+ * ref: ib_create_send_mad
  */
 struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 					   u8 port_num,

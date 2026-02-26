@@ -125,7 +125,7 @@ struct rdma_cm_id {
 	struct ib_device	*device;
 	void			*context; // opaque, e.g.: ucma_context
 	struct ib_qp		*qp;
-	rdma_cm_event_handler	 event_handler; // e.g. ucma_event_handler
+	rdma_cm_event_handler	 event_handler; // e.g. ucma_event_handler, cma_listen_handler
 	struct rdma_route	 route; // 存路由信息
 	enum rdma_ucm_port_space ps;
 	enum ib_qp_type		 qp_type;

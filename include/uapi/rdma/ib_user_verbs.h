@@ -412,8 +412,8 @@ struct ib_uverbs_create_cq {
 };
 
 enum ib_uverbs_ex_create_cq_flags {
-	IB_UVERBS_CQ_FLAGS_TIMESTAMP_COMPLETION = 1 << 0,
-	IB_UVERBS_CQ_FLAGS_IGNORE_OVERRUN = 1 << 1,
+	IB_UVERBS_CQ_FLAGS_TIMESTAMP_COMPLETION = 1 << 0, // 要求硬件为每个完成条目打上时间戳
+	IB_UVERBS_CQ_FLAGS_IGNORE_OVERRUN = 1 << 1,       // 防止 CQ 溢出导致整个 HCA 报错
 };
 
 struct ib_uverbs_ex_create_cq {

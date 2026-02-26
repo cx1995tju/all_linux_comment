@@ -2738,7 +2738,7 @@ static int cma_iw_listen(struct rdma_id_private *id_priv, int backlog)
 static int cma_listen_handler(struct rdma_cm_id *id,
 			      struct rdma_cm_event *event)
 {
-	struct rdma_id_private *id_priv = id->context; // 这里提取了个 id 出来, 其 parent id, ref: cma_listen_on_dev
+	struct rdma_id_private *id_priv = id->context; // 这里提取了个 id 出来, 是其 parent id, ref: cma_listen_on_dev
 
 	/* Listening IDs are always destroyed on removal */
 	if (event->event == RDMA_CM_EVENT_DEVICE_REMOVAL)
@@ -2747,7 +2747,7 @@ static int cma_listen_handler(struct rdma_cm_id *id,
 	id->context = id_priv->id.context;
 	id->event_handler = id_priv->id.event_handler;
 	trace_cm_event_handler(id_priv, event);
-	return id_priv->id.event_handler(id, event); // 通过 parent id 的事件将 新 id 返回去了
+	return id_priv->id.event_handler(id, event); // 通过 parent id 的事件将 新 id 返回去了, ucma_event_handler
 }
 
 // 关键是创建一个新的 id, 其 handler 是不一样的
@@ -2777,6 +2777,7 @@ static void cma_listen_on_dev(struct rdma_id_private *id_priv,
 	       rdma_addr_size(cma_src_addr(id_priv)));
 
 	_cma_attach_to_dev(dev_id_priv, cma_dev);
+	// 新的 id 和原始的 parent listen id: id_priv 建立了联系
 	list_add_tail(&dev_id_priv->listen_list, &id_priv->listen_list);
 	cma_id_get(id_priv);
 	dev_id_priv->internal_id = 1;
@@ -4019,7 +4020,7 @@ int rdma_listen(struct rdma_cm_id *id, int backlog)
 			goto err;
 		}
 	} else
-		cma_listen_on_all(id_priv);  // 里面又会递归调用到 rdma_listen()->cma_ib_listen()
+		cma_listen_on_all(id_priv);  // 里面又会递归调用到 rdma_listen()->cma_ib_listen() -> cma_listen_on_dev() -> rdma_listen(), ref cma_listen_on_dev, 递归进来的时候, id 就是新的 id 了, 而不是第一次进来的 parent id
 
 	return 0;
 err:
@@ -4038,6 +4039,8 @@ EXPORT_SYMBOL(rdma_listen);
 // 本质就是根据传入的参数, 在 kernel 里做一些初始化 基本不会失败的
 //
 // 如果 addr 是 any addr 就不需要找一个 dev ? 直接分配或者绑定一个 port 就可以了
+//
+// 主要再填充route.addr.dev_addr 结构
 int rdma_bind_addr(struct rdma_cm_id *id, struct sockaddr *addr)
 {
 	struct rdma_id_private *id_priv;

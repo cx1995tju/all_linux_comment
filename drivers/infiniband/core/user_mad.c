@@ -1,4 +1,20 @@
-/*
+/* 提供 mad 能力给用户态, 通过 umadX 设备文件接口来暴露 ref: umad_fops
+ *
+ * ib_umad_ioctl // 用于注册 mad agent, 这些 agent 可以使用 mad 报文来通信, 用户态通过这个 agent 来表达其关注的 mad 报文. 显然一个 umadX 设备上可以有多个 mad agent, 处理不同的 mad 报文
+ * 通过 ib_mad_agent 概念来表达, 一个 agent 用来处理某个 ib 设备上的某些 mad 种类报文
+ *
+ * 用户态度使用 umad_fops.read/write 来收发 mad 报文
+ *
+ *
+ * 小结:
+ * - ib_client 机制, 为每个 rdma 设备创建对应的 umadX 设备
+ * - 用户态通过 open umadX 设备来获取某个设备上 mad 报文的操作能力
+ *   - ioctl(umadX_fd) 注册 mad agent, 关注某类 mad 报文. mad agent 还保存了 qp 信息(qp0/qp1, qp 的 pd 等, 是否支持 rmpp 等)
+ *   - read/write(umadX_fd) 来收发对应的 mad 报文
+ *
+ *
+ * 注意: 内核态使用 mad 能力的话, 直接用 core/mad.c 里暴露的接口就可以了, 不走这一套流程
+ *
  * Copyright (c) 2004 Topspin Communications.  All rights reserved.
  * Copyright (c) 2005 Voltaire, Inc. All rights reserved.
  * Copyright (c) 2005 Sun Microsystems, Inc. All rights reserved.
@@ -88,6 +104,7 @@ enum {
  * When destroying an ib_umad_device, we drop the module's reference.
  */
 
+// concept of port in umad layer
 struct ib_umad_port {
 	struct cdev           cdev;
 	struct device	      dev;
@@ -104,6 +121,7 @@ struct ib_umad_port {
 	u8                     port_num;
 };
 
+// concept of device in umad layer
 struct ib_umad_device {
 	struct kref kref;
 	struct ib_umad_port ports[];
@@ -112,8 +130,8 @@ struct ib_umad_device {
 struct ib_umad_file {
 	struct mutex		mutex;
 	struct ib_umad_port    *port;
-	struct list_head	recv_list;
-	struct list_head	send_list;
+	struct list_head	recv_list;	// 底层收到报文, 分发给 mad_agent 后, 挂在这里, 然后用户态使用 read() 来取走
+	struct list_head	send_list;      // 用户态 write 操作的报文挂在这里, send 完成的时候通过 send_handler() -> dequeue_send() 取下来释放掉
 	struct list_head	port_list;
 	spinlock_t		send_lock;
 	wait_queue_head_t	recv_wait;
@@ -175,6 +193,7 @@ static struct ib_mad_agent *__get_agent(struct ib_umad_file *file, int id)
 	return file->agents_dead ? NULL : file->agent[id];
 }
 
+// queue pkt 到 recv_wait 上, 来通知用户态. 即通知那些 epoll(umadX_fd) 的进程
 static int queue_packet(struct ib_umad_file *file,
 			struct ib_mad_agent *agent,
 			struct ib_umad_packet *packet)
@@ -198,6 +217,7 @@ static int queue_packet(struct ib_umad_file *file,
 	return ret;
 }
 
+// 一个 packet 要取下来
 static void dequeue_send(struct ib_umad_file *file,
 			 struct ib_umad_packet *packet)
 {
@@ -212,6 +232,7 @@ static void send_handler(struct ib_mad_agent *agent,
 	struct ib_umad_file *file = agent->context;
 	struct ib_umad_packet *packet = send_wc->send_buf->context[0];
 
+	// file->send_list
 	dequeue_send(file, packet);
 	rdma_destroy_ah(packet->msg->ah, RDMA_DESTROY_AH_SLEEPABLE);
 	ib_free_send_mad(packet->msg);
@@ -219,12 +240,13 @@ static void send_handler(struct ib_mad_agent *agent,
 	if (send_wc->status == IB_WC_RESP_TIMEOUT_ERR) {
 		packet->length = IB_MGMT_MAD_HDR;
 		packet->mad.hdr.status = ETIMEDOUT;
-		if (!queue_packet(file, agent, packet))
+		if (!queue_packet(file, agent, packet))	// mad 发送失败了, 通过 queue 一个 pkt 到 recv_list 来通知用户态
 			return;
 	}
 	kfree(packet);
 }
 
+// 从 recv wc 里提取信息, 然后通知用户态
 static void recv_handler(struct ib_mad_agent *agent,
 			 struct ib_mad_send_buf *send_buf,
 			 struct ib_mad_recv_wc *mad_recv_wc)
@@ -367,6 +389,7 @@ static ssize_t copy_send_mad(struct ib_umad_file *file, char __user *buf,
 	return size;
 }
 
+// packet 被 recv_handler 已经挂载到了 recv_list 了
 static ssize_t ib_umad_read(struct file *filp, char __user *buf,
 			    size_t count, loff_t *pos)
 {
@@ -565,6 +588,7 @@ static ssize_t ib_umad_write(struct file *filp, const char __user *buf,
 
 	base_version = ((struct ib_mad_hdr *)&packet->mad.data)->base_version;
 	data_len = count - hdr_size(file) - hdr_len;
+	/* 构造 msg, 还没有发送 */
 	packet->msg = ib_create_send_mad(agent,
 					 be32_to_cpu(packet->mad.hdr.qpn),
 					 packet->mad.hdr.pkey_index, rmpp_active,
@@ -618,7 +642,7 @@ static ssize_t ib_umad_write(struct file *filp, const char __user *buf,
 		spin_lock_irq(&file->send_lock);
 		ret = is_duplicate(file, packet);
 		if (!ret)
-			list_add_tail(&packet->list, &file->send_list);
+			list_add_tail(&packet->list, &file->send_list);	// packet 挂到 send_list
 		spin_unlock_irq(&file->send_lock);
 		if (ret) {
 			ret = -EINVAL;
@@ -661,6 +685,9 @@ static __poll_t ib_umad_poll(struct file *filp, struct poll_table_struct *wait)
 	return mask;
 }
 
+// agent 用来处理 file (umadX, 对应到一个 rdma 设备) 上的某些 mad 报文
+//
+// arg: 描述了这个 agent 会处理的报文
 static int ib_umad_reg_agent(struct ib_umad_file *file, void __user *arg,
 			     int compat_method_mask)
 {
@@ -1047,6 +1074,9 @@ static int ib_umad_close(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+// poll 机制用于通知用户态
+//
+// read/write 用于用户态收发 mad 报文
 static const struct file_operations umad_fops = {
 	.owner		= THIS_MODULE,
 	.read		= ib_umad_read,
@@ -1122,6 +1152,7 @@ static int ib_umad_sm_close(struct inode *inode, struct file *filp)
 	return ret;
 }
 
+// sm: subnet management ????
 static const struct file_operations umad_sm_fops = {
 	.owner	 = THIS_MODULE,
 	.open	 = ib_umad_sm_open,
@@ -1419,6 +1450,7 @@ static int __init ib_umad_init(void)
 {
 	int ret;
 
+	// 占据一个 device id 范围, 可以在 sysfs device 里呈现对应的 device 文件
 	ret = register_chrdev_region(base_umad_dev,
 				     IB_UMAD_NUM_FIXED_MINOR * 2,
 				     umad_class.name);
@@ -1427,6 +1459,7 @@ static int __init ib_umad_init(void)
 		goto out;
 	}
 
+	// 占据一个 device id 范围, 可以在 sysfs device 里呈现对应的 device 文件
 	ret = alloc_chrdev_region(&dynamic_umad_dev, 0,
 				  IB_UMAD_NUM_DYNAMIC_MINOR * 2,
 				  umad_class.name);
@@ -1436,6 +1469,7 @@ static int __init ib_umad_init(void)
 	}
 	dynamic_issm_dev = dynamic_umad_dev + IB_UMAD_NUM_DYNAMIC_MINOR;
 
+	// /sys/devices/virtual/infiniband_mad
 	ret = class_register(&umad_class);
 	if (ret) {
 		pr_err("couldn't create class infiniband_mad\n");
@@ -1446,6 +1480,7 @@ static int __init ib_umad_init(void)
 	if (ret)
 		goto out_class;
 
+	// InfiniBand Subnet Management
 	ret = ib_register_client(&issm_client);
 	if (ret)
 		goto out_client;

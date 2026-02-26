@@ -678,6 +678,10 @@ out_unlock:
 
 static const struct vm_operations_struct rdma_umap_ops;
 
+// 建立 vma 和 file(open uverbsX 得到的) 的关系, 给 vma 赋予一个 vm_ops
+// 后续 该vma 上 page fault 的时候会调用 vm_ops 里的 fault 方法
+//
+// 根据厂商的不同, 通过 mmap 来映射 doorbell, cq ring 等操作
 static int ib_uverbs_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	struct ib_uverbs_file *file = filp->private_data;
@@ -692,6 +696,8 @@ static int ib_uverbs_mmap(struct file *filp, struct vm_area_struct *vma)
 		goto out;
 	}
 	vma->vm_ops = &rdma_umap_ops;
+	// vendor 会根据 ucontext 判断要不要现在就映射, 还是等 page fault 的时候才映射
+	// 等 page fault 的时候, 就是直接取分配物理内存页面了
 	ret = ucontext->device->ops.mmap(ucontext, vma);
 out:
 	srcu_read_unlock(&file->device->disassociate_srcu, srcu_key);
@@ -766,6 +772,7 @@ static void rdma_umap_close(struct vm_area_struct *vma)
  * Once the zap_vma_ptes has been called touches to the VMA will come here and
  * we return a dummy writable zero page for all the pfns.
  */
+// page fault 的时候, 就是直接取分配物理内存页面了
 static vm_fault_t rdma_umap_fault(struct vm_fault *vmf)
 {
 	struct ib_uverbs_file *ufile = vmf->vma->vm_file->private_data;
@@ -1150,8 +1157,10 @@ static int ib_uverbs_add_one(struct ib_device *device)
 		goto err_uapi;
 
 	uverbs_dev->dev.devt = base;
+	// %/sys/devices/virtual/infiniband_verbs/uverbs0
 	dev_set_name(&uverbs_dev->dev, "uverbs%d", uverbs_dev->devnum);
 
+	// 然后根据 device 是否支持 mmap 为其选择 fops
 	cdev_init(&uverbs_dev->cdev,
 		  device->ops.mmap ? &uverbs_mmap_fops : &uverbs_fops);
 	uverbs_dev->cdev.owner = THIS_MODULE;
@@ -1244,6 +1253,9 @@ static char *uverbs_devnode(struct device *dev, umode_t *mode)
 	return kasprintf(GFP_KERNEL, "infiniband/%s", dev_name(dev));
 }
 
+// 创建: /sys/devices/virtual/infiniband_verbs/ 目录
+// 然后注册 uverbs_client, 在 rdma 设备被添加的时候, 为该设备的每个 port 在上述路径创建一个 uverbsX 设备
+// 然后用户态通过这个设备文件和内核 ib_uverbs.ko 交互
 static int __init ib_uverbs_init(void)
 {
 	int ret;
@@ -1310,6 +1322,7 @@ static void __exit ib_uverbs_cleanup(void)
 				 IB_UVERBS_NUM_FIXED_MINOR);
 	unregister_chrdev_region(dynamic_uverbs_dev,
 				 IB_UVERBS_NUM_DYNAMIC_MINOR);
+	// 等待内存相关工作完成(???)
 	mmu_notifier_synchronize();
 }
 

@@ -942,6 +942,7 @@ static ssize_t ucma_query_addr(struct ucma_context *ctx,
 
 	memset(&resp, 0, sizeof resp);
 
+	// bind addr 的时候 route 里应该保存了对应的信息
 	addr = (struct sockaddr *) &ctx->cm_id->route.addr.src_addr;
 	resp.src_size = rdma_addr_size(addr);
 	memcpy(&resp.src_addr, addr, resp.src_size);
@@ -1816,7 +1817,7 @@ static ssize_t (*ucma_cmd_table[])(struct ucma_file *file,
 	[RDMA_USER_CM_CMD_JOIN_IP_MCAST] = ucma_join_ip_multicast,
 	[RDMA_USER_CM_CMD_LEAVE_MCAST]	 = ucma_leave_multicast,
 	[RDMA_USER_CM_CMD_MIGRATE_ID]	 = ucma_migrate_id,
-	[RDMA_USER_CM_CMD_QUERY]	 = ucma_query, // 新内核支持 AF_IB, 用这个了
+	[RDMA_USER_CM_CMD_QUERY]	 = ucma_query, // 新内核支持 AF_IB, 用这个了, librdmacm 会检测内核是否支持 AF_IB, 支持的话就用这个接口, ref: librdmacm:af_ib_support, rdma_query()
 	[RDMA_USER_CM_CMD_BIND]		 = ucma_bind,	// 新内核都支持 AF_IB 了, 会用这个, ref: librdmacm:af_ib_support, rdma_bind_addr()
 	[RDMA_USER_CM_CMD_RESOLVE_ADDR]	 = ucma_resolve_addr,
 	[RDMA_USER_CM_CMD_JOIN_MCAST]	 = ucma_join_multicast

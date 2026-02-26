@@ -1,4 +1,10 @@
-/* 
+/* 核心结构:
+ * - ib_device
+ * - ib_client
+ * - ib_device_ops
+ *
+ *
+ *
  * - ib_device v.s. ib_port_data
  *   - ib_device 理解为一张硬件网卡. 其上的硬件资源是共享的
  *   - ib_port_data, 表示一个 ib_port, 依附于 ib_device 设备. 网络是隔离的. 但是硬件资源是共享的.
@@ -284,9 +290,10 @@ enum ib_device_cap_flags {
 	// ref: 1.4 vol1 ch11.2.3.3 The maximum number of outstanding WOrk Requests...
 	IB_DEVICE_SRQ_RESIZE			= (1 << 13),
 
-	// [QP] notify next N completions. CQ 可以设置 N 次完成后再发送通知, 支持减少中断
-	// vol1 ch11.4.2.2
+	// [QP] notify next N completions.
+	// ??? Ch11.4.2.2 可以要求硬件在下一个特定 type 的 entry 被添加到 CQ 后发起通知(???)
 	IB_DEVICE_N_NOTIFY_CQ			= (1 << 14),
+
 
 	/*
 	 * This device supports a per-device lkey or stag that can be
@@ -295,8 +302,13 @@ enum ib_device_cap_flags {
 	 * instead of use the local_dma_lkey flag in the ib_pd structure,
 	 * which will always contain a usable lkey.
 	 */
-	// [MEM] 支持 per-device local_dma_lkey, 不用注册都可以做 local DMA
-	// ULP 需要通过 pd->local_dma_lkey  来判断这个 cap 是否支持
+	// [MEM] 
+	//
+	// 硬件支持一个 per-device lkey/stag, 使用这个可以直接访问系统中的任何
+	// 本地内存, 不需要注册 MR.
+	//
+	// ULP 需要通过 pd->local_dma_lkey 来获取 l_key, 进而来判断这个 cap 是否支持
+	// ref: ch10.6.4.3.2 Reserved L_key (???)
 	IB_DEVICE_LOCAL_DMA_LKEY		= (1 << 15),
 
 	/* Reserved, old SEND_W_INV		= (1 << 16),*/
@@ -313,8 +325,6 @@ enum ib_device_cap_flags {
 	// 针对 IPonIB 场景
 	// [Offload] 支持 UD 模式下, 插入 UDP/TCP checksum, 并且验证收到的消息的 checksum
 	IB_DEVICE_UD_IP_CSUM			= (1 << 18),
-
-	// UD TSO
 	IB_DEVICE_UD_TSO			= (1 << 19),
 
 	// [QP] 支持 XRC
@@ -342,7 +352,7 @@ enum ib_device_cap_flags {
 	// [MEM] 支持 type 2b mw
 	IB_DEVICE_MEM_WINDOW_TYPE_2B		= (1 << 24),
 
-	// [Offload] 支持 RC 上的 ip csum offload
+	// [Offload] (???) for ip on ib ???
 	IB_DEVICE_RC_IP_CSUM			= (1 << 25),
 
 	/* Deprecated. Please use IB_RAW_PACKET_CAP_IP_CSUM. */
@@ -355,18 +365,20 @@ enum ib_device_cap_flags {
 	 * of I/O operations with single completion queue managed
 	 * by hardware.
 	 */
-	// [QP] ???
+	// [QP] ??? 支持硬件管理的单个 CQ 里的 IO 操作的同步, 比如: 必须某个 WQE 完成后, 才开始另一个 WQE
 	IB_DEVICE_CROSS_CHANNEL			= (1 << 27),
 
 	// [Flow steering] 支持 managed flow steering
+	// 硬件可编程逻辑 ???
 	IB_DEVICE_MANAGED_FLOW_STEERING		= (1 << 29),
 
+	// T10-DIF. 存储相关, 一种端到端数据保护的标准技术
 	IB_DEVICE_INTEGRITY_HANDOVER		= (1 << 30),
 
 	// [MEM] ODP: on demand paging
 	IB_DEVICE_ON_DEMAND_PAGING		= (1ULL << 31),
 
-	// [MEM] 支持带 gap 的 scatter-gather list
+	// [MEM] 支持带 gap 的 scatter-gather list 注册为一个 MR
 	IB_DEVICE_SG_GAPS_REG			= (1ULL << 32),
 
 	// 设备是 vf
@@ -376,7 +388,8 @@ enum ib_device_cap_flags {
 	// [Offload] raw pkt 支持 scatter fcs
 	IB_DEVICE_RAW_SCATTER_FCS		= (1ULL << 34),
 
-	// 支持 OPA, omni-path
+	// 支持 OPA, omni-path. 这个设备是 Intel Omni-path 架构
+	// linux 内核里的 rdma netdev 统一了: IB, RoCE, iwarp, opa 等设备
 	IB_DEVICE_RDMA_NETDEV_OPA		= (1ULL << 35),
 
 	/* The device supports padding incoming writes to cacheline. */
@@ -387,12 +400,14 @@ enum ib_device_cap_flags {
 	IB_DEVICE_ALLOW_USER_UNREG		= (1ULL << 37),
 };
 
+// atomic 能力的范围
 enum ib_atomic_cap {
 	IB_ATOMIC_NONE,
 	IB_ATOMIC_HCA,
 	IB_ATOMIC_GLOB
 };
 
+// odp: on-demand paging 相关
 enum ib_odp_general_cap_bits {
 	IB_ODP_SUPPORT		= 1 << 0,
 	IB_ODP_SUPPORT_IMPLICIT = 1 << 1,
@@ -427,6 +442,18 @@ struct ib_rss_caps {
 	u32 max_rwq_indirection_table_size;
 };
 
+/* tag matching
+ *
+ * MPI 中发送端每个消息会携带一个 tag, 接收端会先下发一个接收意图: 比如希望接收
+ * 节点 A 且 Tag 为 99 的消息. 如果硬件支持卸载的话, 硬件维护 tag list, 硬件直
+ * 接做匹配, 匹配成功后再做 DMA.
+ *
+ * MPI 消息小的时候使用 Eager 模式, 直接发数据, 如果消息大, 为了避免接收端
+ * buffer 溢出, 会使用 Rendezvous 模式. 发送端先发送 "准备好了" 的请求, 接收端
+ * tag 匹配成功后, 回复 “可以发送” 的确认, 发送端才开始发数据
+ *
+ * IB_TM_CAP_RNDV_RC, 表示硬件可以支持自动处理这个握手过程
+ */
 enum ib_tm_cap_flags {
 	/*  Support tag matching with rendezvous offload for RC transport */
 	IB_TM_CAP_RNDV_RC = 1 << 0,
@@ -445,21 +472,28 @@ struct ib_tm_caps {
 	u32 max_sge;
 };
 
+// ref: 1.4 vol1 Ch11.2.8.1
 struct ib_cq_init_attr {
-	unsigned int	cqe;
-	u32		comp_vector;
-	u32		flags;
+	unsigned int	cqe;		// cq 大小
+	u32		comp_vector;    // 该 CQ 对应的 CPU 中断向量, ref: ib_device.num_comp_vectors
+	u32		flags;		// 控制 CQ 的特殊行为, ref: %IB_UVERBS_CQ_FLAGS_IGNORE_OVERRUN
 };
 
+// ref: struct ib_uverbs_ex_modify_cq.
+// ib_uverbs_ex_modify_cq() -> rdma_set_cq_moderation() -> modify_cq()
 enum ib_cq_attr_mask {
-	IB_CQ_MODERATE = 1 << 0,
+	IB_CQ_MODERATE = 1 << 0,	// 减少中断
 };
 
 struct ib_cq_caps {
-	u16     max_cq_moderation_count;
-	u16     max_cq_moderation_period;
+	u16     max_cq_moderation_count;	// 中断聚合数目
+	u16     max_cq_moderation_period;	// 中断间隔
 };
 
+/* dm: device memory
+ *
+ * 从网卡申请一块内存使用
+ */
 struct ib_dm_mr_attr {
 	u64		length;
 	u64		offset;
@@ -475,56 +509,84 @@ struct ib_dm_alloc_attr {
 struct ib_device_attr {
 	u64			fw_ver;
 	__be64			sys_image_guid;
-	u64			max_mr_size;
-	u64			page_size_cap;
+
+	u64			max_mr_size;        // 支持的最大 MR 的长度, 一般设置为 2^64 - 1
+	u64			page_size_cap;      // 支持的 page 大小的 bitmask (4KB|2MB|1GB)
+
 	u32			vendor_id;
 	u32			vendor_part_id;
 	u32			hw_ver;
-	int			max_qp;
-	int			max_qp_wr;
-	u64			device_cap_flags;
-	int			max_send_sge;
-	int			max_recv_sge;
-	int			max_sge_rd;
-	int			max_cq;
-	int			max_cqe;
-	int			max_mr;
-	int			max_pd;
-	int			max_qp_rd_atom;
-	int			max_ee_rd_atom;
-	int			max_res_rd_atom;
-	int			max_qp_init_rd_atom;
-	int			max_ee_init_rd_atom;
+
+	int			max_qp;             // 设备支持的最大 QP 数量
+	int			max_qp_wr;          // 单个 QP 中最大的 outstanding WR 数量.
+
+	u64			device_cap_flags;   // ref: ib_device_cap_flags
+
+	int			max_send_sge;       // send Work Request 里 scatter/gather entry 的数目
+	int			max_recv_sge;       // recv Work Request 里 scatter/gather entry 的数目
+	int			max_sge_rd;         // read WR 里最大的 sge 数量
+
+	int			max_cq;             // hca 支持的最大 cq 数量
+	int			max_cqe;            // cq 里最大 cqe 数量
+
+	int			max_mr;             // hca 支持的最大 mr 数量
+
+	int			max_pd;             // hca 支持的最大 protection domain 数量
+
+	int			max_qp_rd_atom;     // max num of outstanding RDMA Reads/atomic operations with this hca as the target per CQ
+	int			max_ee_rd_atom;     // max num of outstanding RDMA Reads/atomic operations with this hca as the target  per EE
+	int			max_res_rd_atom;    // The maximum number  of resources used for RDMA Reads & atomic operations by  this HCA with this HCA as the target
+	int			max_qp_init_rd_atom;// max depth per qp for initiation of RDMA Read & atomic ops by this HCA
+	int			max_ee_init_rd_atom;// max depth per ee for initiation of RDMA Read & atomic ops by this HCA
 	enum ib_atomic_cap	atomic_cap;
 	enum ib_atomic_cap	masked_atomic_cap;
-	int			max_ee;
-	int			max_rdd;
-	int			max_mw;
+
+	int			max_ee;             // max num of ee
+	int			max_rdd;            // max num of rdd
+	int			max_mw;             // max number memory window
+
 	int			max_raw_ipv6_qp;
 	int			max_raw_ethy_qp;
+
 	int			max_mcast_grp;
 	int			max_mcast_qp_attach;
 	int			max_total_mcast_qp_attach;
-	int			max_ah;
-	int			max_srq;
-	int			max_srq_wr;
-	int			max_srq_sge;
-	unsigned int		max_fast_reg_page_list_len;
-	unsigned int		max_pi_fast_reg_page_list_len;
-	u16			max_pkeys;
-	u8			local_ca_ack_delay;
+
+	int			max_ah;             // max address handle
+
+	int			max_srq;            // max srq
+	int			max_srq_wr;         // srq 里 max wr
+	int			max_srq_sge;        // srq 里的每个 wr 里最多的 sg entries 数目
+
+	unsigned int		max_fast_reg_page_list_len;    // fast reg 时 page list 长度
+	unsigned int		max_pi_fast_reg_page_list_len; // protection information(e.g. T10 DIF) 场景下的 fast reg 限制
+
+	u16			max_pkeys;          // partition key 的最大数量. (Pkey)
+
+	u8			local_ca_ack_delay; // 本地 hca 对 reponse 报文的 ack 延迟, 计算公式 Tiime = 4.096 * 2^delay us. 帮助协议栈计算 timeout
+
 	int			sig_prot_cap;
 	int			sig_guard_cap;
+
 	struct ib_odp_caps	odp_caps;
-	uint64_t		timestamp_mask;
-	uint64_t		hca_core_clock; /* in KHZ */
+
+	uint64_t		timestamp_mask; // timestamp counter bitmask
+	uint64_t		hca_core_clock; /* in KHZ */ // 两者放到一起可以计算时间
+
 	struct ib_rss_caps	rss_caps;
-	u32			max_wq_type_rq;
+
+	u32			max_wq_type_rq;	               // (???)
+
 	u32			raw_packet_caps; /* Use ib_raw_packet_caps enum */
+
 	struct ib_tm_caps	tm_caps;
+
 	struct ib_cq_caps       cq_caps;
-	u64			max_dm_size;
+
+	u64			max_dm_size; // device memory 最大可用容量, 为 0 表示, 不支持使用板载内存
+
 	/* Max entries for sgl for optimized performance per READ */
+	// read 操作里总的 SGL 深度. 有些硬件支持 nested/indirect scatter list, 或者 mw 级别的 sgl (??)
 	u32			max_sgl_rd;
 };
 
@@ -589,6 +651,7 @@ static inline enum opa_mtu opa_mtu_int_to_enum(int mtu)
 		return ((enum opa_mtu)ib_mtu_int_to_enum(mtu));
 }
 
+// ref 1.4 Table 164 PortInfo
 enum ib_port_state {
 	IB_PORT_NOP		= 0,
 	IB_PORT_DOWN		= 1,
@@ -598,6 +661,7 @@ enum ib_port_state {
 	IB_PORT_ACTIVE_DEFER	= 5
 };
 
+// ref 1.4 Table 164 PortInfo
 enum ib_port_phys_state {
 	IB_PORT_PHYS_STATE_SLEEP = 1,
 	IB_PORT_PHYS_STATE_POLLING = 2,
@@ -608,6 +672,7 @@ enum ib_port_phys_state {
 	IB_PORT_PHYS_STATE_PHY_TEST = 7,
 };
 
+// ref 1.4 Table 164 PortInfo
 enum ib_port_width {
 	IB_WIDTH_1X	= 1,
 	IB_WIDTH_2X	= 16,
@@ -628,6 +693,7 @@ static inline int ib_width_enum_to_int(enum ib_port_width width)
 	}
 }
 
+// ref 1.4 Table 164 PortInfo LinkSpeedExtActive
 enum ib_port_speed {
 	IB_SPEED_SDR	= 1,
 	IB_SPEED_DDR	= 2,
@@ -734,6 +800,7 @@ static inline struct rdma_hw_stats *rdma_alloc_hw_stats_struct(
 					| RDMA_CORE_CAP_IB_CM   \
 					| RDMA_CORE_CAP_AF_IB   \
 					| RDMA_CORE_CAP_ETH_AH)
+// 说明一个 RoCEv2 设备至少要支持这些 cap
 #define RDMA_CORE_PORT_IBA_ROCE_UDP_ENCAP			\
 					(RDMA_CORE_CAP_PROT_ROCE_UDP_ENCAP \
 					| RDMA_CORE_CAP_IB_MAD  \
@@ -880,6 +947,7 @@ union rdma_network_hdr {
 	};
 };
 
+// 24b
 #define IB_QPN_MASK		0xFFFFFF
 
 enum {
@@ -1398,6 +1466,8 @@ enum ib_mw_type {
 };
 
 // IB Spec vol1 ch11.2.5.2
+// 结合 ib_qp_attr_mask 来看, 需要设置哪些属性.
+// 通过 modify_qp() 调用到底层 driver 的时候, 可以判断哪些属性底层 driver 是不支持的.
 struct ib_qp_attr {
 	enum ib_qp_state	qp_state;
 	enum ib_qp_state	cur_qp_state;
@@ -2434,10 +2504,10 @@ struct ib_device_ops {
 	u32 uverbs_abi_ver;
 	unsigned int uverbs_no_driver_id_binding:1;
 
-	// Mandatory
+	// Mandatory, ref: ib_uverbs_post_send
 	int (*post_send)(struct ib_qp *qp, const struct ib_send_wr *send_wr,
 			 const struct ib_send_wr **bad_send_wr);
-	// Mandatory
+	// Mandatory, ref: ib_uverbs_post_recv
 	int (*post_recv)(struct ib_qp *qp, const struct ib_recv_wr *recv_wr,
 			 const struct ib_recv_wr **bad_recv_wr);
 	void (*drain_rq)(struct ib_qp *qp);
@@ -2582,7 +2652,7 @@ struct ib_device_ops {
 	int (*destroy_qp)(struct ib_qp *qp, struct ib_udata *udata);
 	// Mandatory
 	int (*create_cq)(struct ib_cq *cq, const struct ib_cq_init_attr *attr,
-			 struct ib_udata *udata);
+			 struct ib_udata *udata); // udata: 用户态和底层驱动交换信息
 	int (*modify_cq)(struct ib_cq *cq, u16 cq_count, u16 cq_period);
 	// Mandatory
 	int (*destroy_cq)(struct ib_cq *cq, struct ib_udata *udata);
@@ -2824,7 +2894,7 @@ struct ib_device {
 	 */
 	struct ib_port_data *port_data; // ref: alloc_port_data, 注意从 1 开始, 0 号位置不使用
 
-	int			      num_comp_vectors;
+	int			      num_comp_vectors; // 支持的 completion vector 数目
 
 	union {
 		struct device		dev;

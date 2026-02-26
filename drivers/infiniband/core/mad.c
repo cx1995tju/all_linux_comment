@@ -221,7 +221,19 @@ EXPORT_SYMBOL(ib_response_mad);
  *
  * Context: Process context.
  *
- * 注册一个 agent, 处理某种类型的 mad 报文, mad 报文来自网络中的一些 manager. 比如: infiniband 中的 subnet manager
+ * 注册一个 agent, 处理某种类型的 mad 报文, mad 报文来自网络中的一些 manager.
+ * 比如: infiniband 中的 subnet manager
+ *
+ *
+ * rmpp_version 不是0, 说明这个 mad agent 会使用 rmpp pkt. 此时内核会为其运行
+ * rmpp 协议, 做重传等事情.
+ *
+ * 发送报文的时候会根据 mad 报文的信息和 rmpp_version的信息判断 rmpp_active, 进
+ * 而来判断是否要运行 rmpp 协议(针对该报文)
+ *
+ * ref: ib_create_send_mad
+ *
+ * 使用 rmpp 的 mgmt_class 也是固定的(???), ref: ib_is_mad_class_rmpp
  */
 struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 					   u8 port_num,
@@ -249,7 +261,7 @@ struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 		return ERR_PTR(-EPROTONOSUPPORT);
 
 	/* Validate parameters */
-	qpn = get_spl_qp_index(qp_type);
+	qpn = get_spl_qp_index(qp_type); // QP0 or QP1
 	if (qpn == -1) {
 		dev_dbg_ratelimited(&device->dev, "%s: invalid QP Type %d\n",
 				    __func__, qp_type);
@@ -388,6 +400,7 @@ struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 	/* Now, fill in the various structures */
 	mad_agent_priv->qp_info = &port_priv->qp_info[qpn];
 	mad_agent_priv->reg_req = reg_req;
+	// 内核默认开启了, 但是同时需要用户给的 mad 报文里也开启 rmpp (???)
 	mad_agent_priv->agent.rmpp_version = rmpp_version;
 	mad_agent_priv->agent.device = device;
 	mad_agent_priv->agent.recv_handler = recv_handler;
@@ -1041,6 +1054,8 @@ int ib_send_mad(struct ib_mad_send_wr_private *mad_send_wr)
 	spin_lock_irqsave(&qp_info->send_queue.lock, flags);
 	if (qp_info->send_queue.count < qp_info->send_queue.max_active) {
 		trace_ib_mad_ib_send_mad(mad_send_wr, qp_info);
+		// mad_agent 中的 qp 指示了怎么发送, QP0 / QP1 IB_QPT_GSI IB_QPT_SMI
+		// ref: ib_umad_reg_agent -> ib_register_mad_agent
 		ret = ib_post_send(mad_agent->qp, &mad_send_wr->send_wr.wr,
 				   NULL);
 		list = &qp_info->send_queue.list;
@@ -1069,6 +1084,7 @@ int ib_send_mad(struct ib_mad_send_wr_private *mad_send_wr)
  * ib_post_send_mad - Posts MAD(s) to the send queue of the QP associated
  *  with the registered client
  */
+// 这里才是 去发送 mad 报文
 int ib_post_send_mad(struct ib_mad_send_buf *send_buf,
 		     struct ib_mad_send_buf **bad_send_buf)
 {

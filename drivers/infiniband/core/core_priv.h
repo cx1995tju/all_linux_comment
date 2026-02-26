@@ -47,6 +47,7 @@
 #include "restrack.h"
 
 /* Total number of ports combined across all struct ib_devices's */
+// 一个机器上最多 8192 个 rdma port
 #define RDMA_MAX_PORTS 8192
 
 struct pkey_index_qp_list {

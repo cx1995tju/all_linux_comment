@@ -37,7 +37,7 @@
 struct rdma_dev_addr {
 	unsigned char src_dev_addr[MAX_ADDR_LEN]; // ref: rdma_copy_src_l2_addr, src mac
 	unsigned char dst_dev_addr[MAX_ADDR_LEN]; // dst mac
-	unsigned char broadcast[MAX_ADDR_LEN];
+	unsigned char broadcast[MAX_ADDR_LEN];	// 对于 ethernet, 是 全 ff(???), 所以 p_key 都一样, ref: ib_addr_set_pkey
 	unsigned short dev_type;
 	int bound_dev_if;
 	enum rdma_transport_type transport;
@@ -93,6 +93,7 @@ static inline u16 ib_addr_get_pkey(struct rdma_dev_addr *dev_addr)
 	return ((u16)dev_addr->broadcast[8] << 8) | (u16)dev_addr->broadcast[9];
 }
 
+// ref: struct rdma_dev_addr
 static inline void ib_addr_set_pkey(struct rdma_dev_addr *dev_addr, u16 pkey)
 {
 	dev_addr->broadcast[8] = pkey >> 8;
