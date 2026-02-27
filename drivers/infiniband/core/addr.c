@@ -773,6 +773,8 @@ static void process_one_req(struct work_struct *_work)
 // 有了路由信息后, 设置下 dev_addr 信息, dev_addr 信息记录了出口设备的信息
 //
 // 查路由, 主要是获取出口设备信息, 保存到 dev_addr 中
+//
+// 找出口信息
 int rdma_resolve_ip(struct sockaddr *src_addr, const struct sockaddr *dst_addr,
 		    struct rdma_dev_addr *addr, unsigned long timeout_ms,
 		    void (*callback)(int status, struct sockaddr *src_addr,
@@ -945,6 +947,7 @@ int rdma_addr_find_l2_eth_by_grh(const union ib_gid *sgid,
 	dev_addr.sgid_attr = sgid_attr;
 
 	init_completion(&ctx.comp);
+	// 查路由, 然后将出口信息保存到 dev_addr 里
 	ret = rdma_resolve_ip((struct sockaddr *)&sgid_addr,
 			      (struct sockaddr *)&dgid_addr, &dev_addr, 1000,
 			      resolve_cb, true, &ctx);

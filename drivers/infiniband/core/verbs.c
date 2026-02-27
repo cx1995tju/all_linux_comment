@@ -390,6 +390,8 @@ struct ib_pd *__ib_alloc_pd(struct ib_device *device, unsigned int flags,
 		mr_access_flags |= IB_ACCESS_REMOTE_READ | IB_ACCESS_REMOTE_WRITE;
 	}
 
+	// 不支持 IB_DEVICE_LOCAL_DMA_LKEY 的设备, 就需要为 PD 申请一个
+	// internal MR 来提供 local_dma_lkey 和 unsafe_global_rkey
 	if (mr_access_flags) {
 		struct ib_mr *mr;
 
@@ -464,7 +466,7 @@ void rdma_copy_ah_attr(struct rdma_ah_attr *dest,
 {
 	*dest = *src;
 	if (dest->grh.sgid_attr)
-		rdma_hold_gid_attr(dest->grh.sgid_attr);
+		rdma_hold_gid_attr(dest->grh.sgid_attr);	// 增加 sgid 的引用计数
 }
 EXPORT_SYMBOL(rdma_copy_ah_attr);
 
@@ -514,18 +516,22 @@ EXPORT_SYMBOL(rdma_move_ah_attr);
 static int rdma_check_ah_attr(struct ib_device *device,
 			      struct rdma_ah_attr *ah_attr)
 {
+	// port num 是合法的
 	if (!rdma_is_port_valid(device, ah_attr->port_num))
 		return -EINVAL;
 
+	// rocev2 要进来的, rocev2 的 handle 必须有 grh, 即 ip 层信息
 	if ((rdma_is_grh_required(device, ah_attr->port_num) ||
 	     ah_attr->type == RDMA_AH_ATTR_TYPE_ROCE) &&
 	    !(ah_attr->ah_flags & IB_AH_GRH))
 		return -EINVAL;
 
-	if (ah_attr->grh.sgid_attr) {
+	if (ah_attr->grh.sgid_attr) { // rocev2 中就是 L3 地址信息
 		/*
 		 * Make sure the passed sgid_attr is consistent with the
 		 * parameters
+		 *
+		 * 简单的一致性检查
 		 */
 		if (ah_attr->grh.sgid_attr->index != ah_attr->grh.sgid_index ||
 		    ah_attr->grh.sgid_attr->port_num != ah_attr->port_num)
@@ -538,6 +544,8 @@ static int rdma_check_ah_attr(struct ib_device *device,
  * If the ah requires a GRH then ensure that sgid_attr pointer is filled in.
  * On success the caller is responsible to call rdma_unfill_sgid_attr().
  */
+// 仅仅填充 ah_attr 的 grh->sgid_attr 
+// sgid_attr 来自于设备
 static int rdma_fill_sgid_attr(struct ib_device *device,
 			       struct rdma_ah_attr *ah_attr,
 			       const struct ib_gid_attr **old_sgid_attr)
@@ -600,6 +608,7 @@ rdma_update_sgid_attr(struct rdma_ah_attr *ah_attr,
 	return NULL;
 }
 
+// 根据 ah_attr 里的参数来创建 ah 对象
 static struct ib_ah *_rdma_create_ah(struct ib_pd *pd,
 				     struct rdma_ah_attr *ah_attr,
 				     u32 flags,
@@ -630,6 +639,7 @@ static struct ib_ah *_rdma_create_ah(struct ib_pd *pd,
 	init_attr.flags = flags;
 	init_attr.xmit_slave = xmit_slave;
 
+	// 让底层设备去解析, 来填充了
 	ret = device->ops.create_ah(ah, &init_attr, udata);
 	if (ret) {
 		kfree(ah);
@@ -651,6 +661,7 @@ static struct ib_ah *_rdma_create_ah(struct ib_pd *pd,
  * The address handle is used to reference a local or global destination
  * in all UD QP post sends.
  */
+// 利用 device 信息, 填充下 ah_attr下, 然后让底层设备去创建 ah 对象
 struct ib_ah *rdma_create_ah(struct ib_pd *pd, struct rdma_ah_attr *ah_attr,
 			     u32 flags)
 {
@@ -662,6 +673,7 @@ struct ib_ah *rdma_create_ah(struct ib_pd *pd, struct rdma_ah_attr *ah_attr,
 	ret = rdma_fill_sgid_attr(pd->device, ah_attr, &old_sgid_attr);
 	if (ret)
 		return ERR_PTR(ret);
+	// 如果是依附于 bond 设备的 rdma 设备, 那么要看看这个 ah 里应该从哪个 slave 走
 	slave = rdma_lag_get_ah_roce_slave(pd->device, ah_attr,
 					   (flags & RDMA_CREATE_AH_SLEEPABLE) ?
 					   GFP_KERNEL : GFP_ATOMIC);
@@ -670,7 +682,7 @@ struct ib_ah *rdma_create_ah(struct ib_pd *pd, struct rdma_ah_attr *ah_attr,
 		return (void *)slave;
 	}
 	ah = _rdma_create_ah(pd, ah_attr, flags, NULL, slave);
-	rdma_lag_put_ah_roce_slave(slave);
+	rdma_lag_put_ah_roce_slave(slave); // 释放引用计数
 	rdma_unfill_sgid_attr(ah_attr, old_sgid_attr);
 	return ah;
 }
@@ -709,6 +721,7 @@ struct ib_ah *rdma_create_user_ah(struct ib_pd *pd,
 		}
 	}
 
+	// 多一个 udata 咯, udata 是 userspace 和底层 drive 直接通信的信息
 	ah = _rdma_create_ah(pd, ah_attr, RDMA_CREATE_AH_SLEEPABLE,
 			     udata, NULL);
 
@@ -718,6 +731,7 @@ out:
 }
 EXPORT_SYMBOL(rdma_create_user_ah);
 
+// native ib 里 version 字段也填 6
 int ib_get_rdma_header_version(const union rdma_network_hdr *hdr)
 {
 	const struct iphdr *ip4h = (struct iphdr *)&hdr->roce4grh;
@@ -776,6 +790,7 @@ struct find_gid_index_context {
 	enum ib_gid_type gid_type;
 };
 
+// 一个 filter: 比较 ctx 和 gid/gid_attr 是否匹配
 static bool find_gid_index(const union ib_gid *gid,
 			   const struct ib_gid_attr *gid_attr,
 			   void *context)
@@ -794,6 +809,7 @@ static bool find_gid_index(const union ib_gid *gid,
 	return ctx->vlan_id == vlan_id;
 }
 
+// 在 device:port_num 这个设备上, 根据 vlan_id 和 gid_type 来查找 sgid_attr
 static const struct ib_gid_attr *
 get_sgid_attr_from_eth(struct ib_device *device, u8 port_num,
 		       u16 vlan_id, const union ib_gid *sgid,
@@ -806,6 +822,7 @@ get_sgid_attr_from_eth(struct ib_device *device, u8 port_num,
 				       &context);
 }
 
+// 从 grh header 里解析出 sgid 和 dgid
 int ib_get_gids_from_rdma_hdr(const union rdma_network_hdr *hdr,
 			      enum rdma_network_type net_type,
 			      union ib_gid *sgid, union ib_gid *dgid)
@@ -843,6 +860,9 @@ EXPORT_SYMBOL(ib_get_gids_from_rdma_hdr);
 /* Resolve destination mac address and hop limit for unicast destination
  * GID entry, considering the source GID entry as well.
  * ah_attribute must have have valid port_num, sgid_index.
+ *
+ * 解析 ah_attr 中的地址信息, 然后查询路由等, 找到 dstmac 和 hop limit, 并且保
+ * 存到 ah_attr 里
  */
 static int ib_resolve_unicast_gid_dmac(struct ib_device *device,
 				       struct rdma_ah_attr *ah_attr)
@@ -881,6 +901,9 @@ static int ib_resolve_unicast_gid_dmac(struct ib_device *device,
  *
  * On success the caller is responsible to call rdma_destroy_ah_attr on the
  * attr.
+ *
+ * Datagram 服务 Work Completion 里要携带 remote 地址和 QP 信息. 另外 UD 服务在
+ * recv buffer 前 40B 里还会存放 GRH 头
  */
 int ib_init_ah_attr_from_wc(struct ib_device *device, u8 port_num,
 			    const struct ib_wc *wc, const struct ib_grh *grh,
@@ -1012,6 +1035,7 @@ void rdma_destroy_ah_attr(struct rdma_ah_attr *ah_attr)
 }
 EXPORT_SYMBOL(rdma_destroy_ah_attr);
 
+// 收到 UD 报文后, 需要找到对方地址, 来回复的时候, 有用
 struct ib_ah *ib_create_ah_from_wc(struct ib_pd *pd, const struct ib_wc *wc,
 				   const struct ib_grh *grh, u8 port_num)
 {
@@ -1171,6 +1195,7 @@ int ib_destroy_srq_user(struct ib_srq *srq, struct ib_udata *udata)
 	if (atomic_read(&srq->usecnt))
 		return -EBUSY;
 
+	// 多一个 udata, 传递底层 driver 了
 	ret = srq->device->ops.destroy_srq(srq, udata);
 	if (ret)
 		return ret;
@@ -1200,6 +1225,7 @@ static void __ib_shared_qp_event_handler(struct ib_event *event, void *context)
 	spin_unlock_irqrestore(&qp->device->qp_open_list_lock, flags);
 }
 
+// for xrc
 static struct ib_qp *__ib_open_qp(struct ib_qp *real_qp,
 				  void (*event_handler)(struct ib_event *, void *),
 				  void *qp_context)
@@ -1234,6 +1260,7 @@ static struct ib_qp *__ib_open_qp(struct ib_qp *real_qp,
 	return qp;
 }
 
+// for xrc
 struct ib_qp *ib_open_qp(struct ib_xrcd *xrcd,
 			 struct ib_qp_open_attr *qp_open_attr)
 {
@@ -1255,6 +1282,7 @@ struct ib_qp *ib_open_qp(struct ib_xrcd *xrcd,
 }
 EXPORT_SYMBOL(ib_open_qp);
 
+// for xrc
 static struct ib_qp *create_xrc_qp_user(struct ib_qp *qp,
 					struct ib_qp_init_attr *qp_init_attr)
 {
@@ -1293,6 +1321,8 @@ static struct ib_qp *create_xrc_qp_user(struct ib_qp *qp,
  *   the actual capabilities of the created QP.
  *
  * NOTE: for user qp use ib_create_qp_user with valid udata!
+ * 
+ * 大部分 QP 的属性不是创建的时候提供的, 而是 modify_qp 的时候设置的
  */
 struct ib_qp *ib_create_qp(struct ib_pd *pd,
 			   struct ib_qp_init_attr *qp_init_attr)
@@ -1388,6 +1418,7 @@ err:
 }
 EXPORT_SYMBOL(ib_create_qp);
 
+// qp 状态机
 static const struct {
 	int			valid;
 	enum ib_qp_attr_mask	req_param[IB_QPT_MAX];
@@ -1729,6 +1760,8 @@ EXPORT_SYMBOL(ib_modify_qp_is_ok);
  * ib_resolve_eth_dmac() resolves destination mac address and L3 hop limit It
  * returns 0 on success or appropriate error code. It initializes the
  * necessary ah_attr fields when call is successful.
+ *
+ * 解析地址保存到 ah_attr 中
  */
 static int ib_resolve_eth_dmac(struct ib_device *device,
 			       struct rdma_ah_attr *ah_attr)
@@ -1761,6 +1794,8 @@ static bool is_qp_type_connected(const struct ib_qp *qp)
 
 /**
  * IB core internal function to perform QP attributes modification.
+ *
+ * 最核心的函数
  */
 static int _ib_modify_qp(struct ib_qp *qp, struct ib_qp_attr *attr,
 			 int attr_mask, struct ib_udata *udata)
@@ -1849,6 +1884,7 @@ static int _ib_modify_qp(struct ib_qp *qp, struct ib_qp_attr *attr,
 	    ((attr_mask & IB_QP_STATE) && attr->qp_state == IB_QPS_INIT))
 		rdma_counter_bind_qp_auto(qp, attr->port_num);
 
+	// XXX: HERE IT IS
 	ret = ib_security_modify_qp(qp, attr, attr_mask, udata);
 	if (ret)
 		goto out;
@@ -1883,6 +1919,8 @@ out_av:
  * @udata: pointer to user's input output buffer information
  *   are being modified.
  * It returns 0 on success and returns appropriate error code on error.
+ *
+ * 多一些 udata 咯
  */
 int ib_modify_qp_with_udata(struct ib_qp *ib_qp, struct ib_qp_attr *attr,
 			    int attr_mask, struct ib_udata *udata)
@@ -1965,6 +2003,7 @@ int ib_query_qp(struct ib_qp *qp,
 }
 EXPORT_SYMBOL(ib_query_qp);
 
+// for xrc (???)
 int ib_close_qp(struct ib_qp *qp)
 {
 	struct ib_qp *real_qp;
@@ -1987,6 +2026,7 @@ int ib_close_qp(struct ib_qp *qp)
 }
 EXPORT_SYMBOL(ib_close_qp);
 
+// for xrc
 static int __ib_destroy_shared_qp(struct ib_qp *qp)
 {
 	struct ib_xrcd *xrcd;
@@ -2110,6 +2150,7 @@ struct ib_cq *__ib_create_cq(struct ib_device *device,
 }
 EXPORT_SYMBOL(__ib_create_cq);
 
+// 控制 cq 的中断频率
 int rdma_set_cq_moderation(struct ib_cq *cq, u16 cq_count, u16 cq_period)
 {
 	if (cq->shared)
@@ -2787,6 +2828,8 @@ static void ib_drain_qp_done(struct ib_cq *cq, struct ib_wc *wc)
 
 /*
  * Post a WR and block until its completion is reaped for the SQ.
+ *
+ * 排空的本质是插入一个新的, 然后等待这个新的被处理
  */
 static void __ib_drain_sq(struct ib_qp *qp)
 {
@@ -2987,7 +3030,11 @@ int rdma_init_netdev(struct ib_device *device, u8 port_num,
 }
 EXPORT_SYMBOL(rdma_init_netdev);
 
-void __rdma_block_iter_start(struct ib_block_iter *biter,
+// 按固定 block size（通常是页大小）遍历一个 DMA scatterlist
+//
+// 把一个 sglist 拆成 “对齐的固定大小 block”, 一般用于
+// MR 注册, MTT/PBL, 填充 HCA page list 构造, ODP page walk
+void __rdma_block_iter_start(struct ib_block_iter *biter, /* 迭代器 */
 			     struct scatterlist *sglist, unsigned int nents,
 			     unsigned long pgsz)
 {

@@ -86,6 +86,7 @@ static struct net_device *rdma_get_xmit_slave_udp(struct ib_device *device,
 	struct net_device *slave;
 	struct sk_buff *skb;
 
+	// 构造一个 skb, 看看会从 bond 设备下面哪一个 slave 走
 	skb = rdma_build_skb(device, master, ah_attr, flags);
 	if (!skb)
 		return ERR_PTR(-ENOMEM);

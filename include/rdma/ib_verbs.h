@@ -199,6 +199,7 @@ rdma_node_get_transport(unsigned int node_type);
 
 // rdma_network_type 和 ib_gid_type 有对应关系
 // ref: ib_network_to_gid_type, rdma_gid_attr_network_type
+// 注意 native grh 头和 ipv6 头一模一样的
 enum rdma_network_type {
 	RDMA_NETWORK_IB,
 	RDMA_NETWORK_ROCE_V1,
@@ -309,6 +310,7 @@ enum ib_device_cap_flags {
 	//
 	// ULP 需要通过 pd->local_dma_lkey 来获取 l_key, 进而来判断这个 cap 是否支持
 	// ref: ch10.6.4.3.2 Reserved L_key (???)
+	// ref: mlx4_ib_add() 可以看出来就是 rsvd l_key, 这个是各个产商自己定义的
 	IB_DEVICE_LOCAL_DMA_LKEY		= (1 << 15),
 
 	/* Reserved, old SEND_W_INV		= (1 << 16),*/
@@ -785,6 +787,7 @@ static inline struct rdma_hw_stats *rdma_alloc_hw_stats_struct(
 #define RDMA_CORE_CAP_PROT_RAW_PACKET   0x01000000
 #define RDMA_CORE_CAP_PROT_USNIC        0x02000000
 
+// RoCEv2 里的 ip 头也被看作 GRH 么?
 #define RDMA_CORE_PORT_IB_GRH_REQUIRED (RDMA_CORE_CAP_IB_GRH_REQUIRED \
 					| RDMA_CORE_CAP_PROT_ROCE     \
 					| RDMA_CORE_CAP_PROT_ROCE_UDP_ENCAP)
@@ -919,7 +922,8 @@ struct ib_event_handler {
 	} while (0)
 
 struct ib_global_route {
-	const struct ib_gid_attr *sgid_attr; // local 地址
+	// ref: rdma_fill_sgid_attr
+	const struct ib_gid_attr *sgid_attr; // local 地址, 来自 ib_device.port_data->cache.ib_gid_table->data_vec
 	union ib_gid	dgid; // 目的地址
 	u32		flow_label;
 	u8		sgid_index;
@@ -941,6 +945,8 @@ union rdma_network_hdr {
 	struct {
 		/* The IB spec states that if it's IPv4, the header
 		 * is located in the last 20 bytes of the header.
+		 *
+		 * ref: 1.4 vol1 A17.4.5.2
 		 */
 		u8		reserved[20];
 		struct iphdr	roce4grh;
@@ -1052,6 +1058,7 @@ struct ib_mr_status {
  */
 __attribute_const__ enum ib_rate mult_to_ib_rate(int mult);
 
+// ref: _rdma_create_ah
 struct rdma_ah_init_attr {
 	struct rdma_ah_attr *ah_attr;
 	u32 flags;
@@ -1061,7 +1068,7 @@ struct rdma_ah_init_attr {
 enum rdma_ah_attr_type {
 	RDMA_AH_ATTR_TYPE_UNDEFINED,
 	RDMA_AH_ATTR_TYPE_IB,
-	RDMA_AH_ATTR_TYPE_ROCE,
+	RDMA_AH_ATTR_TYPE_ROCE, // rocev2 在这里???
 	RDMA_AH_ATTR_TYPE_OPA, // intel omni-path arch
 };
 
@@ -1080,8 +1087,9 @@ struct opa_ah_attr {
 	bool			make_grd;
 };
 
+// ref: rdma_check_ah_attr
 struct rdma_ah_attr {
-	struct ib_global_route	grh;
+	struct ib_global_route	grh;		// rocev2 中, 这里记录  L3 地址
 	u8			sl;
 	u8			static_rate;
 	u8			port_num;
@@ -1089,7 +1097,7 @@ struct rdma_ah_attr {
 	enum rdma_ah_attr_type type;
 	union {
 		struct ib_ah_attr ib;
-		struct roce_ah_attr roce;
+		struct roce_ah_attr roce;	// roce 用 mac 的, 这里记录 L2 地址
 		struct opa_ah_attr opa;
 	};
 };
@@ -1203,11 +1211,12 @@ enum ib_srq_attr_mask {
 };
 
 struct ib_srq_attr {
-	u32	max_wr;
-	u32	max_sge;
-	u32	srq_limit;
+	u32	max_wr;    // srq 容量
+	u32	max_sge;   // srq 里每个 wr 里最多的 sge 数目
+	u32	srq_limit; // srq 里的 WQE 小于这个数量的时候, 触发事件, 让 consumer 赶紧补充
 };
 
+// ref: ib_srq
 struct ib_srq_init_attr {
 	void		      (*event_handler)(struct ib_event *, void *);
 	void		       *srq_context;
@@ -1309,8 +1318,8 @@ enum ib_qp_create_flags {
 /*
  * Note: users may not call ib_close_qp or ib_destroy_qp from the event_handler
  * callback to destroy the passed in QP.
+ * 大部分 QP 的属性不是创建的时候提供的, 而是 modify_qp 的时候设置的
  */
-
 struct ib_qp_init_attr {
 	/* Consumer's event_handler callback must not block */
 	void                  (*event_handler)(struct ib_event *, void *);
@@ -1719,6 +1728,8 @@ struct ib_uobject {
 	const struct uverbs_api_object *uapi_object;
 };
 
+
+// udata 是 userspace 和底层 drive 直接通信的信息
 struct ib_udata {
 	const void __user *inbuf;
 	void __user *outbuf;
@@ -1727,8 +1738,8 @@ struct ib_udata {
 };
 
 struct ib_pd {
-	u32			local_dma_lkey;
-	u32			flags;
+	u32			local_dma_lkey; // ref: IB_DEVICE_LOCAL_DMA_LKEY
+	u32			flags;	        // ref: ib_pd_flags
 	struct ib_device       *device;
 	struct ib_uobject      *uobject;
 	atomic_t          	usecnt; /* count all resources */
@@ -1751,6 +1762,7 @@ struct ib_xrcd {
 };
 
 // address handle
+// ref: _rdma_create_ah
 struct ib_ah {
 	struct ib_device	*device;
 	struct ib_pd		*pd;
@@ -1801,6 +1813,11 @@ struct ib_cq {
 	struct rdma_restrack_entry res;
 };
 
+/* ref
+ * - vol1 ch10.2.9
+ * - vol1 ch10.8.3.2 SRQ Ordering Rule
+ * - vol1 ch11.2.3
+ * */
 struct ib_srq {
 	struct ib_device       *device;
 	struct ib_pd	       *pd;
@@ -1948,6 +1965,11 @@ struct ib_qp_security {
 /*
  * @max_write_sge: Maximum SGE elements per RDMA WRITE request.
  * @max_read_sge:  Maximum SGE elements per RDMA READ request.
+ *
+ * ref 1.4 vol1 ch10.2.4
+ * ref 1.4 vol1 ch10.8.2 submit WR to WQ
+ * ref 1.4 vol1 ch10.8.3.3 SQ Ordering Rule
+ * ref 1.4 vol1 ch11.2.5
  */
 struct ib_qp {
 	struct ib_device       *device;
@@ -1998,10 +2020,14 @@ struct ib_dm {
 	atomic_t	   usecnt;
 };
 
+/* ref:
+ * 1.4 vol1 ch10.6
+ * 1.4 vol1 ch11.2.10
+ * */
 struct ib_mr {
 	struct ib_device  *device;
 	struct ib_pd	  *pd;
-	u32		   lkey;
+	u32		   lkey;	// 关键
 	u32		   rkey;
 	u64		   iova;
 	u64		   length;
@@ -2361,7 +2387,7 @@ enum ib_mad_result {
 struct ib_port_cache {
 	u64		      subnet_prefix;
 	struct ib_pkey_cache  *pkey;
-	struct ib_gid_table   *gid;
+	struct ib_gid_table   *gid;	// gid table, ref: rdma_gid_table
 	u8                     lmc;
 	enum ib_port_state     port_state;
 };
@@ -2839,7 +2865,8 @@ struct ib_device_ops {
 	int (*query_ucontext)(struct ib_ucontext *context,
 			      struct uverbs_attr_bundle *attrs);
 
-	DECLARE_RDMA_OBJ_SIZE(ib_ah);
+	// vendor 要初始化各个结构的大小
+	DECLARE_RDMA_OBJ_SIZE(ib_ah); // size_ib_ah
 	DECLARE_RDMA_OBJ_SIZE(ib_counters);
 	DECLARE_RDMA_OBJ_SIZE(ib_cq);
 	DECLARE_RDMA_OBJ_SIZE(ib_mw);

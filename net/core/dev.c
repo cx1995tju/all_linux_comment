@@ -8068,7 +8068,7 @@ struct net_device *netdev_get_xmit_slave(struct net_device *dev,
 
 	if (!ops->ndo_get_xmit_slave)
 		return NULL;
-	return ops->ndo_get_xmit_slave(dev, skb, all_slaves);
+	return ops->ndo_get_xmit_slave(dev, skb, all_slaves); // ref: bond_xmit_get_slave
 }
 EXPORT_SYMBOL(netdev_get_xmit_slave);
 

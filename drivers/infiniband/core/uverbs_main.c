@@ -1158,6 +1158,7 @@ static int ib_uverbs_add_one(struct ib_device *device)
 	else
 		base = IB_UVERBS_BASE_DEV + devnum;
 
+	// 利用device 找到底层 driver 的接口, 然后将信息保存到 uverbs_dev 里么?
 	ret = ib_uverbs_create_uapi(device, uverbs_dev);
 	if (ret)
 		goto err_uapi;

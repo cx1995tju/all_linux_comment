@@ -85,7 +85,7 @@ struct roce_gid_ndev_storage {
 struct ib_gid_table_entry {
 	struct kref			kref;
 	struct work_struct		del_work;
-	struct ib_gid_attr		attr;
+	struct ib_gid_attr		attr;	// 保存了 gid 信息
 	void				*context;
 	/* Store the ndev pointer to release reference later on in
 	 * call_rcu context because by that time gid_table_entry
@@ -96,6 +96,7 @@ struct ib_gid_table_entry {
 	enum gid_table_entry_state	state;
 };
 
+// ref: 1.4 vol1 Ch10.2.2.1, 第 0 个 entry 包含一个ro invariabnt GID
 struct ib_gid_table {
 	int				sz;
 	/* In RoCE, adding a GID to the table requires:
