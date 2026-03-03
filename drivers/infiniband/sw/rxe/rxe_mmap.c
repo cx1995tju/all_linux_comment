@@ -49,6 +49,7 @@ static void rxe_vma_close(struct vm_area_struct *vma)
 	kref_put(&ip->ref, rxe_mmap_release);
 }
 
+// dummy ops
 static const struct vm_operations_struct rxe_vm_ops = {
 	.open = rxe_vma_open,
 	.close = rxe_vma_close,
@@ -59,6 +60,8 @@ static const struct vm_operations_struct rxe_vm_ops = {
  * @context: the IB user context of the process making the mmap() call
  * @vma: the VMA to be initialized
  * Return zero if the mmap is OK. Otherwise, return an errno.
+ *
+ * ref: do_mmap_info
  */
 int rxe_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 {
@@ -75,6 +78,7 @@ int rxe_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 	 */
 	spin_lock_bh(&rxe->pending_lock);
 	list_for_each_entry_safe(ip, pp, &rxe->pending_mmaps, pending_mmaps) {
+		// offset 和 ctx 都需要匹配上
 		if (context != ip->context || (__u64)offset != ip->info.offset)
 			continue;
 
@@ -97,6 +101,7 @@ found_it:
 	list_del_init(&ip->pending_mmaps);
 	spin_unlock_bh(&rxe->pending_lock);
 
+	// 为这个 vma 分配 va 空间, 哪里分配了物理地址 ???
 	ret = remap_vmalloc_range(vma, ip->obj, 0);
 	if (ret) {
 		pr_err("err %d from remap_vmalloc_range\n", ret);
@@ -112,6 +117,12 @@ done:
 
 /*
  * Allocate information for rxe_mmap
+ *
+ * 保存一些 mmap 信息, 等待后续用户 mmap 的时候做处理
+ *
+ * ref: rdma-core:rxe_create_cq()
+ *
+ * obj 就是分配的空间
  */
 struct rxe_mmap_info *rxe_create_mmap_info(struct rxe_dev *rxe, u32 size,
 					   struct ib_udata *udata, void *obj)
@@ -139,7 +150,7 @@ struct rxe_mmap_info *rxe_create_mmap_info(struct rxe_dev *rxe, u32 size,
 
 	INIT_LIST_HEAD(&ip->pending_mmaps);
 	ip->info.size = size;
-	ip->context =
+	ip->context = /* XXX: 这里是关键记录了 udata */
 		container_of(udata, struct uverbs_attr_bundle, driver_udata)
 			->context;
 	ip->obj = obj;

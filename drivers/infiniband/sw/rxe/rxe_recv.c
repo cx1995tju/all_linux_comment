@@ -1,3 +1,6 @@
+/* 就一个接口: rxe_recv() 收到报文后, 注入这个函数进行 rocev2 协议处理
+ *
+ * */ 
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
  * Copyright (c) 2016 Mellanox Technologies Ltd. All rights reserved.
@@ -30,7 +33,7 @@ static int check_type_state(struct rxe_dev *rxe, struct rxe_pkt_info *pkt,
 		break;
 	case IB_QPT_UD:
 	case IB_QPT_SMI:
-	case IB_QPT_GSI:
+	case IB_QPT_GSI: // SMI/GSI 只能接收 UD 报文
 		if (unlikely(!(pkt->opcode & IB_OPCODE_UD))) {
 			pr_warn_ratelimited("bad qp type\n");
 			goto err1;
@@ -221,9 +224,9 @@ err1:
 static inline void rxe_rcv_pkt(struct rxe_pkt_info *pkt, struct sk_buff *skb)
 {
 	if (pkt->mask & RXE_REQ_MASK)
-		rxe_resp_queue_pkt(pkt->qp, skb);
+		rxe_resp_queue_pkt(pkt->qp, skb); // 是一个 rdma 请求包
 	else
-		rxe_comp_queue_pkt(pkt->qp, skb);
+		rxe_comp_queue_pkt(pkt->qp, skb); // 是 req 的回包, 所以要产生 completion
 }
 
 static void rxe_rcv_mcast_pkt(struct rxe_dev *rxe, struct sk_buff *skb)
@@ -340,6 +343,7 @@ void rxe_rcv(struct sk_buff *skb)
 	__be32 *icrcp;
 	u32 calc_icrc, pack_icrc;
 
+	// 收集 pkt 关联的 ib 信息
 	pkt->offset = 0;
 
 	if (unlikely(skb->len < pkt->offset + RXE_BTH_BYTES))

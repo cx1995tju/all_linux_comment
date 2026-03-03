@@ -39,6 +39,7 @@ err1:
 	return -EINVAL;
 }
 
+// tasklet 用来处理 completion
 static void rxe_send_complete(struct tasklet_struct *t)
 {
 	struct rxe_cq *cq = from_tasklet(cq, t, comp_task);
@@ -67,6 +68,8 @@ int rxe_cq_from_init(struct rxe_dev *rxe, struct rxe_cq *cq, int cqe,
 		return -ENOMEM;
 	}
 
+	// softroce 都是通过 mmpa 将 cq 的信息暴露给用户态的
+	// 返回 mmap 的 offset 和 size, 用户在 mmap(off, size)
 	err = do_mmap_info(rxe, uresp ? &uresp->mi : NULL, udata,
 			   cq->queue->buf, cq->queue->buf_size, &cq->queue->ip);
 	if (err) {

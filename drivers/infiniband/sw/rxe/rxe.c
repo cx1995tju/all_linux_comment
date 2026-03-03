@@ -1,3 +1,26 @@
+/* 模块的入口: rxe_module_init
+ * 就做一件事情, 支持 rdma link 操作. 后续用户使用 rdma link 创建 softroce 设备
+ * 的时候, 才是关键.
+ *
+ *
+ * 设备的创建: rxe_add() -> rxe_register_device(). 
+ * - 结构体的分配
+ * - ops 的设置: ib_set_device_ops
+ * - 和 netdev 的关联: ib_device_set_netdev
+ * - sysfs 系统
+ * - 注册到 ib 子系统: ib_register_device
+ *
+ *
+ *
+ * 提供的接口: rxe_dev_ops
+ *
+ *
+ *
+ * 小结:
+ * 本文件主要就是 device 层面的一些分配和初始化工作, 提供一些 device 层面的接口
+ *
+ *
+ * */
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
  * Copyright (c) 2016 Mellanox Technologies Ltd. All rights reserved.
@@ -38,6 +61,7 @@ void rxe_dealloc(struct ib_device *ib_dev)
 }
 
 /* initialize rxe device parameters */
+// 大部分参数都是 hardcode 的
 static void rxe_init_device_param(struct rxe_dev *rxe)
 {
 	rxe->max_inline_data			= RXE_MAX_INLINE_DATA;
@@ -45,7 +69,7 @@ static void rxe_init_device_param(struct rxe_dev *rxe)
 	rxe->attr.vendor_id			= RXE_VENDOR_ID;
 	rxe->attr.max_mr_size			= RXE_MAX_MR_SIZE;
 	rxe->attr.page_size_cap			= RXE_PAGE_SIZE_CAP;
-	rxe->attr.max_qp			= RXE_MAX_QP;
+	rxe->attr.max_qp			= RXE_MAX_QP; // 65536
 	rxe->attr.max_qp_wr			= RXE_MAX_QP_WR;
 	rxe->attr.device_cap_flags		= RXE_DEVICE_CAP_FLAGS;
 	rxe->attr.max_send_sge			= RXE_MAX_SGE;
@@ -103,6 +127,8 @@ static void rxe_init_port_param(struct rxe_port *port)
 
 /* initialize port state, note IB convention that HCA ports are always
  * numbered from 1
+ *
+ * softroce 设备永远只有一个 port
  */
 static void rxe_init_ports(struct rxe_dev *rxe)
 {

@@ -98,6 +98,7 @@
 #define IB_QP1_QKEY	0x80010000
 #define IB_QP_SET_QKEY	0x80000000
 
+// rocev2 场景 pkey 没什么用, 可以完全固定用默认值
 #define IB_DEFAULT_PKEY_PARTIAL 0x7FFF
 #define IB_DEFAULT_PKEY_FULL	0xFFFF
 

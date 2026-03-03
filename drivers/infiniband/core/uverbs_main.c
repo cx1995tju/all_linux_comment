@@ -347,6 +347,7 @@ const struct file_operations uverbs_event_fops = {
 	.llseek	 = no_llseek,
 };
 
+// 用于和用户态进行异步通知机制的
 const struct file_operations uverbs_async_event_fops = {
 	.owner	 = THIS_MODULE,
 	.read	 = ib_uverbs_async_event_read,

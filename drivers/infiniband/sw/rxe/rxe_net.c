@@ -1,3 +1,12 @@
+/* 三件事情:
+ * - 从 eth 设备上将 rocev2 报文接入过来, 创建一个 udp tunnel, 通过 rxe_udp_encap_recv 接收报文
+ * - 一个 notifier 监控 netdevice 事件
+ * - 一些报文操作的接口
+ *     - rxe_udp_encap_recv() -> rxe_rcv()
+ *     - 报文初始化: rxe_init_packet, rxe_send
+ *
+ * */ 
+//
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
  * Copyright (c) 2016 Mellanox Technologies Ltd. All rights reserved.
@@ -167,7 +176,7 @@ static int rxe_udp_encap_recv(struct sock *sk, struct sk_buff *skb)
 	struct udphdr *udph;
 	struct net_device *ndev = skb->dev;
 	struct net_device *rdev = ndev;
-	struct rxe_dev *rxe = rxe_get_dev_from_net(ndev);
+	struct rxe_dev *rxe = rxe_get_dev_from_net(ndev);	// 这里 get 了, 所以后面要 put
 	struct rxe_pkt_info *pkt = SKB_TO_PKT(skb);
 
 	if (!rxe && is_vlan_dev(rdev)) {
@@ -190,7 +199,7 @@ static int rxe_udp_encap_recv(struct sock *sk, struct sk_buff *skb)
 	pkt->mask = RXE_GRH_MASK;
 	pkt->paylen = be16_to_cpu(udph->len) - sizeof(*udph);
 
-	rxe_rcv(skb);
+	rxe_rcv(skb); // 进入 rocev2 的报文处理逻辑
 
 	/*
 	 * FIXME: this is in the wrong place, it needs to be done when pkt is
@@ -381,6 +390,7 @@ int rxe_prepare(struct rxe_pkt_info *pkt, struct sk_buff *skb, u32 *crc)
 	return err;
 }
 
+// skb 被释放的时候的 destructor
 static void rxe_skb_tx_dtor(struct sk_buff *skb)
 {
 	struct sock *sk = skb->sk;
@@ -429,6 +439,7 @@ void rxe_loopback(struct sk_buff *skb)
 	rxe_rcv(skb);
 }
 
+// 发包的时候用的 ??
 struct sk_buff *rxe_init_packet(struct rxe_dev *rxe, struct rxe_av *av,
 				int paylen, struct rxe_pkt_info *pkt)
 {
@@ -465,6 +476,7 @@ struct sk_buff *rxe_init_packet(struct rxe_dev *rxe, struct rxe_av *av,
 
 	skb_reserve(skb, hdr_len + LL_RESERVED_SPACE(ndev));
 
+	// XXX
 	/* FIXME: hold reference to this netdev until life of this skb. */
 	skb->dev	= ndev;
 	rcu_read_unlock();
@@ -513,6 +525,7 @@ int rxe_net_add(const char *ibdev_name, struct net_device *ndev)
 	return 0;
 }
 
+// XXX: 重要, event 的分发
 static void rxe_port_event(struct rxe_dev *rxe,
 			   enum ib_event_type event)
 {

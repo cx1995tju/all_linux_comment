@@ -938,6 +938,8 @@ static int ib_uverbs_dealloc_mw(struct uverbs_attr_bundle *attrs)
 	return uobj_perform_destroy(UVERBS_OBJECT_MW, cmd.mw_handle, attrs);
 }
 
+
+// 给用户态分配一个交互通道(关联到 fd 的)
 static int ib_uverbs_create_comp_channel(struct uverbs_attr_bundle *attrs)
 {
 	struct ib_uverbs_create_comp_channel	   cmd;
@@ -1977,6 +1979,8 @@ static void *alloc_wr(size_t wr_size, __u32 num_sge)
 			 num_sge * sizeof (struct ib_sge), GFP_KERNEL);
 }
 
+// 为什么会提供 post_send 这种数据面接口给用户态, 这部分不应该被 bypass 么.
+// 从 rdma-core 的代码看, 可能是为了兼容老的硬件, 一些老的硬件没有办法完全 bypass 内核
 static int ib_uverbs_post_send(struct uverbs_attr_bundle *attrs)
 {
 	struct ib_uverbs_post_send      cmd;

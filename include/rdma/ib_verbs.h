@@ -820,7 +820,7 @@ static inline struct rdma_hw_stats *rdma_alloc_hw_stats_struct(
 #define RDMA_CORE_PORT_USNIC		(RDMA_CORE_CAP_PROT_USNIC)
 
 struct ib_port_attr {
-	u64			subnet_prefix;
+	u64			subnet_prefix;	// rocev2 下就是 ipv6 的前缀, ref: __ib_query_port(), 临时从 gid 里提取的
 	enum ib_port_state	state;
 	enum ib_mtu		max_mtu;
 	enum ib_mtu		active_mtu;
@@ -828,7 +828,7 @@ struct ib_port_attr {
 	int			gid_tbl_len;
 	unsigned int		ip_gids:1;
 	/* This is the value from PortInfo CapabilityMask, defined by IBA */
-	u32			port_cap_flags;
+	u32			port_cap_flags; // rocev2 设置为 RDMA_CORE_CAP_PROT_ROCE_UDP_ENCAP
 	u32			max_msg_sz;
 	u32			bad_pkey_cntr;
 	u32			qkey_viol_cntr;
@@ -1012,18 +1012,36 @@ __attribute_const__ int ib_rate_to_mbps(enum ib_rate rate);
  * enum ib_mr_type - memory region type
  * @IB_MR_TYPE_MEM_REG:       memory region that is used for
  *                            normal registration
+ *                            - SG 之间不能有洞, 即 SG[0] SG[1] SG[2] ... 必须拼接为连续的 iova
+ *                            - 收到 ib_map_mr_sg() 规则限制
+ *                            - 内核态使用这个 flag
+ *
  * @IB_MR_TYPE_SG_GAPS:       memory region that is capable to
  *                            register any arbitrary sg lists (without
  *                            the normal mr constraints - see
  *                            ib_map_mr_sg)
+ *                            - SG 之间可以有空洞
+ *
+ *
  * @IB_MR_TYPE_DM:            memory region that is used for device
  *                            memory registration
+ *                            - device memory
+ *
+ *
  * @IB_MR_TYPE_USER:          memory region that is used for the user-space
  *                            application
+ *                            - 用户态使用这个 flag, userspace 进程空间, ref: ib_uverbs_reg_mr()
+ *
+ *
  * @IB_MR_TYPE_DMA:           memory region that is used for DMA operations
  *                            without address translations (VA=PA)
+ *                            - VA = PA
+ *
+ *
+ *
  * @IB_MR_TYPE_INTEGRITY:     memory region that is used for
  *                            data integrity operations
+ *                            - 用于 T10 DIF/DIX 场景. 硬件会自动校验 CRC 等
  */
 enum ib_mr_type {
 	IB_MR_TYPE_MEM_REG,
@@ -1697,6 +1715,7 @@ struct ib_rdmacg_object {
 #endif
 };
 
+// userspace open(uverbsX) 的时候分配一个
 struct ib_ucontext {
 	struct ib_device       *device;
 	struct ib_uverbs_file  *ufile;
@@ -1785,8 +1804,8 @@ enum ib_poll_context {
 struct ib_cq {
 	struct ib_device       *device;
 	struct ib_ucq_object   *uobject;
-	ib_comp_handler   	comp_handler;
-	void                  (*event_handler)(struct ib_event *, void *);
+	ib_comp_handler   	comp_handler; // ib_uverbs_comp_handler, rds_ib_cq_comp_handler_send
+	void                  (*event_handler)(struct ib_event *, void *); // ib_uverbs_cq_event_handler, rds_ib_cq_event_handler
 	void                   *cq_context;
 	int               	cqe;
 	unsigned int		cqe_used;
@@ -2541,6 +2560,7 @@ struct ib_device_ops {
 	void (*drain_sq)(struct ib_qp *qp);
 	// Mandatory
 	int (*poll_cq)(struct ib_cq *cq, int num_entries, struct ib_wc *wc);
+	// 没人用
 	int (*peek_cq)(struct ib_cq *cq, int wc_cnt);
 	// Mandatory
 	int (*req_notify_cq)(struct ib_cq *cq, enum ib_cq_notify_flags flags);
@@ -2553,11 +2573,12 @@ struct ib_device_ops {
 			   const struct ib_grh *in_grh,
 			   const struct ib_mad *in_mad, struct ib_mad *out_mad,
 			   size_t *out_mad_size, u16 *out_mad_pkey_index);
-	// Mandatory
+	// Mandatory, userspace 会用
 	int (*query_device)(struct ib_device *device,
 			    struct ib_device_attr *device_attr,
 			    struct ib_udata *udata);
-	// ib_modify_device
+	// ib_modify_device, 用户态好像不用, uverbs 没有暴露这个命令, 只有从 sysfs 的角度暴露了个接口
+	// ref: node_desc_store()
 	int (*modify_device)(struct ib_device *device, int device_modify_mask,
 			     struct ib_device_modify *device_modify);
 	void (*get_dev_fw_str)(struct ib_device *device, char *str);
@@ -2566,7 +2587,7 @@ struct ib_device_ops {
 	// Mandatory
 	int (*query_port)(struct ib_device *device, u8 port_num,
 			  struct ib_port_attr *port_attr);
-	// ib_modify_port
+	// ib_modify_port, 没有直接暴露给用户态的
 	int (*modify_port)(struct ib_device *device, u8 port_num,
 			   int port_modify_mask,
 			   struct ib_port_modify *port_modify);
@@ -2576,10 +2597,12 @@ struct ib_device_ops {
 	 * structure to avoid cache line misses when accessing struct ib_device
 	 * in fast paths.
 	 */
-	// Mandatory
+	// Mandatory, 也没有通过 uverbs 暴露出去
 	int (*get_port_immutable)(struct ib_device *device, u8 port_num,
 				  struct ib_port_immutable *immutable);
-	// XXX: ref: rdma_port_get_link_layer() rdma_node_get_transport() rocev2 设备必须要实现这个, 不然拿到的 link layer 会出错的
+
+	// XXX: ref: rdma_port_get_link_layer() rdma_node_get_transport()
+	// rocev2 设备必须要实现这个, 不然拿到的 link layer 会出错的
 	enum rdma_link_layer (*get_link_layer)(struct ib_device *device,
 					       u8 port_num);
 	/**
@@ -2638,6 +2661,7 @@ struct ib_device_ops {
 	// ib_query_pkey
 	int (*query_pkey)(struct ib_device *device, u8 port_num, u16 index,
 			  u16 *pkey);
+	// ref: ib_init_ucontext(), open(uverbsX) 的时候调用的
 	int (*alloc_ucontext)(struct ib_ucontext *context,
 			      struct ib_udata *udata);
 	void (*dealloc_ucontext)(struct ib_ucontext *context);
@@ -2679,6 +2703,7 @@ struct ib_device_ops {
 	// Mandatory
 	int (*destroy_qp)(struct ib_qp *qp, struct ib_udata *udata);
 	// Mandatory
+	// ref: uverbs_cmd.c:create_cq()
 	int (*create_cq)(struct ib_cq *cq, const struct ib_cq_init_attr *attr,
 			 struct ib_udata *udata); // udata: 用户态和底层驱动交换信息
 	int (*modify_cq)(struct ib_cq *cq, u16 cq_count, u16 cq_period);
@@ -2686,7 +2711,9 @@ struct ib_device_ops {
 	int (*destroy_cq)(struct ib_cq *cq, struct ib_udata *udata);
 	int (*resize_cq)(struct ib_cq *cq, int cqe, struct ib_udata *udata);
 	// Mandatory
+	// 分配用于 dma 的 mr
 	struct ib_mr *(*get_dma_mr)(struct ib_pd *pd, int mr_access_flags);
+	// userspace 通过 uvebrs 来分配 mr, 最后走到这里
 	struct ib_mr *(*reg_user_mr)(struct ib_pd *pd, u64 start, u64 length,
 				     u64 virt_addr, int mr_access_flags,
 				     struct ib_udata *udata);
@@ -2695,6 +2722,8 @@ struct ib_device_ops {
 			     struct ib_pd *pd, struct ib_udata *udata);
 	// Mandatory
 	int (*dereg_mr)(struct ib_mr *mr, struct ib_udata *udata);
+
+	// 这个接口仅仅给内核态使用的, 用户态用 reg_user_mr
 	struct ib_mr *(*alloc_mr)(struct ib_pd *pd, enum ib_mr_type mr_type,
 				  u32 max_num_sg);
 	struct ib_mr *(*alloc_mr_integrity)(struct ib_pd *pd,
@@ -2704,6 +2733,7 @@ struct ib_device_ops {
 			 enum ib_uverbs_advise_mr_advice advice, u32 flags,
 			 struct ib_sge *sg_list, u32 num_sge,
 			 struct uverbs_attr_bundle *attrs);
+	// ref: ib_map_mr_sg, 仅仅提供给 kernel 使用, 对于 sg 是有要求的
 	int (*map_mr_sg)(struct ib_mr *mr, struct scatterlist *sg, int sg_nents,
 			 unsigned int *sg_offset);
 	int (*check_mr_status)(struct ib_mr *mr, u32 check_mask,
@@ -2901,7 +2931,7 @@ struct rdma_restrack_root;
 struct ib_device {
 	/* Do not access @dma_device directly from ULP nor from HW drivers. */
 	struct device                *dma_device;
-	struct ib_device_ops	     ops;
+	struct ib_device_ops	     ops;		// 最重要, ref: %rxe_dev_ops
 	char                          name[IB_DEVICE_NAME_MAX];
 	struct rcu_head rcu_head;
 
@@ -2923,7 +2953,7 @@ struct ib_device {
 	 */
 	struct ib_port_data *port_data; // ref: alloc_port_data, 注意从 1 开始, 0 号位置不使用
 
-	int			      num_comp_vectors; // 支持的 completion vector 数目
+	int			      num_comp_vectors; // 支持的 completion vector 数目, 中断数量
 
 	union {
 		struct device		dev;
@@ -2936,8 +2966,8 @@ struct ib_device {
 	 */
 	const struct attribute_group	*groups[3];
 
-	u64			     uverbs_cmd_mask;
-	u64			     uverbs_ex_cmd_mask;
+	u64			     uverbs_cmd_mask; // 支持的 uverbs cmd, ref: IB_USER_VERBS_CMD_GET_CONTEXT
+	u64			     uverbs_ex_cmd_mask; // 支持的 uverbs ex cmd, ref: IB_USER_VERBS_EX_CMD_CREATE_CQ
 
 	char			     node_desc[IB_DEVICE_NODE_DESC_MAX];
 	__be64			     node_guid; // 硬件不变的一个 id ?
@@ -2947,7 +2977,7 @@ struct ib_device {
 	u16                          kverbs_provider:1;
 	/* CQ adaptive moderation (RDMA DIM) */
 	u16                          use_cq_dim:1;
-	u8                           node_type;
+	u8                           node_type;         // 用: RDMA_NODE_IB_CA
 	u8                           phys_port_cnt;	// port 数目
 	struct ib_device_attr        attrs;
 	struct attribute_group	     *hw_stats_ag;

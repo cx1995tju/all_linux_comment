@@ -38,6 +38,7 @@ struct rxe_ucontext {
 	struct rxe_pool_entry	pelem;
 };
 
+// 就是 ib_pd 结构, 不过增加了一个 pelem, 方便将其添加到 pool 来管理
 struct rxe_pd {
 	struct ib_pd            ibpd;
 	struct rxe_pool_entry	pelem;
@@ -65,7 +66,7 @@ struct rxe_cq {
 	u8			notify;
 	bool			is_dying;
 	int			is_user;
-	struct tasklet_struct	comp_task;
+	struct tasklet_struct	comp_task; // completion tasklet, %rxe_send_complete
 };
 
 enum wqe_state {
@@ -123,7 +124,7 @@ struct rxe_req_info {
 	int			wait_psn;
 	int			need_retry;
 	int			noack_pkts;
-	struct rxe_task		task;
+	struct rxe_task		task; // rxe_requester
 };
 
 struct rxe_comp_info {
@@ -134,7 +135,7 @@ struct rxe_comp_info {
 	int			started_retry;
 	u32			retry_cnt;
 	u32			rnr_retry;
-	struct rxe_task		task;
+	struct rxe_task		task; // rxe_completer
 };
 
 enum rdatm_res_state {
@@ -202,7 +203,7 @@ struct rxe_resp_info {
 	unsigned int		res_head;
 	unsigned int		res_tail;
 	struct resp_res		*res;
-	struct rxe_task		task;
+	struct rxe_task		task;  // rxe_responder
 };
 
 struct rxe_qp {
@@ -277,17 +278,21 @@ enum rxe_mem_type {
 	RXE_MEM_TYPE_MW,
 };
 
+// 每个 page 可以存储的 rxe_phys_buf 的数量
 #define RXE_BUF_PER_MAP		(PAGE_SIZE / sizeof(struct rxe_phys_buf))
 
+// 表示一段连续的 phy buf
 struct rxe_phys_buf {
 	u64      addr;
 	u64      size;
 };
 
+// 这个结构不超过一个 page
 struct rxe_map {
 	struct rxe_phys_buf	buf[RXE_BUF_PER_MAP];
 };
 
+// ref: rxe_alloc_mr()
 struct rxe_mem {
 	struct rxe_pool_entry	pelem;
 	union {
@@ -313,7 +318,7 @@ struct rxe_mem {
 	u32			num_buf;
 	u32			nbuf;
 
-	u32			max_buf;
+	u32			max_buf; // 这个 mr 最大的 sge 数量
 	u32			num_map;
 
 	struct rxe_map		**map;
@@ -340,7 +345,7 @@ struct rxe_mc_elem {
 
 struct rxe_port {
 	struct ib_port_attr	attr;
-	__be64			port_guid;
+	__be64			port_guid;  // guid 的生成: rxe_init_ports
 	__be64			subnet_prefix;
 	spinlock_t		port_lock; /* guard port */
 	unsigned int		mtu_cap;
@@ -349,10 +354,11 @@ struct rxe_port {
 	u32			qp_gsi_index;
 };
 
+// ref: rxe_init()
 struct rxe_dev {
-	struct ib_device	ib_dev;
+	struct ib_device	ib_dev;	// ref: rxe_register_device()
 	struct ib_device_attr	attr;
-	struct device_dma_parameters dma_parms;
+	struct device_dma_parameters dma_parms; // ref: rxe_register_device() -> dma_set_max_seg_size() / dma_coerce_mask_and_coherent
 	int			max_ucontext;
 	int			max_inline_data;
 	struct mutex	usdev_lock;
@@ -361,6 +367,7 @@ struct rxe_dev {
 
 	int			xmit_errors;
 
+	// 一堆 pool 维护 per-device 的资源
 	struct rxe_pool		uc_pool;
 	struct rxe_pool		pd_pool;
 	struct rxe_pool		ah_pool;
@@ -373,7 +380,7 @@ struct rxe_dev {
 	struct rxe_pool		mc_elem_pool;
 
 	spinlock_t		pending_lock; /* guard pending_mmaps */
-	struct list_head	pending_mmaps;
+	struct list_head	pending_mmaps; // ref: rxe_mmap_info
 
 	spinlock_t		mmap_offset_lock; /* guard mmap_offset */
 	u64			mmap_offset;
@@ -381,7 +388,7 @@ struct rxe_dev {
 	atomic64_t		stats_counters[RXE_NUM_OF_COUNTERS];
 
 	struct rxe_port		port;
-	struct crypto_shash	*tfm;
+	struct crypto_shash	*tfm; // 用于 crc 计算
 };
 
 static inline void rxe_counter_inc(struct rxe_dev *rxe, enum rxe_counters index)

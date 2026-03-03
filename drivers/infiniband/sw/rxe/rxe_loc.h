@@ -55,7 +55,7 @@ void rxe_mc_cleanup(struct rxe_pool_entry *arg);
 
 /* rxe_mmap.c */
 struct rxe_mmap_info {
-	struct list_head	pending_mmaps;
+	struct list_head	pending_mmaps; // 已经有 mmap 信息了, 现在等用户进程调用 rxe_mmap 来完成最终的映射, ref: rxe_dev.pending_mmaps
 	struct ib_ucontext	*context;
 	struct kref		ref;
 	void			*obj;

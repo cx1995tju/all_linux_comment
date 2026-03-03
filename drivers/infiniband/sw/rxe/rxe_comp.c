@@ -129,6 +129,7 @@ void rxe_comp_queue_pkt(struct rxe_qp *qp, struct sk_buff *skb)
 	if (must_sched != 0)
 		rxe_counter_inc(SKB_TO_PKT(skb)->rxe, RXE_CNT_COMPLETER_SCHED);
 
+	// rxe_completer
 	rxe_run_task(&qp->comp.task, must_sched);
 }
 

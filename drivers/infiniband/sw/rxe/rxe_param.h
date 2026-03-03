@@ -36,7 +36,7 @@ static inline enum ib_mtu eth_mtu_int_to_enum(int mtu)
 /* default/initial rxe device parameter settings */
 enum rxe_device_param {
 	RXE_MAX_MR_SIZE			= -1ull,
-	RXE_PAGE_SIZE_CAP		= 0xfffff000,
+	RXE_PAGE_SIZE_CAP		= 0xfffff000, // 4k, 8k, ..., 2G (???)
 	RXE_MAX_QP			= 0x10000,
 	RXE_MAX_QP_WR			= 0x4000,
 	RXE_DEVICE_CAP_FLAGS		= IB_DEVICE_BAD_PKEY_CNTR
@@ -123,7 +123,7 @@ enum rxe_port_param {
 	RXE_PORT_ACTIVE_SPEED		= 1,
 	RXE_PORT_PKEY_TBL_LEN		= 1,
 	RXE_PORT_PHYS_STATE		= IB_PORT_PHYS_STATE_POLLING,
-	RXE_PORT_SUBNET_PREFIX		= 0xfe80000000000000ULL,
+	RXE_PORT_SUBNET_PREFIX		= 0xfe80000000000000ULL, // 这是 ipv6 的 link-local 前缀 fe80::/64
 };
 
 /* default/initial port info parameters */

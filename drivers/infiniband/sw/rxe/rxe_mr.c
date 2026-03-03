@@ -80,7 +80,8 @@ static int rxe_mem_alloc(struct rxe_mem *mem, int num_buf)
 	int num_map;
 	struct rxe_map **map = mem->map;
 
-	num_map = (num_buf + RXE_BUF_PER_MAP - 1) / RXE_BUF_PER_MAP;
+	// 需要多少了 rxe_map 结构来存储 num_buf 个 rxe_phys_buf 结构
+	num_map = (num_buf + RXE_BUF_PER_MAP - 1) / RXE_BUF_PER_MAP; // 向上取整了
 
 	mem->map = kmalloc_array(num_map, sizeof(*map), GFP_KERNEL);
 	if (!mem->map)
@@ -212,7 +213,7 @@ int rxe_mem_init_fast(struct rxe_pd *pd,
 	/* In fastreg, we also set the rkey */
 	mem->ibmr.rkey = mem->ibmr.lkey;
 
-	err = rxe_mem_alloc(mem, max_pages);
+	err = rxe_mem_alloc(mem, max_pages); // mr 里分配 max_pages 段
 	if (err)
 		goto err1;
 

@@ -342,6 +342,7 @@ out_put_pool:
 	return NULL;
 }
 
+// elem 这个 entry 添加到 pool 里
 int rxe_add_to_pool(struct rxe_pool *pool, struct rxe_pool_entry *elem)
 {
 	unsigned long flags;

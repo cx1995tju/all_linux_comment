@@ -87,6 +87,7 @@ void rxe_resp_queue_pkt(struct rxe_qp *qp, struct sk_buff *skb)
 	must_sched = (pkt->opcode == IB_OPCODE_RC_RDMA_READ_REQUEST) ||
 			(skb_queue_len(&qp->req_pkts) > 1);
 
+	// rxe_responder
 	rxe_run_task(&qp->resp.task, must_sched);
 }
 
@@ -1190,6 +1191,7 @@ static void rxe_drain_req_pkts(struct rxe_qp *qp, bool notify)
 		advance_consumer(qp->rq.queue);
 }
 
+// 处理 req 的回包
 int rxe_responder(void *arg)
 {
 	struct rxe_qp *qp = (struct rxe_qp *)arg;

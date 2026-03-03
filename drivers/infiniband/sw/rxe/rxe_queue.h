@@ -39,9 +39,10 @@ struct rxe_queue_buf {
 	__u8			data[];
 };
 
+// soft roce 不直接和硬件交互, 所以这里的 buf 不需要 pa 连续, va 连续就可以了
 struct rxe_queue {
 	struct rxe_dev		*rxe;
-	struct rxe_queue_buf	*buf;
+	struct rxe_queue_buf	*buf; // 所以这里只要 va 连续就可以
 	struct rxe_mmap_info	*ip;
 	size_t			buf_size;
 	size_t			elem_size;

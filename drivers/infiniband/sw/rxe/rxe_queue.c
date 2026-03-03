@@ -9,6 +9,7 @@
 #include "rxe_loc.h"
 #include "rxe_queue.h"
 
+// ref: rxe_mmap
 int do_mmap_info(struct rxe_dev *rxe, struct mminfo __user *outbuf,
 		 struct ib_udata *udata, struct rxe_queue_buf *buf,
 		 size_t buf_size, struct rxe_mmap_info **ip_p)
@@ -16,6 +17,7 @@ int do_mmap_info(struct rxe_dev *rxe, struct mminfo __user *outbuf,
 	int err;
 	struct rxe_mmap_info *ip = NULL;
 
+	// 将 mmap 的信息通过 outbuf 返回回去
 	if (outbuf) {
 		ip = rxe_create_mmap_info(rxe, buf_size, udata, buf);
 		if (IS_ERR(ip)) {
@@ -86,7 +88,9 @@ struct rxe_queue *rxe_queue_init(struct rxe_dev *rxe,
 
 	buf_size = sizeof(struct rxe_queue_buf) + num_slots * elem_size;
 
-	q->buf = vmalloc_user(buf_size);
+	// 这里分配的不是物理连续的? 怎么搞??? 这个内存仅仅给用户态用的, 用来出
+	// 去 Work request, 而不是 driver 和 hw 的交互
+	q->buf = vmalloc_user(buf_size); // 这里是关键, 为 queue 分配了空间
 	if (!q->buf)
 		goto err2;
 

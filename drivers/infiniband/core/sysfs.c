@@ -1276,6 +1276,7 @@ static ssize_t node_desc_show(struct device *device,
 	return sprintf(buf, "%.64s\n", dev->node_desc);
 }
 
+// /sys/devices/virtual/infiniband/rxe_0/node_desc
 static ssize_t node_desc_store(struct device *device,
 			       struct device_attribute *attr,
 			       const char *buf, size_t count)

@@ -1,3 +1,79 @@
+/* XXX: 关注资源之间的依赖关系:
+ * - mr
+ *   - mr 分配要 add_ref(pd)
+ *
+ *
+ * ucontext
+ * - rxe_alloc_ucontext,
+ * - rxe_dealloc_ucontext,
+ *
+ *
+ * device / port
+ * - rxe_modify_device,
+ * - rxe_modify_port,
+ * - rxe_get_link_layer,
+ * - rxe_port_immutable,
+ * - rxe_query_device,
+ * - rxe_query_pkey,
+ * - rxe_query_port,
+ *
+ *
+ * pd
+ * - rxe_alloc_pd,
+ * - rxe_dealloc_pd,
+ *
+ *
+ * mr / mw
+ * - rxe_alloc_mr, // 给内核使用的 rxe_mem_init_fast()
+ * - rxe_get_dma_mr, // 用来分配 dma  mr 的, rxe_mem_init_dma()
+ * - rxe_reg_user_mr, // 用来分配 user mr 的 rxe_mem_init_user()
+ * - rxe_dereg_mr,
+ * - rxe_map_mr_sg, // 将 sg 信息变成 mr 里的 buf 信息
+ *
+ * cq
+ * - rxe_create_cq,
+ * - rxe_destroy_cq,
+ * - rxe_peek_cq,
+ * - rxe_poll_cq,
+ * - rxe_req_notify_cq,
+ * - rxe_resize_cq,
+ *
+ * srq
+ * - rxe_create_srq,
+ * - rxe_destroy_srq,
+ * - rxe_modify_srq,
+ * - rxe_query_srq,
+ * - *rxe_post_srq_recv,
+ *
+ * qp
+ * - rxe_create_qp,
+ * - rxe_destroy_qp,
+ * - rxe_modify_qp,
+ * - rxe_query_qp,
+ * - *rxe_post_recv,
+ * - *rxe_post_send,
+ *
+ * ah
+ * - rxe_create_ah,
+ * - rxe_destroy_ah,
+ * - rxe_modify_ah,
+ * - rxe_query_ah,
+ *
+ *
+ * mcast
+ * - rxe_attach_mcast,
+ * - rxe_detach_mcast,
+ *
+ *
+ * misc
+ * - rxe_ib_alloc_hw_stats,
+ * - rxe_ib_get_hw_stats,
+ * - rxe_dealloc,
+ * - rxe_enable_driver,
+ * - rxe_mmap,
+ *
+ * */ 
+//
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
  * Copyright (c) 2016 Mellanox Technologies Ltd. All rights reserved.
@@ -12,6 +88,7 @@
 #include "rxe_queue.h"
 #include "rxe_hw_counters.h"
 
+// 返回 attribute
 static int rxe_query_device(struct ib_device *dev,
 			    struct ib_device_attr *attr,
 			    struct ib_udata *uhw)
@@ -25,6 +102,7 @@ static int rxe_query_device(struct ib_device *dev,
 	return 0;
 }
 
+// 查询 port attribute
 static int rxe_query_port(struct ib_device *dev,
 			  u8 port_num, struct ib_port_attr *attr)
 {
@@ -83,6 +161,7 @@ static int rxe_modify_device(struct ib_device *dev,
 	return 0;
 }
 
+// 仅仅支持 cap flags 的修改
 static int rxe_modify_port(struct ib_device *dev,
 			   u8 port_num, int mask, struct ib_port_modify *attr)
 {
@@ -106,6 +185,8 @@ static enum rdma_link_layer rxe_get_link_layer(struct ib_device *dev,
 	return IB_LINK_LAYER_ETHERNET;
 }
 
+// ib_alloc_ucontext 里按照 rxe_ucontext 的 size 分配好了内存空间
+// 这里只要把 ucontext 这个资源接管起来就可以了
 static int rxe_alloc_ucontext(struct ib_ucontext *uctx, struct ib_udata *udata)
 {
 	struct rxe_dev *rxe = to_rdev(uctx->device);
@@ -679,6 +760,8 @@ static int rxe_post_send_kernel(struct rxe_qp *qp, const struct ib_send_wr *wr,
 		wr = next;
 	}
 
+	// rxe_requester
+	// 放到 sq 里后, rxe_requester 负责将其变成报文发出去
 	rxe_run_task(&qp->req.task, 1);
 	if (unlikely(qp->req.state == QP_STATE_ERROR))
 		rxe_run_task(&qp->comp.task, 1);
@@ -703,6 +786,7 @@ static int rxe_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr,
 
 	if (qp->is_user) {
 		/* Utilize process context to do protocol processing */
+		// 用户态的 qp 不应该调用到这里的
 		rxe_run_task(&qp->req.task, 0);
 		return 0;
 	} else
@@ -767,6 +851,7 @@ static int rxe_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 	if (attr->flags)
 		return -EINVAL;
 
+	// 基本参数检查
 	err = rxe_cq_chk_attr(rxe, NULL, attr->cqe, attr->comp_vector);
 	if (err)
 		return err;
@@ -916,6 +1001,7 @@ err2:
 	return ERR_PTR(err);
 }
 
+// 将 mr 从管理结构拆除, 清除一些引用计数, 但是没有释放 mr 的
 static int rxe_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata)
 {
 	struct rxe_mem *mr = to_rmr(ibmr);
@@ -927,6 +1013,7 @@ static int rxe_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata)
 	return 0;
 }
 
+// 这个接口仅仅给内核态使用的, 用户态用 rxe_reg_user_mr
 static struct ib_mr *rxe_alloc_mr(struct ib_pd *ibpd, enum ib_mr_type mr_type,
 				  u32 max_num_sg)
 {
@@ -935,6 +1022,8 @@ static struct ib_mr *rxe_alloc_mr(struct ib_pd *ibpd, enum ib_mr_type mr_type,
 	struct rxe_mem *mr;
 	int err;
 
+	// 只支持这一种? 不支持 IB_MR_TYPE_USER ??
+	// 因为这个接口仅仅给内核态使用
 	if (mr_type != IB_MR_TYPE_MEM_REG)
 		return ERR_PTR(-EINVAL);
 
@@ -948,6 +1037,7 @@ static struct ib_mr *rxe_alloc_mr(struct ib_pd *ibpd, enum ib_mr_type mr_type,
 
 	rxe_add_ref(pd);
 
+	// 初始化 rxe_mem *mr 结构
 	err = rxe_mem_init_fast(pd, max_num_sg, mr);
 	if (err)
 		goto err2;
@@ -962,6 +1052,7 @@ err1:
 	return ERR_PTR(err);
 }
 
+// 将 addr 的的信息保存到 ibmr 的 map 里
 static int rxe_set_page(struct ib_mr *ibmr, u64 addr)
 {
 	struct rxe_mem *mr = to_rmr(ibmr);
@@ -989,6 +1080,7 @@ static int rxe_map_mr_sg(struct ib_mr *ibmr, struct scatterlist *sg,
 
 	mr->nbuf = 0;
 
+	// 解析 sg, 转换为 pages 然后将信息保存到 mr 里. ref: rxe_set_page
 	n = ib_sg_to_pages(ibmr, sg, sg_nents, sg_offset, rxe_set_page);
 
 	mr->va = ibmr->iova;
@@ -1113,6 +1205,11 @@ static const struct ib_device_ops rxe_dev_ops = {
 	INIT_RDMA_OBJ_SIZE(ib_ucontext, rxe_ucontext, ibuc),
 };
 
+ /* - 结构体的分配和初始化 */
+ /* - ops 的设置: ib_set_device_ops */
+ /* - 和 netdev 的关联: ib_device_set_netdev */
+ /* - sysfs 系统 */
+ /* - 注册到 ib 子系统: ib_register_device */
 int rxe_register_device(struct rxe_dev *rxe, const char *ibdev_name)
 {
 	int err;
@@ -1125,6 +1222,7 @@ int rxe_register_device(struct rxe_dev *rxe, const char *ibdev_name)
 	dev->node_type = RDMA_NODE_IB_CA;
 	dev->phys_port_cnt = 1;
 	dev->num_comp_vectors = num_possible_cpus();
+	// 和 netdev 使用同一个 parent
 	dev->dev.parent = rxe_dma_device(rxe);
 	dev->local_dma_lkey = 0;
 	addrconf_addr_eui48((unsigned char *)&dev->node_guid,
@@ -1170,6 +1268,7 @@ int rxe_register_device(struct rxe_dev *rxe, const char *ibdev_name)
 	    ;
 
 	ib_set_device_ops(dev, &rxe_dev_ops);
+	// XXX: 重要, ibedev 和 netdev 关联到一起
 	err = ib_device_set_netdev(&rxe->ib_dev, rxe->ndev, 1);
 	if (err)
 		return err;
@@ -1182,7 +1281,9 @@ int rxe_register_device(struct rxe_dev *rxe, const char *ibdev_name)
 	}
 	rxe->tfm = tfm;
 
+	// XXX: sysfs
 	rdma_set_device_sysfs_group(dev, &rxe_attr_group);
+	// XXX: 嵌入 ib 子系统了
 	err = ib_register_device(dev, ibdev_name, NULL);
 	if (err)
 		pr_warn("%s failed with error %d\n", __func__, err);
