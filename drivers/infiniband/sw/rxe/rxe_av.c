@@ -104,6 +104,7 @@ struct rxe_av *rxe_get_av(struct rxe_pkt_info *pkt)
 	if (!pkt || !pkt->qp)
 		return NULL;
 
+	// connection 模式的服务, av 从 qp 里提取, datagram 模式的服务, av 从 wqe 里提取
 	if (qp_type(pkt->qp) == IB_QPT_RC || qp_type(pkt->qp) == IB_QPT_UC)
 		return &pkt->qp->pri_av;
 

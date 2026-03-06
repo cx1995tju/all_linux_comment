@@ -34,7 +34,7 @@ struct rxe_queue_buf {
 	__u32			pad_1[30];
 	__u32			producer_index;
 	__u32			pad_2[31];
-	__u32			consumer_index;
+	__u32			consumer_index;	// sq completer 收到 ack 后才更新, rq 收到 resp 后才更新
 	__u32			pad_3[31];
 	__u8			data[];
 };

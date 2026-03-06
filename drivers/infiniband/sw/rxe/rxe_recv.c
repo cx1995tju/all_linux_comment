@@ -354,6 +354,7 @@ void rxe_rcv(struct sk_buff *skb)
 		goto drop;
 	}
 
+	// 提取 pkt 信息
 	pkt->opcode = bth_opcode(pkt);
 	pkt->psn = bth_psn(pkt);
 	pkt->qp = NULL;

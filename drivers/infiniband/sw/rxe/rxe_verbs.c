@@ -562,6 +562,7 @@ static int validate_send_wr(struct rxe_qp *qp, const struct ib_send_wr *ibwr,
 		if (length < 8)
 			goto err1;
 
+		// remote_addr 必须要 8B 对齐
 		if (atomic_wr(ibwr)->remote_addr & 0x7)
 			goto err1;
 	}
@@ -632,6 +633,11 @@ static void init_send_wr(struct rxe_qp *qp, struct rxe_send_wr *wr,
 	}
 }
 
+/* @mask: 当前 qp 针对 ibwr 的 opcode 支持的操作, ref: rxe_wr_mask
+ * @length: ibwe 里的 buffer 中长度
+ *
+ * @weq: Return Value
+ * */
 static int init_send_wqe(struct rxe_qp *qp, const struct ib_send_wr *ibwr,
 			 unsigned int mask, unsigned int length,
 			 struct rxe_send_wqe *wqe)
@@ -652,7 +658,7 @@ static int init_send_wqe(struct rxe_qp *qp, const struct ib_send_wr *ibwr,
 		p = wqe->dma.inline_data;
 
 		sge = ibwr->sg_list;
-		for (i = 0; i < num_sge; i++, sge++) {
+		for (i = 0; i < num_sge; i++, sge++) { // inline send, 要将 sge 里的数据 copy 到 wqe 里
 			memcpy(p, (void *)(uintptr_t)sge->addr,
 					sge->length);
 
@@ -680,6 +686,9 @@ static int init_send_wqe(struct rxe_qp *qp, const struct ib_send_wr *ibwr,
 	return 0;
 }
 
+/* @mask: 当前 qp 针对 ibwr 的 opcode 支持的操作, ref: rxe_wr_mask
+ * @length: ibwe 里的 buffer 中长度
+ * */
 static int post_one_send(struct rxe_qp *qp, const struct ib_send_wr *ibwr,
 			 unsigned int mask, u32 length)
 {
@@ -699,8 +708,10 @@ static int post_one_send(struct rxe_qp *qp, const struct ib_send_wr *ibwr,
 		goto err1;
 	}
 
+	// 取一个 entry 出来
 	send_wqe = producer_addr(sq->queue);
 
+	// wr -> wqe
 	err = init_send_wqe(qp, ibwr, mask, length, send_wqe);
 	if (unlikely(err))
 		goto err1;
@@ -747,6 +758,7 @@ static int rxe_post_send_kernel(struct rxe_qp *qp, const struct ib_send_wr *wr,
 
 		next = wr->next;
 
+		// 统计 buffer 总长度
 		length = 0;
 		for (i = 0; i < wr->num_sge; i++)
 			length += wr->sg_list[i].length;
@@ -760,9 +772,9 @@ static int rxe_post_send_kernel(struct rxe_qp *qp, const struct ib_send_wr *wr,
 		wr = next;
 	}
 
-	// rxe_requester
-	// 放到 sq 里后, rxe_requester 负责将其变成报文发出去
+	// XXX: 放到 sq 里后, 调度 rxe_requester 将其变成报文发出去
 	rxe_run_task(&qp->req.task, 1);
+	// 如果处于 error 状态, 将还能 complete 的部分处理掉
 	if (unlikely(qp->req.state == QP_STATE_ERROR))
 		rxe_run_task(&qp->comp.task, 1);
 
@@ -786,7 +798,7 @@ static int rxe_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr,
 
 	if (qp->is_user) {
 		/* Utilize process context to do protocol processing */
-		// 用户态的 qp 不应该调用到这里的
+		// 用户态的 qp 是在用户态填充 wqe 的, 这里调度底层去处理 wqe 就可以了
 		rxe_run_task(&qp->req.task, 0);
 		return 0;
 	} else
@@ -826,6 +838,7 @@ static int rxe_post_recv(struct ib_qp *ibqp, const struct ib_recv_wr *wr,
 
 	spin_unlock_irqrestore(&rq->producer_lock, flags);
 
+	// rq error 了, 还要 responder 的, 就算是回复 error
 	if (qp->resp.state == QP_STATE_ERROR)
 		rxe_run_task(&qp->resp.task, 1);
 
@@ -1014,6 +1027,8 @@ static int rxe_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata)
 }
 
 // 这个接口仅仅给内核态使用的, 用户态用 rxe_reg_user_mr
+//
+// 用来支持 fast reg mr 的
 static struct ib_mr *rxe_alloc_mr(struct ib_pd *ibpd, enum ib_mr_type mr_type,
 				  u32 max_num_sg)
 {

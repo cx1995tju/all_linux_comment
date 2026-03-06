@@ -213,6 +213,7 @@ static int rxe_qp_init_req(struct rxe_dev *rxe, struct rxe_qp *qp,
 	qp->sq.max_wr		= init->cap.max_send_wr;
 
 	/* These caps are limited by rxe_qp_chk_cap() done by the caller */
+	// 变长的, 分配 queue 的时候按照最大长度去分配
 	wqe_size = max_t(int, init->cap.max_send_sge * sizeof(struct ib_sge),
 			 init->cap.max_inline_data);
 	qp->sq.max_sge = init->cap.max_send_sge =
@@ -247,6 +248,7 @@ static int rxe_qp_init_req(struct rxe_dev *rxe, struct rxe_qp *qp,
 	rxe_init_task(rxe, &qp->comp.task, qp,
 		      rxe_completer, "comp");
 
+	// rc 两个 timer
 	qp->qp_timeout_jiffies = 0; /* Can't be set for UD/UC in modify_qp */
 	if (init->qp_type == IB_QPT_RC) {
 		timer_setup(&qp->rnr_nak_timer, rnr_nak_timer, 0);
@@ -525,12 +527,13 @@ static void rxe_qp_reset(struct rxe_qp *qp)
 }
 
 /* drain the send queue */
+// SQD 状态: 允许已经 post 的 WQE 发完, 但是不允许 post 新的了
 static void rxe_qp_drain(struct rxe_qp *qp)
 {
 	if (qp->sq.queue) {
 		if (qp->req.state != QP_STATE_DRAINED) {
 			qp->req.state = QP_STATE_DRAIN;
-			if (qp_type(qp) == IB_QPT_RC)
+			if (qp_type(qp) == IB_QPT_RC) // 先跑 completion 将可能已经完成的 sq wqe 处理掉, 然后跑 requester 继续排空
 				rxe_run_task(&qp->comp.task, 1);
 			else
 				__rxe_do_task(&qp->comp.task);
@@ -549,6 +552,7 @@ void rxe_qp_error(struct rxe_qp *qp)
 	/* drain work and packet queues */
 	rxe_run_task(&qp->resp.task, 1);
 
+	// 调度 rxe_completer
 	if (qp_type(qp) == IB_QPT_RC)
 		rxe_run_task(&qp->comp.task, 1);
 	else

@@ -79,7 +79,7 @@ struct rxe_send_wr {
 	__u32			send_flags;
 	union {
 		__be32		imm_data;
-		__u32		invalidate_rkey;
+		__u32		invalidate_rkey; // rkey 的高 24b 是 index 
 	} ex;
 	union {
 		struct {
@@ -105,7 +105,7 @@ struct rxe_send_wr {
 				struct ib_mr *mr;
 				__aligned_u64 reserved;
 			};
-			__u32	     key;
+			__u32	     key;	// fast reg mr 用户需要提供 key 的
 			__u32	     access;
 		} reg;
 	} wr;
@@ -125,24 +125,26 @@ struct mminfo {
 
 struct rxe_dma_info {
 	__u32			length;
-	__u32			resid;
+	__u32			resid; // 表达传输进度, 即剩下的长度, ref: next_opcode(). rq 中就是剩余的 buffer
 	__u32			cur_sge;
 	__u32			num_sge;
 	__u32			sge_offset;
 	__u32			reserved;
+	// 变长的
 	union {
 		__u8		inline_data[0];
 		struct rxe_sge	sge[0];
 	};
 };
 
+// wqe 是变长的, 分配的时候按照最大的长度取分配
 struct rxe_send_wqe {
 	struct rxe_send_wr	wr;
 	struct rxe_av		av;
 	__u32			status;
-	__u32			state;
+	__u32			state;	 // %wqe_state_posted
 	__aligned_u64		iova;
-	__u32			mask;
+	__u32			mask; // ref: WR_REG_MASK, init_send_wqe()
 	__u32			first_psn;
 	__u32			last_psn;
 	__u32			ack_length;

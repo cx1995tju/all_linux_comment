@@ -105,6 +105,7 @@ int rxe_cq_resize_queue(struct rxe_cq *cq, int cqe,
 	return err;
 }
 
+// XXX: cq 是反过来的, 硬件 post, app 消费
 int rxe_cq_post(struct rxe_cq *cq, struct rxe_cqe *cqe, int solicited)
 {
 	struct ib_event ev;
@@ -137,7 +138,7 @@ int rxe_cq_post(struct rxe_cq *cq, struct rxe_cqe *cqe, int solicited)
 	if ((cq->notify == IB_CQ_NEXT_COMP) ||
 	    (cq->notify == IB_CQ_SOLICITED && solicited)) {
 		cq->notify = 0;
-		tasklet_schedule(&cq->comp_task);
+		tasklet_schedule(&cq->comp_task); // 调度 comp 任务, 通知用户
 	}
 
 	return 0;

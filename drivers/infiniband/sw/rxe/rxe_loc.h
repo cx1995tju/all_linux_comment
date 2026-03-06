@@ -72,8 +72,8 @@ int rxe_mmap(struct ib_ucontext *context, struct vm_area_struct *vma);
 
 /* rxe_mr.c */
 enum copy_direction {
-	to_mem_obj,
-	from_mem_obj,
+	to_mem_obj, // data -> mem
+	from_mem_obj, // mem -> data
 };
 
 void rxe_mem_init_dma(struct rxe_pd *pd,
@@ -244,7 +244,7 @@ static inline int rxe_xmit_packet(struct rxe_qp *qp, struct rxe_pkt_info *pkt,
 	}
 
 	if ((qp_type(qp) != IB_QPT_RC) &&
-	    (pkt->mask & RXE_END_MASK)) {
+	    (pkt->mask & RXE_END_MASK)) { // rc 通过 recv 来触发 completer (???)
 		pkt->wqe->state = wqe_state_done;
 		rxe_run_task(&qp->comp.task, 1);
 	}

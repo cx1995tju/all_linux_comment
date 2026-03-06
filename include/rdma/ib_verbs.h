@@ -1527,24 +1527,43 @@ struct ib_qp_attr {
 
 enum ib_wr_opcode {
 	/* These are shared with userspace */
-	IB_WR_RDMA_WRITE = IB_UVERBS_WR_RDMA_WRITE,
-	IB_WR_RDMA_WRITE_WITH_IMM = IB_UVERBS_WR_RDMA_WRITE_WITH_IMM,
-	IB_WR_SEND = IB_UVERBS_WR_SEND,
-	IB_WR_SEND_WITH_IMM = IB_UVERBS_WR_SEND_WITH_IMM,
-	IB_WR_RDMA_READ = IB_UVERBS_WR_RDMA_READ,
-	IB_WR_ATOMIC_CMP_AND_SWP = IB_UVERBS_WR_ATOMIC_CMP_AND_SWP,
-	IB_WR_ATOMIC_FETCH_AND_ADD = IB_UVERBS_WR_ATOMIC_FETCH_AND_ADD,
-	IB_WR_BIND_MW = IB_UVERBS_WR_BIND_MW,
-	IB_WR_LSO = IB_UVERBS_WR_TSO,
-	IB_WR_SEND_WITH_INV = IB_UVERBS_WR_SEND_WITH_INV,
-	IB_WR_RDMA_READ_WITH_INV = IB_UVERBS_WR_RDMA_READ_WITH_INV,
-	IB_WR_LOCAL_INV = IB_UVERBS_WR_LOCAL_INV,
-	IB_WR_MASKED_ATOMIC_CMP_AND_SWP =
-		IB_UVERBS_WR_MASKED_ATOMIC_CMP_AND_SWP,
-	IB_WR_MASKED_ATOMIC_FETCH_AND_ADD =
-		IB_UVERBS_WR_MASKED_ATOMIC_FETCH_AND_ADD,
+	IB_WR_RDMA_WRITE                  = IB_UVERBS_WR_RDMA_WRITE,
+	IB_WR_RDMA_WRITE_WITH_IMM         = IB_UVERBS_WR_RDMA_WRITE_WITH_IMM,
+	IB_WR_SEND                        = IB_UVERBS_WR_SEND,
+	IB_WR_SEND_WITH_IMM               = IB_UVERBS_WR_SEND_WITH_IMM,
+	IB_WR_RDMA_READ                   = IB_UVERBS_WR_RDMA_READ,
+	IB_WR_ATOMIC_CMP_AND_SWP          = IB_UVERBS_WR_ATOMIC_CMP_AND_SWP,
+	IB_WR_ATOMIC_FETCH_AND_ADD        = IB_UVERBS_WR_ATOMIC_FETCH_AND_ADD,
+	IB_WR_BIND_MW                     = IB_UVERBS_WR_BIND_MW,
+	IB_WR_LSO                         = IB_UVERBS_WR_TSO,
+	IB_WR_SEND_WITH_INV               = IB_UVERBS_WR_SEND_WITH_INV,
+	IB_WR_RDMA_READ_WITH_INV          = IB_UVERBS_WR_RDMA_READ_WITH_INV,
+
+	/* 1.4 vol1 ch10.7.2.5 Local Invalidate
+	 * The Local Invalidate Operation is allowed on Non-Shared Physical
+	 * Memory Regions or Type 2 Memory Windows for the RC, RD, UC, and  XRC
+	 * Service Types. 
+	 *
+	 * Local Invalidate Operations must be posted to the Send Queue. Local
+	 * Invalidates Operations affect only local HCA memory mapping
+	 * resources  and do not cause any packets to be issued over the link.
+	 * No resources at  the destination QP are affected.  
+	 * */
+	IB_WR_LOCAL_INV                   = IB_UVERBS_WR_LOCAL_INV,
+
+	IB_WR_MASKED_ATOMIC_CMP_AND_SWP   = IB_UVERBS_WR_MASKED_ATOMIC_CMP_AND_SWP,
+	IB_WR_MASKED_ATOMIC_FETCH_AND_ADD = IB_UVERBS_WR_MASKED_ATOMIC_FETCH_AND_ADD,
 
 	/* These are kernel only and can not be issued by userspace */
+	/* 1.4 vol1 ch10.7.2.6 Fast Register Physical MR
+	 *
+	 * 关于 fmr in linux:
+	 * - 只有内核里才能调用
+	 * - 首先用 ib_alloc_mr() 分配, 然后在某个 sq 上 post 一个 IB_WR_REG_MR
+	 *   的 WR. 注意这个 WR 里要提供 key. 这又是 spec 规定的, key 的低 8b 应该由用户提供
+	 * - 然后 driver 会处理, 比如: rxe_requester
+	 *
+	 * */
 	IB_WR_REG_MR = 0x20,
 	IB_WR_REG_MR_INTEGRITY,
 
@@ -1594,7 +1613,7 @@ struct ib_send_wr {
 	struct ib_sge	       *sg_list;
 	int			num_sge;
 	enum ib_wr_opcode	opcode;
-	int			send_flags;
+	int			send_flags; // ref: ib_send_flags
 	union {
 		__be32		imm_data;
 		u32		invalidate_rkey;
@@ -2008,7 +2027,7 @@ struct ib_qp {
 	struct list_head	open_list;
 	struct ib_qp           *real_qp;
 	struct ib_uqp_object   *uobject;
-	void                  (*event_handler)(struct ib_event *, void *);
+	void                  (*event_handler)(struct ib_event *, void *); // %ib_uverbs_qp_event_handler
 	void		       *qp_context;
 	/* sgid_attrs associated with the AV's */
 	const struct ib_gid_attr *av_sgid_attr;

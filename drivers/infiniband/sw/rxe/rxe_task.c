@@ -130,7 +130,7 @@ void rxe_run_task(struct rxe_task *task, int sched)
 		return;
 
 	if (sched)
-		tasklet_schedule(&task->tasklet);
+		tasklet_schedule(&task->tasklet); // 后续由 softira 调度 tasklet 来执行, 当前上下文可能是中断
 	else
 		rxe_do_task(&task->tasklet);
 }

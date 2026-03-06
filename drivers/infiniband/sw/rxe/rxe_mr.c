@@ -49,8 +49,9 @@ int mem_check_range(struct rxe_mem *mem, u64 iova, size_t length)
 
 static void rxe_mem_init(int access, struct rxe_mem *mem)
 {
+	// 高 24b 使用 index
 	u32 lkey = mem->pelem.index << 8 | rxe_get_key();
-	u32 rkey = (access & IB_ACCESS_REMOTE) ? lkey : 0;
+	u32 rkey = (access & IB_ACCESS_REMOTE) ? lkey : 0; // 这里省事, 直接让 rkey 和 lkey 一样了
 
 	mem->ibmr.lkey		= lkey;
 	mem->ibmr.rkey		= rkey;
@@ -399,6 +400,8 @@ err1:
 
 /* copy data in or out of a wqe, i.e. sg list
  * under the control of a dma descriptor
+ *
+ * 方向取决于: dir
  */
 int copy_data(
 	struct rxe_pd		*pd,
@@ -426,6 +429,7 @@ int copy_data(
 	}
 
 	if (sge->length && (offset < sge->length)) {
+		// 这里可以看到 lkey 作为 index 来找 mem 了
 		mem = lookup_mem(pd, access, sge->lkey, lookup_local);
 		if (!mem) {
 			err = -EINVAL;
@@ -533,11 +537,13 @@ int advance_dma_data(struct rxe_dma_info *dma, unsigned int length)
  * (3) verify that the mem can support the requested access
  * (4) verify that mem state is valid
  */
+// mr 的处理
 struct rxe_mem *lookup_mem(struct rxe_pd *pd, int access, u32 key,
 			   enum lookup_type type)
 {
 	struct rxe_mem *mem;
 	struct rxe_dev *rxe = to_rdev(pd->ibpd.device);
+	// 这里可以看到 lkey 作为 index 来找 mem 了
 	int index = key >> 8;
 
 	mem = rxe_pool_get_index(&rxe->mr_pool, index);

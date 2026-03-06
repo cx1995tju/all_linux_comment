@@ -14,13 +14,13 @@
  */
 
 enum rxe_wr_mask {
-	WR_INLINE_MASK			= BIT(0),
-	WR_ATOMIC_MASK			= BIT(1),
+	WR_INLINE_MASK			= BIT(0), // 支持 inline
+	WR_ATOMIC_MASK			= BIT(1), // 支持 atomic
 	WR_SEND_MASK			= BIT(2),
 	WR_READ_MASK			= BIT(3),
 	WR_WRITE_MASK			= BIT(4),
-	WR_LOCAL_MASK			= BIT(5),
-	WR_REG_MASK			= BIT(6),
+	WR_LOCAL_MASK			= BIT(5), // 本地操作
+	WR_REG_MASK			= BIT(6), // reg mr
 
 	WR_READ_OR_WRITE_MASK		= WR_READ_MASK | WR_WRITE_MASK,
 	WR_READ_WRITE_OR_SEND_MASK	= WR_READ_OR_WRITE_MASK | WR_SEND_MASK,
@@ -53,6 +53,7 @@ enum rxe_hdr_type {
 	NUM_HDR_TYPES
 };
 
+// ref: rxe_opcode
 enum rxe_hdr_mask {
 	RXE_LRH_MASK		= BIT(RXE_LRH),
 	RXE_GRH_MASK		= BIT(RXE_GRH),
@@ -67,14 +68,14 @@ enum rxe_hdr_mask {
 	RXE_DETH_MASK		= BIT(RXE_DETH),
 	RXE_PAYLOAD_MASK	= BIT(RXE_PAYLOAD),
 
-	RXE_REQ_MASK		= BIT(NUM_HDR_TYPES + 0),
+	RXE_REQ_MASK		= BIT(NUM_HDR_TYPES + 0), // 说明是一个外部请求
 	RXE_ACK_MASK		= BIT(NUM_HDR_TYPES + 1),
 	RXE_SEND_MASK		= BIT(NUM_HDR_TYPES + 2),
 	RXE_WRITE_MASK		= BIT(NUM_HDR_TYPES + 3),
 	RXE_READ_MASK		= BIT(NUM_HDR_TYPES + 4),
 	RXE_ATOMIC_MASK		= BIT(NUM_HDR_TYPES + 5),
 
-	RXE_RWR_MASK		= BIT(NUM_HDR_TYPES + 6),
+	RXE_RWR_MASK		= BIT(NUM_HDR_TYPES + 6), // send | write_with_imm, ref: check_resource() 猜测的
 	RXE_COMP_MASK		= BIT(NUM_HDR_TYPES + 7),
 
 	RXE_START_MASK		= BIT(NUM_HDR_TYPES + 8),

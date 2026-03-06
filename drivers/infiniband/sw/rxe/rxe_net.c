@@ -373,6 +373,7 @@ static int prepare6(struct rxe_pkt_info *pkt, struct sk_buff *skb)
 	return 0;
 }
 
+// 添加 ip/udp 头, 计算 crc 等
 int rxe_prepare(struct rxe_pkt_info *pkt, struct sk_buff *skb, u32 *crc)
 {
 	int err = 0;
@@ -449,6 +450,7 @@ struct sk_buff *rxe_init_packet(struct rxe_dev *rxe, struct rxe_av *av,
 	const struct ib_gid_attr *attr;
 	const int port_num = 1;
 
+	// 获取 rdma 设备的地址信息
 	attr = rdma_get_gid_attr(&rxe->ib_dev, port_num, av->grh.sgid_index);
 	if (IS_ERR(attr))
 		return NULL;
@@ -461,6 +463,7 @@ struct sk_buff *rxe_init_packet(struct rxe_dev *rxe, struct rxe_av *av,
 			sizeof(struct ipv6hdr);
 
 	rcu_read_lock();
+	// 找到出口设备
 	ndev = rdma_read_gid_attr_ndev_rcu(attr);
 	if (IS_ERR(ndev)) {
 		rcu_read_unlock();
@@ -488,7 +491,7 @@ struct sk_buff *rxe_init_packet(struct rxe_dev *rxe, struct rxe_av *av,
 
 	pkt->rxe	= rxe;
 	pkt->port_num	= port_num;
-	pkt->hdr	= skb_put_zero(skb, paylen);
+	pkt->hdr	= skb_put_zero(skb, paylen); // 记录下 skb 的数据部分的起始位置
 	pkt->mask	|= RXE_GRH_MASK;
 
 out:

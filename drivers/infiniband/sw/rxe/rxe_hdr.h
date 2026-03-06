@@ -15,7 +15,7 @@ struct rxe_pkt_info {
 	struct rxe_dev		*rxe;		/* device that owns packet */
 	struct rxe_qp		*qp;		/* qp that owns packet */
 	struct rxe_send_wqe	*wqe;		/* send wqe */
-	u8			*hdr;		/* points to bth */
+	u8			*hdr;		/* points to bth */ // ref: rxe_init_packet
 	u32			mask;		/* useful info about pkt */
 	u32			psn;		/* bth psn of packet */
 	u16			pkey_index;	/* partition of pkt */
@@ -732,13 +732,32 @@ struct rxe_aeth {
 #define AETH_SYN_MASK		(0xff000000)
 #define AETH_MSN_MASK		(0x00ffffff)
 
+
+/* syndrome def
+ *   | bit 7 | bit 6:5 | bits 4:0 | Definition                     |
+ *   |-------+---------+----------+--------------------------------|
+ *   | 0     | 0 0     | C CCCC   | ACK (C CCCC = credit count)    |
+ *   | 0     | 0 1     | T TTTT   | RNR NAK (T TTTT = timer value) |
+ *   | 0     | 1 0     | X XXXX   | rsvd                           |
+ *   | 0     | 1 1     | N NNNN   | NAK (N NNNN = NAK Code)        |
+ *
+ *   | NAK Code        | Definition             |
+ *   |-----------------+------------------------|
+ *   | 0 0000          | PSN Seq Error          |
+ *   | 0 0001          | Invalid Req            |
+ *   | 0 0010          | Remote Access Error    |
+ *   | 0 0011          | Remote Operation Error |
+ *   | 0 0100          | Invalid RD Req         |
+ *   | 0 0101 - 1 1111 | Rsvd                   |
+ * */
+
 enum aeth_syndrome {
 	AETH_TYPE_MASK		= 0xe0,
 	AETH_ACK		= 0x00,
 	AETH_RNR_NAK		= 0x20,
 	AETH_RSVD		= 0x40,
 	AETH_NAK		= 0x60,
-	AETH_ACK_UNLIMITED	= 0x1f,
+	AETH_ACK_UNLIMITED	= 0x1f, // 无限 credit count, 不支持 credit 的时候也用这个值
 	AETH_NAK_PSN_SEQ_ERROR	= 0x60,
 	AETH_NAK_INVALID_REQ	= 0x61,
 	AETH_NAK_REM_ACC_ERR	= 0x62,
