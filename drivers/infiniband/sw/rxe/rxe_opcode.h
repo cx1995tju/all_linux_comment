@@ -14,8 +14,8 @@
  */
 
 enum rxe_wr_mask {
-	WR_INLINE_MASK			= BIT(0), // 支持 inline
-	WR_ATOMIC_MASK			= BIT(1), // 支持 atomic
+	WR_INLINE_MASK			= BIT(0), // WR 是 inline 的
+	WR_ATOMIC_MASK			= BIT(1), // WR 是关于 atomic 的
 	WR_SEND_MASK			= BIT(2),
 	WR_READ_MASK			= BIT(3),
 	WR_WRITE_MASK			= BIT(4),
@@ -53,7 +53,7 @@ enum rxe_hdr_type {
 	NUM_HDR_TYPES
 };
 
-// ref: rxe_opcode
+// ref: rxe_opcode.c:rxe_opcode[]
 enum rxe_hdr_mask {
 	RXE_LRH_MASK		= BIT(RXE_LRH),
 	RXE_GRH_MASK		= BIT(RXE_GRH),
@@ -63,7 +63,7 @@ enum rxe_hdr_mask {
 	RXE_AETH_MASK		= BIT(RXE_AETH),
 	RXE_ATMETH_MASK		= BIT(RXE_ATMETH),
 	RXE_ATMACK_MASK		= BIT(RXE_ATMACK),
-	RXE_IETH_MASK		= BIT(RXE_IETH),
+	RXE_IETH_MASK		= BIT(RXE_IETH), // 带有invalidate 的
 	RXE_RDETH_MASK		= BIT(RXE_RDETH),
 	RXE_DETH_MASK		= BIT(RXE_DETH),
 	RXE_PAYLOAD_MASK	= BIT(RXE_PAYLOAD),
@@ -76,7 +76,7 @@ enum rxe_hdr_mask {
 	RXE_ATOMIC_MASK		= BIT(NUM_HDR_TYPES + 5),
 
 	RXE_RWR_MASK		= BIT(NUM_HDR_TYPES + 6), // send | write_with_imm, ref: check_resource() 猜测的
-	RXE_COMP_MASK		= BIT(NUM_HDR_TYPES + 7),
+	RXE_COMP_MASK		= BIT(NUM_HDR_TYPES + 7), // 表示需要产生 completion 的
 
 	RXE_START_MASK		= BIT(NUM_HDR_TYPES + 8),
 	RXE_MIDDLE_MASK		= BIT(NUM_HDR_TYPES + 9),

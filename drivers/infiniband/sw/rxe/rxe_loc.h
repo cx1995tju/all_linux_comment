@@ -245,7 +245,7 @@ static inline int rxe_xmit_packet(struct rxe_qp *qp, struct rxe_pkt_info *pkt,
 
 	if ((qp_type(qp) != IB_QPT_RC) &&
 	    (pkt->mask & RXE_END_MASK)) { // rc 通过 recv 来触发 completer (???)
-		pkt->wqe->state = wqe_state_done;
+		pkt->wqe->state = wqe_state_done; // 对于 ud 来说, 包发了, wqe 就处理完了
 		rxe_run_task(&qp->comp.task, 1);
 	}
 

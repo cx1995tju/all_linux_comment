@@ -669,6 +669,7 @@ static inline void tcp_bound_rto(const struct sock *sk)
 		inet_csk(sk)->icsk_rto = TCP_RTO_MAX;
 }
 
+// ref:  comments on tcp_sock.srtt_us
 static inline u32 __tcp_set_rto(const struct tcp_sock *tp)
 {
 	return usecs_to_jiffies((tp->srtt_us >> 3) + tp->rttvar_us);

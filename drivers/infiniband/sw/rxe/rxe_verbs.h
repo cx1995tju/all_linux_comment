@@ -97,9 +97,9 @@ struct rxe_cq {
 
 // ref: update_wqe_state
 enum wqe_state {
-	wqe_state_posted,
+	wqe_state_posted,     // 刚被 post 完, 等待被处理
 	wqe_state_processing, // 多 pkt 的 req 正在处理
-	wqe_state_pending, // rc 服务中, req 的最后一个 pkt 发出去后, 是要等待对方回复的. 所以此时 wqe 还没有处理完
+	wqe_state_pending,    // rc 里 wqe 处理完了还要等待回复的
 	wqe_state_done,
 	wqe_state_error,
 };
@@ -145,8 +145,8 @@ enum rxe_qp_state {
 struct rxe_req_info {
 	enum rxe_qp_state	state;
 	int			wqe_index;	// 下一个要处理的 sq 的 wqe index, ref: rxe_requester() -> next_index()
-	u32			psn;            // 最大的被 req 的 psn
-	int			opcode;
+	u32			psn;            // 下一个用来填充 req 的 psn, ref: update_wqe_psn()
+	int			opcode;         // 记录了前一个 opcode, 在 next_opcode() 的时候要根据wqe 和这个来计算的
 	/* rdma 中有两个参数:
 	 * - max_rd_atomic (init depth), 本端最多可以发的 read/atomic 数目
          * - max_dest_rd_atomic(responder depth), 表示我最多可以同时处理的 read/atomic 数目
@@ -154,14 +154,14 @@ struct rxe_req_info {
 	atomic_t		rd_atomic;      // 剩余的可用的 reawd/atomic 数量, ref: rxe_qp_from_attr(). 用户创建 qp 的时候提供的 rd_atomic 应该参考对端的情况
 	int			wait_fence;     // ref: req_next_wqe, post fence 的时候, 设置这个标记. 这时候该 sq 上要等待前面的 wr 完成
 	int			need_rd_atomic;
-	int			wait_psn;
+	int			wait_psn; // ref: rxe_requester, outstanding pkt 太多的时候就会设置这个 flag 来 block 住
 	int			need_retry;	// 收到 nak 后, 可能要 retry, 在这里标记下, 后面有机会的时候根据这个标记做 retry, ref: rxe_completer
 	int			noack_pkts; // 记录我发出的没有设置 ack_req 的 last pkt 数量, 到达一定数量后, 就设置 ack_req bit, ref: init_req_packet()
 	struct rxe_task		task; // rxe_requester
 };
 
 struct rxe_comp_info {
-	u32			psn; // 最大的被 ack 的 psn + 1, 对于 req 接收responder 来说, 也就是 expect psn
+	u32			psn; // 最大的被 ack 的 psn + 1, 对于 req 接收responder 来说, 也就是 expect psn. 其实就是 snd_una
 	int			opcode;
 	int			timeout; // ref: rxe_completer
 	int			timeout_retry;
@@ -204,20 +204,20 @@ struct rxe_resp_info {
 	enum rxe_qp_state	state;
 	u32			msn;
 	u32			psn; // expected psn. ref: rxe_resp:execute()
-	u32			ack_psn; // 用来做 ack 的 psn, 即我如果回复 ack 包, 用这个做 psn. ref: rxe_resp:execute()
+	u32			ack_psn; // 用来做 ack 的 psn, 即我如果回复 ack 包, 用这个做 psn. ref: rxe_resp:execute(). 不过从代码看, 现在这个值没有用的. 
 	int			opcode; // 保存刚才收到的 opcode, 用于校验后续的 opcode, ref: check_op_seq()
 	int			drop_msg;
 	int			goto_error;
-	int			sent_psn_nak;
+	int			sent_psn_nak; // 发送过了 nak:seq-err. 记录自己处于 nak:psn-err 状态
 	enum ib_wc_status	status;
 	u8			aeth_syndrome;
 
 	/* Receive only */
 	struct rxe_recv_wqe	*wqe; // 取出来正在用的 wqe, 可能来自 rq, 或者 srq, ref: get_srq_wqe()
 
-	/* RDMA read / atomic only */ // 处理 response pkt 的时候暂存的一些信息
+	/* RDMA read / atomic only */ // 处理 response pkt 的时候暂存的一些信息, ref: writ_data_in()
 	u64			va;
-	struct rxe_mem		*mr;
+	struct rxe_mem		*mr; // 记录下当前正要被用的 mr, ref: check_rkey
 	u32			resid;
 	u32			rkey;
 	u32			length;

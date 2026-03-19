@@ -10,6 +10,8 @@
 /* extracted information about a packet carried in an sk_buff struct fits in
  * the skbuff cb array. Must be at most 48 bytes. stored in control block of
  * sk_buff for received packets.
+ *
+ * ref: rxe_rcv()
  */
 struct rxe_pkt_info {
 	struct rxe_dev		*rxe;		/* device that owns packet */
@@ -245,6 +247,7 @@ static inline int __bth_ack(void *arg)
 	return 0 != (cpu_to_be32(BTH_ACK_MASK) & bth->apsn);
 }
 
+// ack req bit
 static inline void __bth_set_ack(void *arg, int ack)
 {
 	struct rxe_bth *bth = arg;

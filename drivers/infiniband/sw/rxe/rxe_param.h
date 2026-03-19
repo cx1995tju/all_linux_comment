@@ -92,6 +92,7 @@ enum rxe_device_param {
 	RXE_MAX_MW_INDEX		= 0x00060000,
 	RXE_MAX_PKT_PER_ACK		= 64,
 
+	// 写死了最大的 unack psn
 	RXE_MAX_UNACKED_PSNS		= 128,
 
 	/* Max inflight SKBs per queue pair */

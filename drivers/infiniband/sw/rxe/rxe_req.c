@@ -40,6 +40,7 @@ static inline void retry_first_write_send(struct rxe_qp *qp,
 	}
 }
 
+// 标记 wqe 来完成回退, 这里仅仅做标记
 static void req_retry(struct rxe_qp *qp)
 {
 	struct rxe_send_wqe *wqe;
@@ -48,8 +49,9 @@ static void req_retry(struct rxe_qp *qp)
 	int npsn;
 	int first = 1;
 
+	// GBN: 从最早的 wqe 开始, 全部 retry
 	qp->req.wqe_index	= consumer_index(qp->sq.queue);
-	qp->req.psn		= qp->comp.psn; // go back n, 回到这个 psn 开始处理.
+	qp->req.psn		= qp->comp.psn; // go back n, snd_una 来处理
 	qp->req.opcode		= -1;
 
 	for (wqe_index = consumer_index(qp->sq.queue);
@@ -58,9 +60,11 @@ static void req_retry(struct rxe_qp *qp)
 		wqe = addr_from_index(qp->sq.queue, wqe_index);
 		mask = wr_opcode_mask(wqe->wr.opcode, qp);
 
+		// 从这个 wqe 开始的都还没有被 requester 处理, 不需要 retry 了
 		if (wqe->state == wqe_state_posted)
 			break;
 
+		// 这些 wqe 的 response 都收到了, 不需要管了
 		if (wqe->state == wqe_state_done)
 			continue;
 
@@ -70,16 +74,17 @@ static void req_retry(struct rxe_qp *qp)
 			     wqe->wr.wr.rdma.remote_addr :
 			     0;
 
-		if (!first || (mask & WR_READ_MASK) == 0) {
+		if (!first || (mask & WR_READ_MASK) == 0) { // 因为 READ req 肯定是单个 pkt 的
 			wqe->dma.resid = wqe->dma.length;
 			wqe->dma.cur_sge = 0;
 			wqe->dma.sge_offset = 0;
 		}
 
-		if (first) {
+		if (first) { // 第一个要特殊处理, write/send 可能只需要 retry 部分 pkt. read 也可能只需要请求部分 pkt
 			first = 0;
 
 			if (mask & WR_WRITE_OR_SEND_MASK) { // write, send 可能是多包, 但是只有部分需要重传
+							    // qp->comp.psn 是 snd_una, 在 snd_una 之前的不需要 retry 了
 				npsn = (qp->comp.psn - wqe->first_psn) &
 					BTH_PSN_MASK;
 				// 这里的 npsn 个 pkt 不需要真的发送到 wire 上
@@ -193,7 +198,7 @@ static int next_opcode_rc(struct rxe_qp *qp, u32 opcode, int fits)
 				IB_OPCODE_RC_RDMA_WRITE_ONLY :
 				IB_OPCODE_RC_RDMA_WRITE_FIRST;
 
-	case IB_WR_RDMA_WRITE_WITH_IMM: // immdata 卸载在最后一个 pkt 里
+	case IB_WR_RDMA_WRITE_WITH_IMM: // immdata 携带在最后一个 pkt 里
 		if (qp->req.opcode == IB_OPCODE_RC_RDMA_WRITE_FIRST ||
 		    qp->req.opcode == IB_OPCODE_RC_RDMA_WRITE_MIDDLE)
 			return fits ?
@@ -302,6 +307,7 @@ static int next_opcode_uc(struct rxe_qp *qp, u32 opcode, int fits)
 	return -EINVAL;
 }
 
+// opcode: wqe 的 opcode
 static int next_opcode(struct rxe_qp *qp, struct rxe_send_wqe *wqe,
 		       u32 opcode)
 {
@@ -364,6 +370,7 @@ static inline int get_mtu(struct rxe_qp *qp)
 }
 
 // 会把报文头都准备好
+// @pkt 存储的 metadata, 还不是送到 fabric 的 wire data
 static struct sk_buff *init_req_packet(struct rxe_qp *qp,
 				       struct rxe_send_wqe *wqe,
 				       int opcode, int payload,
@@ -388,21 +395,27 @@ static struct sk_buff *init_req_packet(struct rxe_qp *qp,
 	 */
 	pkt->opcode	= opcode;
 	pkt->qp		= qp;
-	pkt->psn	= qp->req.psn;
+	pkt->psn	= qp->req.psn; // psn 就使用 qp->req.psn 里维护的就可以了, 这里用了但是不更新 psn 么?
 	pkt->mask	= rxe_opcode[opcode].mask;
 	pkt->paylen	= paylen;
 	pkt->offset	= 0;
 	pkt->wqe	= wqe;
 
 	/* init skb */
-	// 找到 av 结构指针
+	// 找到 av 结构指针, 查路由咯. connection 去对应 qp 找, 否则去对应的 wqe 里提取
 	av = rxe_get_av(pkt);
 	skb = rxe_init_packet(rxe, av, paylen, pkt);
 	if (unlikely(!skb))
 		return NULL;
 
 	/* init bth */
-	// 什么情况下需要对端回 ack
+	/* 什么情况要求在 responder 端产生 cqe? 同时满足下述 3 个条件
+	 * - 用户要求: IB_SEND_SOLICITED
+	 * - 是一个 end pkt
+	 * - opcode 符合要求:
+	 *   - send
+	 *   - 或者 write with immData
+	 * */
 	solicited = (ibwr->send_flags & IB_SEND_SOLICITED) &&
 			(pkt->mask & RXE_END_MASK) &&
 			((pkt->mask & (RXE_SEND_MASK)) ||
@@ -415,6 +428,10 @@ static struct sk_buff *init_req_packet(struct rxe_qp *qp,
 	qp_num = (pkt->mask & RXE_DETH_MASK) ? ibwr->wr.ud.remote_qpn :
 					 qp->attr.dest_qp_num;
 
+	/* 什么情况要求对方回 ack ? 
+	 * - 要么这是 end pkt
+	 * - 要么太长时间没有回 ack 给我了
+	 * */
 	ack_req = ((pkt->mask & RXE_END_MASK) ||
 		(qp->req.noack_pkts++ > RXE_MAX_PKT_PER_ACK));
 	if (ack_req)
@@ -462,6 +479,7 @@ static struct sk_buff *init_req_packet(struct rxe_qp *qp,
 }
 
 // copy payload, 计算 crc
+// 更新下 wqe 里维护的一些信息
 static int fill_packet(struct rxe_qp *qp, struct rxe_send_wqe *wqe,
 		       struct rxe_pkt_info *pkt, struct sk_buff *skb,
 		       int paylen)
@@ -475,6 +493,7 @@ static int fill_packet(struct rxe_qp *qp, struct rxe_send_wqe *wqe,
 	if (err)
 		return err;
 
+	// write/send 带有 payload 的, copy data
 	if (pkt->mask & RXE_WRITE_OR_SEND) {
 		if (wqe->wr.send_flags & IB_SEND_INLINE) { // 如果是 send inline, 数据在 wr 里, 否则在 buf 里
 			u8 *tmp = &wqe->dma.inline_data[wqe->dma.sge_offset];
@@ -582,6 +601,7 @@ static void update_state(struct rxe_qp *qp, struct rxe_send_wqe *wqe,
 
 // 取出 wqe 进行处理
 // 这个版本有些 local 操作的支持还不全面, 比如: bind mw 等
+// 不用上锁的, rxe_requester 是 tasklet 不允许并发的, 每个 qp 启动一个该 tasklet
 int rxe_requester(void *arg)
 {
 	struct rxe_qp *qp = (struct rxe_qp *)arg;
@@ -616,7 +636,7 @@ next_wqe:
 	// req 端处于 retry 状态, 先做下 retry 然后继续
 	if (unlikely(qp->req.need_retry)) {
 		req_retry(qp);
-		qp->req.need_retry = 0;
+		qp->req.need_retry = 0;	// 完成回退, retry 也就完成了
 	}
 
 	wqe = req_next_wqe(qp);
@@ -660,6 +680,7 @@ next_wqe:
 		} else {
 			goto exit;
 		}
+		// 只有 local 操作才会走到这里的
 		if ((wqe->wr.send_flags & IB_SEND_SIGNALED) ||
 		    qp->sq_sig_type == IB_SIGNAL_ALL_WR)
 			rxe_run_task(&qp->comp.task, 1); // 需要 signal 那么就调度一个 completer
@@ -683,6 +704,7 @@ next_wqe:
 		goto exit;
 	}
 
+	// generating opcode
 	opcode = next_opcode(qp, wqe, wqe->wr.opcode);
 	if (unlikely(opcode < 0)) {
 		wqe->status = IB_WC_LOC_QP_OP_ERR;
@@ -695,7 +717,9 @@ next_wqe:
 			goto exit;
 	}
 
+	// generating payload
 	mtu = get_mtu(qp);
+	// requester 侧, 只有 write/send 需要 payload 的
 	payload = (mask & RXE_WRITE_OR_SEND) ? wqe->dma.resid : 0;
 	if (payload > mtu) {
 		if (qp_type(qp) == IB_QPT_UD) {
@@ -714,7 +738,7 @@ next_wqe:
 			qp->req.opcode = IB_OPCODE_UD_SEND_ONLY;
 			qp->req.wqe_index = next_index(qp->sq.queue,
 						       qp->req.wqe_index);
-			wqe->state = wqe_state_done;
+			wqe->state = wqe_state_done;	// completer 处理好 ack 后, 回调度 requester 来设置 wqe 的状态
 			wqe->status = IB_WC_SUCCESS;
 			__rxe_do_task(&qp->comp.task);
 			rxe_drop_ref(qp);
@@ -740,10 +764,14 @@ next_wqe:
 	 * wqe members state and psn need to be set before calling
 	 * rxe_xmit_packet().
 	 * Otherwise, completer might initiate an unjustified retry flow.
+	 *
+	 * 否则: req 发出了包, resp 很快就回复触发了 completer, 其一看 wqe 的状态不对, 可能就 retry 了.
 	 */
-	// 保存 wqe 的信息
+	// 保存 wqe 的信息, 用于回滚, 因为 send 的时候还可能出错的
 	save_state(wqe, qp, &rollback_wqe, &rollback_psn);
 	update_wqe_state(qp, wqe, &pkt);
+
+	// 这里要更新很多信息
 	update_wqe_psn(qp, wqe, &pkt, payload);
 	ret = rxe_xmit_packet(qp, &pkt, skb);
 	if (ret) {

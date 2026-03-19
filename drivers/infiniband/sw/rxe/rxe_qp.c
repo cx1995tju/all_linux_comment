@@ -543,6 +543,7 @@ static void rxe_qp_drain(struct rxe_qp *qp)
 }
 
 /* move the qp to the error state */
+// 到种类 error 状态已经非常严重了, 不是通过 cq 可以上报就解决了
 void rxe_qp_error(struct rxe_qp *qp)
 {
 	qp->req.state = QP_STATE_ERROR;

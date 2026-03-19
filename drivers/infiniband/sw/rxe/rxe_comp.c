@@ -186,6 +186,23 @@ static inline void reset_retry_counters(struct rxe_qp *qp)
  *   这是为了确保 SEND/WRITE 的累积 ack.
  * - *Rule 3 READ ack*: READ response 的最后的 pkt, ack 了当前的 read request.
  *   由于 READ 不支持 累积 ACK, 所以必须自己用最后一个 pkt 来 ack.
+ * - *<<Rule-4>>* NAK BTH:PSN 是 responder 的 ePSN. 所以 NAK pkt 隐式的 ack 了
+ *    其前面的 pkt. 当然 NAK 是无法隐式 ack 前面的 read req 的. read req 必须被
+ *    显示的 response 来 ack. rule-4 本质是 rule-0 和 rule-1 的在 NAK pkt 上的
+ *    推广.
+ *
+ *    XXX: 根据 rule4, NAK 包 也会来先 check_psn 然后 comp 一些 wqe 的, 非常关键
+ *
+ *
+ *
+ * 关于 response 回复的 pkt 里的的 BTH:PSN
+ * - pure-ack: 使用个最新的 req 的 psn.[[C9-95]]
+ * - read/atomic response psn: 用 req 的 psn.  [[C9-96]] [[o9-58]] 
+ * - nak 的 psn:
+ *   - for non-read req response 用 ePSN, [[C9-111]] [[C9-112]] [[C9-113]]
+ *   - read req response, NAK BTH:PSN 用正准备 NAK 的 PSN
+ *   - RNR NAK, NAK BTH:PSN 用正准备 NAK 的 PSN
+ *
  * */
 static inline enum comp_state check_psn(struct rxe_qp *qp,
 					struct rxe_pkt_info *pkt,
@@ -196,8 +213,14 @@ static inline enum comp_state check_psn(struct rxe_qp *qp,
 	/* check to see if response is past the oldest WQE. if it is, complete
 	 * send/write or error read/atomic
 	 */
+	// pkt:psn 完全覆盖的 wqe
+	// 1. 如果是 send/write req, 说明这个 wqe 被累积 ack 了
+	// 2. 如果是 read/atomic req, 那么必须要严格对应 psn 的, 那么说明这个 wqe 被隐式 NAK 了
+	// 3. 如果是 NAK 包: 根据情况不同会影响和当前 pkt->psn 匹配的 wqe 的处理. 但是前面的 wqe 都是一样的:
+	//    - send/write 被隐式 ack
+	//    - read/atomic 被隐式 NAK
 	diff = psn_compare(pkt->psn, wqe->last_psn);
-	if (diff > 0) { /* pkt->psn > wqe->last_psn, 累积确认, 且该 累积确认直接覆盖了一个完整的 wqe */ 
+	if (diff > 0) { /* response.psn > wqe */
 		if (wqe->state == wqe_state_pending) { 
 			if (wqe->mask & WR_ATOMIC_OR_READ_MASK) //  Rule 0
 				return COMPST_ERROR_RETRY;
@@ -210,21 +233,79 @@ static inline enum comp_state check_psn(struct rxe_qp *qp,
 	}
 	
 
-	/* 1. pkt->psn <= wqe->last_psn */
-	/* 能够走到这里, 说明 pkt 没有累积 ack 一整个 wqe 了, 那么就是 ack 了部分 wqe, 或者正好 ack 了这个 wqe */
-	/* compare response packet to expected response */
+	/* compare response packet to expected response(准确的说是 snd_una) */
+	/*  到这里的时候有: 
+	 *  - wqe->first_psn <= pkt->psn <= wqe->last_psn
+	 *  - wqe->first_psn <= snd_una <= wqe->last_psn (???)
+	 *
+	 *  特别的对于 single pkt req(atomic 必然走这里), wqe->first_psn == wqe->last_psn == pkt->psn == snd_una
+	 *  故对于 single pkt req, 这里必然走到 case 3. 即该 wqe 正好和 ack 关联. 那么通通到 COMPST_CHECK_ACK 处理.
+	 *
+	 *
+	 * 对于 multi pkt req:
+	 * - pure-ack: send/write response
+	 *   - case 1(dup pkt): wqe->first_psn <= pkt->psn < snd_una <= wqe->last_psn
+	 *     - case 1.1: (???)
+	 *     - case 1.2: wqe->first_psn <= pkt->psn < snd_una < wqe->last_psn
+	 *       - dup pkt, drop silently
+	 *   - case 3(good ack): wqe->first_psn <= snd_una <= pkt->psn <= wqe->last_psn
+	 *     - 顺利推进了 snd_una, 进一步处理
+	 *
+	 * - read response (atomic 不可能是 multi req 的)
+	 *   - case 1(dup pkt): wqe->first_psn <= pkt->psn < snd_una <= wqe->last_psn
+	 *     - case 1.1: (???)
+	 *       - 也是 dup 哦, 但是这个 wqe 是这个 SQ 上最后的一个 wqe (???)
+	 *     - case 1.2: wqe->first_psn <= pkt->psn < snd_una < wqe->last_psn                           
+	 *       - dup pkt, drop silently
+	 *   - case 2: wqe->first_psn <= snd_una < pkt->psn <= wqe->last_psn
+	 *     - 对于 read 来说, 必须要按照顺序来接收 psn response, 这里 reorder 了, drop silently
+	 *   - case 3(good ack): wqe->first_psn <= snd_una = pkt->psn <= wqe->last_psn
+	 *     - 对于 read 来说, good ack 必须是正好和 psn 对应的, 进一步处理
+	 *
+	 *
+	 * - nak response
+	 *   - case 1(dup pkt): wqe->first_psn <= pkt->psn < snd_una <= wqe->last_psn
+	 *     - case 1.1: (???)
+	 *     - case 1.2: wqe->first_psn <= pkt->psn < snd_una < wqe->last_psn
+	 *   - case 2(nak read req): wqe->first_psn <= snd_una < pkt->psn <= wqe->last_psn
+	 *     - 对于 read 来说, 就算是 NAK 也是如此 ???
+	 *   - case 3(nak): 
+	 *     - non-read nak: 
+	 *       - wqe->first_psn <= snd_una <= pkt->psn <= wqe->last_psn
+	 *       - pkt->psn == resp.ePSN
+	 *     - read nak:
+	 *       - wqe->first_psn <= snd_una == pkt->psn <= wqe->last_psn
+	 *       - pkt->psn == resp.curr.psn
+	 *     - others:
+	 *       - wqe->first_psn <= snd_una <= pkt->psn <= wqe->last_psn
+	 *       - pkt->psn == resp.curr.psn
+	 *
+	 *
+	 * COMPST_CHECK_ACK: ack 和当前的 wqe 对应, 但是需要进一步检查
+	 * COMPST_COMP_ACK: 这个 ack 确认了当前的 wqe(至少部分), 且该 wqe 是该 ack 可以确认的最后一个 wqe
+	 * COMPST_DONE: drop silently
+	 *
+	 * */
+
+	/* 小结: 当前的 wqe 是这个 ack 可以关联的最后一个 wqe 了, 分两种情况
+	 * - 无法通过检查: drop silently
+	 *   - 这里有一个优化 case 1.1 (???)
+	 * - default case: COMPST_CHECK_ACK 里做进一步处理
+	 *
+	 * */ 
 	diff = psn_compare(pkt->psn, qp->comp.psn);
-	if (diff < 0) { // dup ack, 说明出现了 reorder 或者 重传. 按理来说, 这个 pkt 携带的 ack 信息是没有意义的, 为什么针对其中一个 case 做了优化 ???
+	if (diff < 0) { //  case1: dup ack, drop silently
 		/* response is most likely a retried packet if it matches an
 		 * uncompleted WQE go complete it else ignore it.
 		*/
-		if (pkt->psn == wqe->last_psn) /* wqe.last_psn < comp.psn(???) */
+		// 这里不可能(???) pkt->psn < snd_una && pkt->psn == wqe->last_psn 的
+		if (pkt->psn == wqe->last_psn) // case 1.1
 			return COMPST_COMP_ACK;
-		else
-			return COMPST_DONE;
-	} else if ((diff > 0) && (wqe->mask & WR_ATOMIC_OR_READ_MASK)) { // 窗口做边界被正常 ack 了, 但是对于 read 和 atomic 必须要严格按照顺序被 ack 的. 不等于 comp.psn 说明出现了 reorder 了. 这个 pkt 我们不管的, 直接结束, 后续等待 read req 重做, 然后重传
+		else // case 1.2
+			return COMPST_DONE; // drop silently
+	} else if ((diff > 0) && (wqe->mask & WR_ATOMIC_OR_READ_MASK)) {  // spefical case for read: bad ack
 		return COMPST_DONE;
-	} else { // send/write 的累积确认(但是没有覆盖一个完整的 wqe), 或者 read/atomic 的正好确认(没有覆盖一个完整的 wqe), 最标准的情况. Rule 1
+	} else { // case 3: default case, 进一步处理
 		return COMPST_CHECK_ACK;
 	}
 }
@@ -239,7 +320,7 @@ static inline enum comp_state check_ack(struct rxe_qp *qp,
 	struct rxe_dev *rxe = to_rdev(qp->ibqp.device);
 
 	/* Check the sequence only */
-	switch (qp->comp.opcode) { // 之前 pkt 里提取出来的 opcode
+	switch (qp->comp.opcode) { // 前一个 response pkt 里提取出来的 opcode
 	case -1:
 		/* Will catch all *_ONLY cases. */
 		if (!(mask & RXE_START_MASK)) // 所以这里必须要有 RXE_START_MASK, 得是一个新的
@@ -303,7 +384,7 @@ static inline enum comp_state check_ack(struct rxe_qp *qp,
 		reset_retry_counters(qp);
 		return COMPST_ATOMIC;
 
-	case IB_OPCODE_RC_ACKNOWLEDGE: // pure ack 包处理
+	case IB_OPCODE_RC_ACKNOWLEDGE: // pure ack 包处理, nak 也是这里
 		syn = aeth_syn(pkt);
 		switch (syn & AETH_TYPE_MASK) {
 		case AETH_ACK: // 这里可以看到没有用 credit count 机制的
@@ -323,7 +404,9 @@ static inline enum comp_state check_ack(struct rxe_qp *qp,
 				if (psn_compare(pkt->psn, qp->comp.psn) > 0) {
 					rxe_counter_inc(rxe,
 							RXE_CNT_RCV_SEQ_ERR);
-					qp->comp.psn = pkt->psn;
+					// NAK pkt 间接 ACK 了前面的 pkt, 所以 retry 的时候从 NAK 这个 PSN 开始就可以了
+					// snd_una 前进了很多, nak 隐式前进了很多, nak 前的那些 wqe 如何处理呢?
+					qp->comp.psn = pkt->psn; // NAK BTH:PSN 是 responder 的 ePSN, 即小于 NAK PSN 的都被 ack 了.
 					if (qp->req.wait_psn) {
 						qp->req.wait_psn = 0;
 						rxe_run_task(&qp->req.task, 0);
@@ -469,7 +552,7 @@ static void do_complete(struct rxe_qp *qp, struct rxe_send_wqe *wqe)
 	}
 }
 
-// ack 确认了部分 wqe
+// ack 了 该 wqe, 且该 wqe 是该 ack 的最后一个 wqe
 static inline enum comp_state complete_ack(struct rxe_qp *qp,
 					   struct rxe_pkt_info *pkt,
 					   struct rxe_send_wqe *wqe)
@@ -516,12 +599,14 @@ static inline enum comp_state complete_ack(struct rxe_qp *qp,
 		return COMPST_DONE;
 }
 
+// ack 了 该 wqe, 但是该 wqe 不是该 ack 的最后一个 wqe, 即这个 ack 里还有信息可能可以继续去 ack 后面的 wqe 的
 static inline enum comp_state complete_wqe(struct rxe_qp *qp,
 					   struct rxe_pkt_info *pkt,
 					   struct rxe_send_wqe *wqe)
 {
 	if (pkt && wqe->state == wqe_state_pending) {
 		if (psn_compare(wqe->last_psn, qp->comp.psn) >= 0) {
+			// sq snd_una 前进
 			qp->comp.psn = (wqe->last_psn + 1) & BTH_PSN_MASK; // 更新 expect psn, 故 expectPSN 应该是下一个 wqe 的 first_psn
 			qp->comp.opcode = -1;
 		}
@@ -595,6 +680,7 @@ int rxe_completer(void *arg)
 		qp->comp.timeout_retry = 0;
 	}
 
+	// 已经处于 retry 状态, 不处理了. 等 rxe_retry 被调度了才处理
 	if (qp->req.need_retry)
 		goto exit;
 
@@ -621,7 +707,7 @@ int rxe_completer(void *arg)
 			state = check_psn(qp, pkt, wqe);
 			break;
 
-		case COMPST_CHECK_ACK:
+		case COMPST_CHECK_ACK: // ack 正好对应了该 wqe 的 last_psn 么
 			state = check_ack(qp, pkt, wqe);
 			break;
 
@@ -655,8 +741,8 @@ int rxe_completer(void *arg)
 			else
 				qp->comp.opcode = pkt->opcode; // 记录下前一个 opcode 咯, 后面校验可能要用
 
-			if (psn_compare(pkt->psn, qp->comp.psn) >= 0)
-				qp->comp.psn = (pkt->psn + 1) & BTH_PSN_MASK; // 需要更新 expected psn 了
+			if (psn_compare(pkt->psn, qp->comp.psn) >= 0) // read response 的 middle 有 pkt psn, 但是还没有消耗一个完整的 wqe
+				qp->comp.psn = (pkt->psn + 1) & BTH_PSN_MASK; // 需要更新 expected psn 了. 准确的说是 snd_una
 
 			if (qp->req.wait_psn) { // post send 的时候由于 outstanding 限制, 导致当时 pause 了, 现在调度起来, ref: rxe_requester
 				qp->req.wait_psn = 0;
@@ -666,7 +752,7 @@ int rxe_completer(void *arg)
 			state = COMPST_DONE;
 			break;
 
-		case COMPST_DONE: // 这个 pkt 能处理的 wqe 已经结束了, skb 释放掉了
+		case COMPST_DONE: // 这个 pkt 能处理的 wqe 已经结束了, skb 释放掉了. 如果需要 drop silently 也可以直接跳到这里
 			if (pkt) {
 				rxe_drop_ref(pkt->qp);
 				kfree_skb(skb);

@@ -401,7 +401,9 @@ err1:
 /* copy data in or out of a wqe, i.e. sg list
  * under the control of a dma descriptor
  *
- * 方向取决于: dir
+ * 方向取决于: dir: from_mem_obj / to_mem_obj
+ * - to_mem_obj:   data -> dma
+ * - from_mem_obj: dma  -> data
  */
 int copy_data(
 	struct rxe_pd		*pd,
