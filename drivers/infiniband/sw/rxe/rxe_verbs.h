@@ -2,6 +2,47 @@
 /*
  * Copyright (c) 2016 Mellanox Technologies Ltd. All rights reserved.
  * Copyright (c) 2015 System Fabric Works, Inc. All rights reserved.
+ *
+ *
+ * 关于 softroce 的 lock
+ *
+ * - global atomic lock: atomic_ops_lock
+ *
+ * - rxe_dev.usdev_lock. 目前仅仅用在 rxe_query_port() 上, port 是 device 的资
+ *   源, 保护该资源.
+ *
+ * - rxe_port.port_lock: 目前是用来保护一些 counter 计数的
+ *
+ * - qp lock:
+ *   - ~rxe_qp.grp_lock~
+ *   - ~rxe_qp.state_lock~ requester 和 completer 会修改 qp state. 当 req 处于
+ *   QP_STATE_DRAIN 状态的时候, 二者之一会去 drain 这个 qp. 这时候就用这个来协调
+ *
+ *
+ * - sq lock: ~rxe_sq.sq_lock~, sq 访问者
+ *   - 多个上层 verbs 调用: post_one_send()
+ *
+ *
+ * - rq lock
+ *   - ~rxe_sq.producer_lock~, 访问者, 多个上层 verbs 调用: rxe_post_recv()
+ *   - ~rxe_sq.consumer_lock~, 没有用. 仅仅在 srq 的时候使用
+ *
+ *
+ * - cq lock ~rxe_cq.cq_lock~ cq 的访问者
+ *   - 底层访问者:
+ *	- rxe_cq_post()       // 填充 cq
+ *	- rxe_send_complete() // 通知用户
+ *   - 上层 verbs:
+ *	- rxe_poll_cq()
+ *	- rxe_req_notify_cq()
+ *	- rxe_cq_resize_queue()
+ *	- rxe_cq_disable()
+ *
+ *
+ * - srq lock
+ *   - srq->rq.producer_lock, 访问者, 多个上层 verbs 调用: rxe_post_srq_recv()
+ *   - srq->rq.consumer_lock, 访问者, 多个底层 qp 的 responder: get_srq_wqe()
+ *
  */
 
 #ifndef RXE_VERBS_H
@@ -171,6 +212,7 @@ struct rxe_comp_info {
 	struct rxe_task		task; // rxe_completer
 };
 
+// 处理 read 重传的时候, 记录是重传 first/middle/last 包 ?
 enum rdatm_res_state {
 	rdatm_res_state_next,
 	rdatm_res_state_new,
@@ -204,7 +246,7 @@ struct rxe_resp_info {
 	enum rxe_qp_state	state;
 	u32			msn;
 	u32			psn; // expected psn. ref: rxe_resp:execute()
-	u32			ack_psn; // 用来做 ack 的 psn, 即我如果回复 ack 包, 用这个做 psn. ref: rxe_resp:execute(). 不过从代码看, 现在这个值没有用的. 
+	u32			ack_psn; // ref: b97db58557f4aa6d9903f8e1deea6b3d1ed0ba43
 	int			opcode; // 保存刚才收到的 opcode, 用于校验后续的 opcode, ref: check_op_seq()
 	int			drop_msg;
 	int			goto_error;
@@ -218,7 +260,7 @@ struct rxe_resp_info {
 	/* RDMA read / atomic only */ // 处理 response pkt 的时候暂存的一些信息, ref: writ_data_in()
 	u64			va;
 	struct rxe_mem		*mr; // 记录下当前正要被用的 mr, ref: check_rkey
-	u32			resid;
+	u32			resid; // ref: check_rkey(), 剩下的需要处理的数据长度
 	u32			rkey;
 	u32			length;
 	u64			atomic_orig;
@@ -232,7 +274,7 @@ struct rxe_resp_info {
 	/* Responder resources. It's a circular list where the oldest
 	 * resource is dropped first.
 	 */
-	struct resp_res		*resources;
+	struct resp_res		*resources; // ref: find_resource()
 	unsigned int		res_head;
 	unsigned int		res_tail;
 	struct resp_res		*res;

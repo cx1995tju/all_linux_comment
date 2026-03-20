@@ -99,7 +99,7 @@ static inline enum resp_states get_req(struct rxe_qp *qp,
 	struct sk_buff *skb;
 
 	// 检查 qp 状态
-	if (qp->resp.state == QP_STATE_ERROR) {
+	if (qp->resp.state == QP_STATE_ERROR) { // ref: rxe_qp_error()
 		while ((skb = skb_dequeue(&qp->req_pkts))) {
 			rxe_drop_ref(qp);
 			kfree_skb(skb);
@@ -110,6 +110,7 @@ static inline enum resp_states get_req(struct rxe_qp *qp,
 	}
 
 	// 取报文下来 和 rxe_pkt_info 信息
+	// 这里仅仅是 peek, 并没有取下来
 	skb = skb_peek(&qp->req_pkts);
 	if (!skb) // 会一直处理, 知道 req_pkts 被处理完
 		return RESPST_EXIT;
@@ -119,6 +120,8 @@ static inline enum resp_states get_req(struct rxe_qp *qp,
 
 	// 空是常态. 
 	// 否则应该是 replay the rdma read reply 情况, ref: duplicate_request
+	// ref: read_reply() 处理 multi-pkt read req 的时候, read_reply() 发一
+	// 个 pkt 后就退出了, 但是会设置 resp.res 的
 	return (qp->resp.res) ? RESPST_READ_REPLY : RESPST_CHK_PSN;
 }
 
@@ -625,7 +628,7 @@ static struct sk_buff *prepare_ack_packet(struct rxe_qp *qp,
 	/*
 	 * allocate packet
 	 */
-	pad = (-payload) & 0x3;
+	pad = (-payload) & 0x3; // 补齐到 4B
 	paylen = rxe_opcode[opcode].length + payload + pad + RXE_ICRC_SIZE;
 
 	skb = rxe_init_packet(rxe, &qp->pri_av, paylen, ack);
@@ -678,6 +681,8 @@ static struct sk_buff *prepare_ack_packet(struct rxe_qp *qp,
  * being processed or replayed.
  *
  * 读数据, 发送 read response 包.
+ *
+ * read 的 retry 也是走这里去回复 reply 的. ref: duplicate_request
  */
 static enum resp_states read_reply(struct rxe_qp *qp,
 				   struct rxe_pkt_info *req_pkt)
@@ -693,28 +698,32 @@ static enum resp_states read_reply(struct rxe_qp *qp,
 	u32 icrc;
 	u32 *p;
 
-	if (!res) {
+	if (!res) { // ref: duplicate_request() 说明这不是 read 的重传, 也不是一个正在处理的 read 请求
 		/* This is the first time we process that request. Get a
 		 * resource
 		 */
+		// 分配一个空闲的 resource 来保存 read 的一些信息, 以应付 retry. 这里是循环覆盖的
+		// ref: find_resource()
 		res = &qp->resp.resources[qp->resp.res_head];
 
+		// 要覆盖这个 resource 了, 将一些老的关联的资源释放掉
 		free_rd_atomic_resource(qp, res);
 		rxe_advance_resp_resource(qp);
 
 		res->type		= RXE_READ_MASK;
 		res->replay		= 0;
 
-		res->read.va		= qp->resp.va;
-		res->read.va_org	= qp->resp.va;
+		// 记录下 va 信息
+		res->read.va		= qp->resp.va; // 在构造报文的时候会向前移动的
+		res->read.va_org	= qp->resp.va; // va original
 
-		res->first_psn		= req_pkt->psn;
+		res->first_psn		= req_pkt->psn; // read 的 psn 必须和 req 一一对应的
 
 		if (reth_len(req_pkt)) {
 			res->last_psn	= (req_pkt->psn +
 					   (reth_len(req_pkt) + mtu - 1) /
 					   mtu - 1) & BTH_PSN_MASK;
-		} else {
+		} else { // 0 长度 read 的处理
 			res->last_psn	= res->first_psn;
 		}
 		res->cur_psn		= req_pkt->psn;
@@ -723,7 +732,9 @@ static enum resp_states read_reply(struct rxe_qp *qp,
 		res->read.length	= qp->resp.resid;
 		res->read.rkey		= qp->resp.rkey;
 
-		/* note res inherits the reference to mr from qp */
+		/* note res inherits the reference to mr from qp 
+		 * 因为是从 resp.mr 里直接拿过来的, 所以不需要增加引用计数
+		 * */
 		res->read.mr		= qp->resp.mr;
 		qp->resp.mr		= NULL;
 
@@ -736,7 +747,7 @@ static enum resp_states read_reply(struct rxe_qp *qp,
 			opcode = IB_OPCODE_RC_RDMA_READ_RESPONSE_ONLY;
 		else
 			opcode = IB_OPCODE_RC_RDMA_READ_RESPONSE_FIRST;
-	} else {
+	} else { // 这条路径怎么进来的 ?
 		if (res->read.resid > mtu)
 			opcode = IB_OPCODE_RC_RDMA_READ_RESPONSE_MIDDLE;
 		else
@@ -752,6 +763,7 @@ static enum resp_states read_reply(struct rxe_qp *qp,
 	if (!skb)
 		return RESPST_ERR_RNR;
 
+	// mem -> payload 里
 	err = rxe_mem_copy(res->read.mr, res->read.va, payload_addr(&ack_pkt),
 			   payload, from_mem_obj, &icrc);
 	if (err)
@@ -777,14 +789,29 @@ static enum resp_states read_reply(struct rxe_qp *qp,
 	res->read.resid -= payload;
 	res->cur_psn = (res->cur_psn + 1) & BTH_PSN_MASK;
 
-	if (res->read.resid > 0) {
+	if (res->read.resid > 0) { // read req 需要的 reply 还没有发完, 为什么不继续发了? 还有什么路径会调度过来么? 会的, ref: comments on rxe_do_task()
 		state = RESPST_DONE;
-	} else {
+	} else { // 说明发完了
 		qp->resp.res = NULL;
-		if (!res->replay)
+		/* 如果是 read 的重传, 这里不能 reset opcode 的
+		 * 考虑下述 case:
+		 * - 首先 resp 收到: read req psn: 20, 21, 22, write req psn: 23
+		 *   - resp.psn = 24
+		 *   - resp.opcode = wirte first
+		 *
+		 * - 然后 req 重传 read req psn: 20, 21, 22
+		 *
+		 * - resp 收到 dup read req, 然后重传
+		 *   - resp.psn = 24
+		 *   - resp.opcode = -1. 如果这里无条件设置的话
+		 *
+		 *
+		 * 那么后续的 write seq 到来的时候, 使用这个 opcode 去判断合法性就会出问题的
+		 * */
+		if (!res->replay) 
 			qp->resp.opcode = -1;
 		if (psn_compare(res->cur_psn, qp->resp.psn) >= 0)
-			qp->resp.psn = res->cur_psn;
+			qp->resp.psn = res->cur_psn; // 更新 ePSN 了
 		state = RESPST_CLEANUP;
 	}
 
@@ -869,6 +896,8 @@ static enum resp_states execute(struct rxe_qp *qp, struct rxe_pkt_info *pkt)
 
 // 利用已有的信息回复 completion 了, 当然可能还要通知用户
 // send,write_with_imm 可能要产生 completion
+//
+// 出错后产生的 completion 也是走这里的, ref: do_class_ac_error()
 static enum resp_states do_complete(struct rxe_qp *qp,
 				    struct rxe_pkt_info *pkt)
 {
@@ -978,11 +1007,11 @@ static enum resp_states do_complete(struct rxe_qp *qp,
 	qp->resp.wqe = NULL;
 
 	// XXX: cq 是反过来的, 硬件 post, app 消费
-	if (rxe_cq_post(qp->rcq, &cqe, pkt ? bth_se(pkt) : 1))
+	if (rxe_cq_post(qp->rcq, &cqe, pkt ? bth_se(pkt) : 1)) // cq_post 里已经将 cq overflow 直接通知到上层了
 		return RESPST_ERR_CQ_OVERFLOW;
 
 	// 说明产生 completion 的时候出错了, 但是已经 post cqe 咯
-	// (为什么又去 check 一把???)
+	// (为什么又去 check 一把??? 主要让其去做错误处理, 释放资源)
 	if (qp->resp.state == QP_STATE_ERROR)
 		return RESPST_CHK_RESOURCE;
 
@@ -1121,6 +1150,8 @@ static struct resp_res *find_resource(struct rxe_qp *qp, u32 psn)
 {
 	int i;
 
+	// 从 responder 的角度来说, 需要根据 qp 支持的 max read atomic 来保留一些信息
+	// 应付 atomic / read 的重传. 特别是 atomic 这种不能重新执行的
 	for (i = 0; i < qp->attr.max_dest_rd_atomic; i++) {
 		struct resp_res *res = &qp->resp.resources[i];
 
@@ -1142,15 +1173,31 @@ static enum resp_states duplicate_request(struct rxe_qp *qp,
 					  struct rxe_pkt_info *pkt)
 {
 	enum resp_states rc;
-	// ref: execute() 处理前一个 req 的时候, ack_psn 已经被更新为 epsn 了
-	// 奇怪的是 ack_psn 的唯一用处好像就是在这里, 并没有用这个 psn 来填充 ack 包
+	/* XXX:
+	 *
+	 * ref: execute() read_reply() ack_psn 不一定是 ePSN 的, ref: execute()
+	 * 对于 read 操作的处理的时候 ePSN 在增长, 但是 ack_psn 没有增长的, 这
+	 * 里为 read/write 回复 dup req 的时候, 不能用 ePSN - 1. 考虑下述
+	 * corner
+	 *
+	 * case:
+         *  - resp 收到: write-req(30), 然后发送 ack(30)
+         *    - ePSN = 31
+         *  - resp 收到: read-req(31)
+         *    - ePSN = 32
+         *  - resp 收到了 req 重传的 write-req(30)
+         *    - 此时如果用 ePSN-1 来回复, 就会回复 write-req(31). 就出错了, 因为 PSN 31
+         *      对应的是一个 read request.
+	 *
+	 * ref: b97db58557f4aa6d9903f8e1deea6b3d1ed0ba43
+	 * */
 	u32 prev_psn = (qp->resp.ack_psn - 1) & BTH_PSN_MASK;
 
 	if (pkt->mask & RXE_SEND_MASK ||
 	    pkt->mask & RXE_WRITE_MASK) {
 		/* SEND. Ack again and cleanup. C9-105. */
 		if (bth_ack(pkt))
-			send_ack(qp, pkt, AETH_ACK_UNLIMITED, prev_psn);
+			send_ack(qp, pkt, AETH_ACK_UNLIMITED, prev_psn);	// 注意, 这里用来 ack 的 PSN 不是从 pkt 里提取出来的. 也不是 ePSN, 而是保存的一个特殊值.
 		rc = RESPST_CLEANUP;
 		goto out;
 	} else if (pkt->mask & RXE_READ_MASK) { // go back n 了 ???
@@ -1166,6 +1213,8 @@ static enum resp_states duplicate_request(struct rxe_qp *qp,
 		} else {
 			/* Ensure this new request is the same as the previous
 			 * one or a subset of it. IB Spec 要求的
+			 *
+			 * 可能重新请求新的 va 的, 这里不能盲目执行的. 要从 pkt 里提取一些信息的
 			 */
 			u64 iova = reth_va(pkt);
 			u32 resid = reth_len(pkt);
@@ -1196,7 +1245,7 @@ static enum resp_states duplicate_request(struct rxe_qp *qp,
 
 			/* Replay the RDMA read reply. */
 			qp->resp.res = res;
-			rc = RESPST_READ_REPLY;
+			rc = RESPST_READ_REPLY; // 去 read_reply() 回复 reply 咯
 			goto out;
 		}
 	} else { // atomic 操作, 注意不要重做 atomic 操作, 仅仅重发包就可以了
@@ -1205,7 +1254,7 @@ static enum resp_states duplicate_request(struct rxe_qp *qp,
 		/* Find the operation in our list of responder resources. */
 		res = find_resource(qp, pkt->psn);
 		if (res) {
-			skb_get(res->atomic.skb);
+			skb_get(res->atomic.skb); // 之前的 skb 捞出来, 直接重新发就可以了
 			/* Resend the result. */
 			rc = rxe_xmit_packet(qp, pkt, res->atomic.skb);
 			if (rc) {
@@ -1223,7 +1272,15 @@ out:
 	return rc;
 }
 
-/* Process a class A or C. Both are treated the same in this implementation. */
+/* Process a class A or C. Both are treated the same in this implementation. 
+ *
+ * class a/c 的行为是一样的, 都需要向上和向 requester 报告.
+ *
+ * 这里设置状态就可以了, 从这个函数返回的时候将 state 设置为 RESPST_COMPLETE 就可以了, 
+ * - do_complete() 会根据 status 产生错误的 cqe 的
+ * - 然后会走到 acknowledge() 去回复 nak 包的
+ * - 最后 goto_error, 将 qp 设置为 error 状态, 然后调度 completer 将后续的 wqe 标记为 flush_err 的
+ * */
 static void do_class_ac_error(struct rxe_qp *qp, u8 syndrome,
 			      enum ib_wc_status status)
 {
@@ -1272,6 +1329,7 @@ static void rxe_drain_req_pkts(struct rxe_qp *qp, bool notify)
 {
 	struct sk_buff *skb;
 
+	// 收到的 req 全部 drop 掉
 	while ((skb = skb_dequeue(&qp->req_pkts))) {
 		rxe_drop_ref(qp);
 		kfree_skb(skb);
@@ -1280,6 +1338,7 @@ static void rxe_drain_req_pkts(struct rxe_qp *qp, bool notify)
 	if (notify)
 		return;
 
+	// rq 全部消耗掉
 	while (!qp->srq && qp->rq.queue && queue_head(qp->rq.queue))
 		advance_consumer(qp->rq.queue);
 }
@@ -1297,6 +1356,76 @@ static void rxe_drain_req_pkts(struct rxe_qp *qp, bool notify)
  * 4. dup req 处理
  * 5. generating nak
  * 6. 回复 ack 的时机
+ * */
+
+/* RC 错误类型
+ * | Error(有 NAK)          | Desc                                   | Syndrome                     | Fault Behavior Class |
+ * |------------------------+----------------------------------------+------------------------------+----------------------|
+ * | Malformed WQE          | wqe 有问题                             | NAK:Remote-Operational-Error | Class A              |
+ * |------------------------+----------------------------------------+------------------------------+----------------------|
+ * | Local QP Error         | Responder 执行 request 的              | NAK:Remote-Operational-Error | Class A              |
+ * |                        | 时候发现和locla QP 相关的              |                              |                      |
+ * |                        | error,包括: SRQ 上的 error             |                              |                      |
+ * |------------------------+----------------------------------------+------------------------------+----------------------|
+ * | Resources Not Ready    | WQE 或者其他资源不可用                 | NAK:RNR                      | Class B              |
+ * |------------------------+----------------------------------------+------------------------------+----------------------|
+ * | OOO psn                | psn 乱了                               | NAk:sequence-err             | Class B              |
+ * |------------------------+----------------------------------------+------------------------------+----------------------|
+ * | unsupported or         | opcode 非法                            | NAk:Invalid-Req              | Class C              |
+ * | rsvd opcode            |                                        |                              |                      |
+ * |------------------------+----------------------------------------+------------------------------+----------------------|
+ * | OOO opcode             | opcode 的顺序非法                      | NAK:invalid-Req              | Class C              |
+ * |------------------------+----------------------------------------+------------------------------+----------------------|
+ * | misaligned atomic      | atomic 的 va 不对齐                    | NAK:invalid-Req              | Class C              |
+ * |------------------------+----------------------------------------+------------------------------+----------------------|
+ * | too many rd/atomic req | req 发送的 rd/atomic 太多              | NAK:invalid-Req              | Class C              |
+ * |------------------------+----------------------------------------+------------------------------+----------------------|
+ * | length errors          | 1. send req message 超过了 recv buffer | NAK-Invalid Req              | Class C              |
+ * |                        | 2. write pkt 的数据和 dma len 不匹配   |                              |                      |
+ * |                        | 3. pkt payload 和 PMTU 长度不匹配      |                              |                      |
+ * |                        | 4. message 最大长度超过 CA 限制        |                              |                      |
+ * |------------------------+----------------------------------------+------------------------------+----------------------|
+ * | R_Key Violation        | R_key 非法                             | NAK:Remote-Access-Violation  | Class C              |
+ *
+ *
+ * | Error(无 NAK)           | Desc                                   | Syndrome | Fault Behavior Class |
+ * |-------------------------+----------------------------------------+----------+----------------------|
+ * | Pkt Hdr Violation       | Pkt Hdr 非法                           | none     | Class D              |
+ * |-------------------------+----------------------------------------+----------+----------------------|
+ * | Invalid dup ATOMIC Req  | 收到重复的 atomic req pkt, 但是 PSN 和 | none     | Class D              |
+ * |                         | 保存的 ATOMIC Req 不匹配               |          |                      |
+ * |-------------------------+----------------------------------------+----------+----------------------|
+ * | CQ overflow             | CQ 满了                                | none     | Class G              |
+ * |-------------------------+----------------------------------------+----------+----------------------|
+ * | Remote Invalidate Error | send-with-invalidate 的 R_key 非法     | NA       | Class J              |
+ *
+ *
+ *
+ *
+ * RC 错误处理
+ * | Fault Behavior | desc                        | NAK Codes Returned          | Curr Receive WQE   | Sub Recv WQE | Final RQ State |
+ * | Class          |                             |                             |                    |              |                |
+ * |----------------+-----------------------------+-----------------------------+--------------------+--------------+----------------|
+ * | Class A        | response 自己有问题         | 1. Remote Operational Error | completed in err   | flushed      | error          |
+ * |                |                             |                             |                    |              |                |
+ * |                | 向上报告                    |                             |                    |              |                |
+ * |----------------+-----------------------------+-----------------------------+--------------------+--------------+----------------|
+ * | Class B        | requester 提供的有问题      | 1. Seq error                | no WQE consmed     | no impact    | no change      |
+ * |                |                             | 2. RNR                      |                    |              |                |
+ * |                | 报告给 requester            |                             |                    |              |                |
+ * |                | 不向上报告                  |                             |                    |              |                |
+ * |----------------+-----------------------------+-----------------------------+--------------------+--------------+----------------|
+ * | Class C        | requester 提供的有问题      | 1. Invalid Req              |                    |              |                |
+ * |                |                             | 2. Remote Access Violation  |                    |              |                |
+ * |                | 报告给 requester            |                             | completed in error | flushed      | error          |
+ * |                | 也向上报告                  |                             |                    |              |                |
+ * |----------------+-----------------------------+-----------------------------+--------------------+--------------+----------------|
+ * | Class D        | inbound pkt 导致的          | none                        | no WQE consumed    | no impact    | no change      |
+ * |                | drop silently               |                             |                    |              |                |
+ * |----------------+-----------------------------+-----------------------------+--------------------+--------------+----------------|
+ * | Class G        | CQ 有问题                   | none                        | unknown            | unknown      | error          |
+ * |----------------+-----------------------------+-----------------------------+--------------------+--------------+----------------|
+ * | Class J        | send-with-invalidate 有问题 | none                        | completed in error | flushed      | error          |
  * */
 int rxe_responder(void *arg)
 {
@@ -1317,7 +1446,7 @@ int rxe_responder(void *arg)
 
 	switch (qp->resp.state) {
 	case QP_STATE_RESET:
-		state = RESPST_RESET;
+		state = RESPST_RESET; // 用户主动来 reset 恢复 cq 么?
 		break;
 
 	default:
@@ -1370,20 +1499,25 @@ int rxe_responder(void *arg)
 			state = duplicate_request(qp, pkt);
 			break;
 		case RESPST_ERR_PSN_OUT_OF_SEQ: // class b: nak:sequence-error
-			/* RC only - Class B. Drop packet. */
-			// 就这里的 ack 特殊, psn 用的是 ePSN
+			/* RC only - Class B. Drop packet. class b 只需要回复 nak 就可以了 */
+			/* XXX: 就这里的 ack 特殊, psn 用的是 ePSN */
 			send_ack(qp, pkt, AETH_NAK_PSN_SEQ_ERROR, qp->resp.psn);
 			state = RESPST_CLEANUP;
 			break;
 
-		case RESPST_ERR_TOO_MANY_RDMA_ATM_REQ: // class c: nak:ivalid-request
+		case RESPST_ERR_TOO_MANY_RDMA_ATM_REQ: // class c: nak:invalid-request
 		case RESPST_ERR_MISSING_OPCODE_FIRST:  // class c: nak:invalid-request
 		case RESPST_ERR_MISSING_OPCODE_LAST_C: // class c: nak:invalid-request
 		case RESPST_ERR_UNSUPPORTED_OPCODE:    // class c: nak:invalid-request
 		case RESPST_ERR_MISALIGNED_ATOMIC:     // class c: nak:invalid-request
-			/* RC Only - Class C. 本地就处理了额*/
+			/* RC Only - Class C. 本地就处理了额
+			 * class a/c 的行为是一样的, 都需要向上和向 requester 报告.
+			 * */
 			do_class_ac_error(qp, AETH_NAK_INVALID_REQ,
 					  IB_WC_REM_INV_REQ_ERR);
+			// class a/c 的处理需要向上层报告, 所以去 complete 处理,
+			// complete 处理后还要去 RESPST_ACKNOWLEDGE 去回复 nak
+			// 最后 goto error 去 error 状态
 			state = RESPST_COMPLETE;
 			break;
 
@@ -1393,7 +1527,7 @@ int rxe_responder(void *arg)
 		case RESPST_ERR_RNR:
 			if (qp_type(qp) == IB_QPT_RC) {
 				rxe_counter_inc(rxe, RXE_CNT_SND_RNR);
-				/* RC - class B */
+				/* RC - class B, 不需要向上报告, 回复 NAK 就可以了 */
 				send_ack(qp, pkt, AETH_RNR_NAK |
 					 (~AETH_TYPE_MASK &
 					 qp->attr.min_rnr_timer),
@@ -1407,7 +1541,6 @@ int rxe_responder(void *arg)
 
 		case RESPST_ERR_RKEY_VIOLATION:
 			if (qp_type(qp) == IB_QPT_RC) { // class c: nak:remote-access-violation
-				/* Class C 本地处理了 */
 				do_class_ac_error(qp, AETH_NAK_REM_ACC_ERR,
 						  IB_WC_REM_ACCESS_ERR);
 				state = RESPST_COMPLETE;
@@ -1450,7 +1583,7 @@ int rxe_responder(void *arg)
 
 		case RESPST_ERR_CQ_OVERFLOW: // class G
 			/* All - Class G */
-			state = RESPST_ERROR;
+			state = RESPST_ERROR; // 无条件直接进入 error 状态咯
 			break;
 
 		case RESPST_DONE:
@@ -1485,9 +1618,15 @@ int rxe_responder(void *arg)
 		}
 	}
 
+	/* A non-zero return value will cause rxe_do_task to
+	 * exit its loop and end the work item. A zero return
+	 * will continue looping and return to rxe_responder
+	 *
+	 * ref: rxe_do_task
+	 */
 exit:
-	ret = -EAGAIN;
-done:
+	ret = -EAGAIN; // 从这里走, 就只能等待下次调度了
+done: // 从 done 这里走函数可能还会回来
 	rxe_drop_ref(qp);
 	return ret;
 }

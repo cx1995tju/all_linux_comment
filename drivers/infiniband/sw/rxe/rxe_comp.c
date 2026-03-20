@@ -569,6 +569,7 @@ static inline enum comp_state complete_ack(struct rxe_qp *qp,
 		}
 	}
 
+	// sq 将 req 发出去后, 还要等待收到 response 的, 然后由 completer 将其设置为 DRAINED 状态(???)
 	if (unlikely(qp->req.state == QP_STATE_DRAIN)) {
 		/* state_lock used by requester & completer */
 		spin_lock_irqsave(&qp->state_lock, flags);

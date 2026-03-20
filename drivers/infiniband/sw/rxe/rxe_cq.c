@@ -113,7 +113,7 @@ int rxe_cq_post(struct rxe_cq *cq, struct rxe_cqe *cqe, int solicited)
 
 	spin_lock_irqsave(&cq->cq_lock, flags);
 
-	if (unlikely(queue_full(cq->queue))) {
+	if (unlikely(queue_full(cq->queue))) { // 在这里处理 cq overflow 的
 		spin_unlock_irqrestore(&cq->cq_lock, flags);
 		if (cq->ibcq.event_handler) {
 			ev.device = cq->ibcq.device;

@@ -543,7 +543,6 @@ static void rxe_qp_drain(struct rxe_qp *qp)
 }
 
 /* move the qp to the error state */
-// 到种类 error 状态已经非常严重了, 不是通过 cq 可以上报就解决了
 void rxe_qp_error(struct rxe_qp *qp)
 {
 	qp->req.state = QP_STATE_ERROR;
@@ -551,13 +550,19 @@ void rxe_qp_error(struct rxe_qp *qp)
 	qp->attr.qp_state = IB_QPS_ERR;
 
 	/* drain work and packet queues */
+	//  rxe_responder() -> get_req() 将外部的 req pkt 全部 drop 掉. ->
+	//  check_resource() 将相关资源全部释放掉, 并且标记 FLUSH_ERR.
 	rxe_run_task(&qp->resp.task, 1);
 
-	// 调度 rxe_completer
+	// 调度 rxe_completer, 在错误状态, 让其就后续的 WQE 标记为 flush_err.
+	// 将所有的 resp pkt drop 掉
+	// 这里没有异步通知机制, 即 CQ overflow 的时候不是从这里通知的, 而是 rxe_cq_post() 里直接通知的
 	if (qp_type(qp) == IB_QPT_RC)
 		rxe_run_task(&qp->comp.task, 1);
 	else
 		__rxe_do_task(&qp->comp.task);
+
+	// 为什么要调度 rxe_requester 呢???? 目前看上去没啥用
 	rxe_run_task(&qp->req.task, 1);
 }
 

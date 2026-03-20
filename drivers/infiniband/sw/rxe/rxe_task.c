@@ -27,6 +27,10 @@ int __rxe_do_task(struct rxe_task *task)
  * this locking is due to a potential race where
  * a second caller finds the task already running
  * but looks just after the last call to func
+ *
+ * XXX: A non-zero return value will cause rxe_do_task to exit its loop and end
+ * the work item. A zero return will continue looping and return to
+ * rxe_responder
  */
 void rxe_do_task(struct tasklet_struct *t)
 {
