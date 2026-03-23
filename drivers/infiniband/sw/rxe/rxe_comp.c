@@ -173,7 +173,7 @@ static inline void reset_retry_counters(struct rxe_qp *qp)
 
 /* 关于几个 psn:
  * - pkt.psn: response ack 的 psn
- * - comp.psn: expected psn, 也就是最大的被 ack 的 psn + 1
+ * - comp.psn: snd_una
  * - wqe.last_psn: 即当前 wqe 的 last psn(read req 中才实际有意义)
  *
  *
@@ -186,22 +186,17 @@ static inline void reset_retry_counters(struct rxe_qp *qp)
  *   这是为了确保 SEND/WRITE 的累积 ack.
  * - *Rule 3 READ ack*: READ response 的最后的 pkt, ack 了当前的 read request.
  *   由于 READ 不支持 累积 ACK, 所以必须自己用最后一个 pkt 来 ack.
- * - *<<Rule-4>>* NAK BTH:PSN 是 responder 的 ePSN. 所以 NAK pkt 隐式的 ack 了
- *    其前面的 pkt. 当然 NAK 是无法隐式 ack 前面的 read req 的. read req 必须被
- *    显示的 response 来 ack. rule-4 本质是 rule-0 和 rule-1 的在 NAK pkt 上的
- *    推广.
  *
- *    XXX: 根据 rule4, NAK 包 也会来先 check_psn 然后 comp 一些 wqe 的, 非常关键
- *
+ * - *<<Rule-4>>* NAK:Sequence-Error BTH:PSN 是 responder 的 ePSN. 所以 NAK
+ *    pkt 隐式的 ack 了其前面的 pkt. 当然 NAK 是无法隐式 ack 前面的 read req 的
+ *    . read req 必须被显示的 response 来 ack. rule-4 本质是 rule-0 和 rule-1
+ *    的在 NAK:Sequence-error pkt 上的推广. ref: [[C9-111-rev]]
  *
  *
- * 关于 response 回复的 pkt 里的的 BTH:PSN
- * - pure-ack: 使用个最新的 req 的 psn.[[C9-95]]
- * - read/atomic response psn: 用 req 的 psn.  [[C9-96]] [[o9-58]] 
- * - nak 的 psn:
- *   - for non-read req response 用 ePSN, [[C9-111]] [[C9-112]] [[C9-113]]
- *   - read req response, NAK BTH:PSN 用正准备 NAK 的 PSN
- *   - RNR NAK, NAK BTH:PSN 用正准备 NAK 的 PSN
+ *   resp psn 空间被分成 3 部分:
+ *   - dup: [oldest valid request, snd_una)  
+ *   - una: [snd_una, max outstanding psn]
+ *   - invalid(ghost): others
  *
  * */
 static inline enum comp_state check_psn(struct rxe_qp *qp,
@@ -303,7 +298,7 @@ static inline enum comp_state check_psn(struct rxe_qp *qp,
 			return COMPST_COMP_ACK;
 		else // case 1.2
 			return COMPST_DONE; // drop silently
-	} else if ((diff > 0) && (wqe->mask & WR_ATOMIC_OR_READ_MASK)) {  // spefical case for read: bad ack
+	} else if ((diff > 0) && (wqe->mask & WR_ATOMIC_OR_READ_MASK)) {  // spefical case for read: bad ack. i.e 就算不是 dup ack, 对于 read/atomic 还有额外要求, PSN 必须严格和 snd_una 对应
 		return COMPST_DONE;
 	} else { // case 3: default case, 进一步处理
 		return COMPST_CHECK_ACK;
@@ -311,6 +306,22 @@ static inline enum comp_state check_psn(struct rxe_qp *qp,
 }
 
 // 检查 ack 包
+/* requester 收到 NAK 包后有两种处理方式 Class A, Class B
+ *
+ * Class A:
+ * - RNR / NAK:Sequence-error, transport 层自己 retry, 上层不感知
+ *
+ *
+ * Class B: 
+ * - 其他 NAK
+ * - Class A 的 NAK 重试超过次数限制了
+ *
+ * Class B 的处理方式:
+ * - flush wqe
+ * - sq 不可用
+ * - 错误可以关联到某个 wqe, 将其通知给 verbs
+ *
+ * */
 static inline enum comp_state check_ack(struct rxe_qp *qp,
 					struct rxe_pkt_info *pkt,
 					struct rxe_send_wqe *wqe)
@@ -319,7 +330,7 @@ static inline enum comp_state check_ack(struct rxe_qp *qp,
 	u8 syn;
 	struct rxe_dev *rxe = to_rdev(qp->ibqp.device);
 
-	/* Check the sequence only */
+	/* Check the sequence only, 先对 opcode 做一个检查咯 */
 	switch (qp->comp.opcode) { // 前一个 response pkt 里提取出来的 opcode
 	case -1:
 		/* Will catch all *_ONLY cases. */
@@ -331,9 +342,11 @@ static inline enum comp_state check_ack(struct rxe_qp *qp,
 	case IB_OPCODE_RC_RDMA_READ_RESPONSE_FIRST:
 	case IB_OPCODE_RC_RDMA_READ_RESPONSE_MIDDLE:
 		if (pkt->opcode != IB_OPCODE_RC_RDMA_READ_RESPONSE_MIDDLE &&
-		    pkt->opcode != IB_OPCODE_RC_RDMA_READ_RESPONSE_LAST) { // 可能重传了
+		    pkt->opcode != IB_OPCODE_RC_RDMA_READ_RESPONSE_LAST) {
 			/* read retries of partial data may restart from
 			 * read response first or response only.
+			 *
+			 * 可能重传了, 那么就是 first 或者 only 了, 但是必须要和当前的 wqe 的 first_psn 对应才行.
 			 */
 			if ((pkt->psn == wqe->first_psn &&
 			     pkt->opcode ==
@@ -355,9 +368,9 @@ static inline enum comp_state check_ack(struct rxe_qp *qp,
 	case IB_OPCODE_RC_RDMA_READ_RESPONSE_FIRST:
 	case IB_OPCODE_RC_RDMA_READ_RESPONSE_LAST:
 	case IB_OPCODE_RC_RDMA_READ_RESPONSE_ONLY:
-		syn = aeth_syn(pkt); // 这几个 read pkt 要携带 aeth 的
+		syn = aeth_syn(pkt); // 这几种 read response pkt 要携带 aeth 的
 
-		if ((syn & AETH_TYPE_MASK) != AETH_ACK)
+		if ((syn & AETH_TYPE_MASK) != AETH_ACK) // 而且 syn 必须是 ACK
 			return COMPST_ERROR;
 
 		fallthrough;
@@ -369,26 +382,26 @@ static inline enum comp_state check_ack(struct rxe_qp *qp,
 			wqe->status = IB_WC_FATAL_ERR;
 			return COMPST_ERROR;
 		}
-		reset_retry_counters(qp);
+		reset_retry_counters(qp); // 通过检查, reset retry timer.
 		return COMPST_READ;
 
 	case IB_OPCODE_RC_ATOMIC_ACKNOWLEDGE:
 		syn = aeth_syn(pkt);
 
-		if ((syn & AETH_TYPE_MASK) != AETH_ACK)
+		if ((syn & AETH_TYPE_MASK) != AETH_ACK) // 类似 read
 			return COMPST_ERROR;
 
-		if (wqe->wr.opcode != IB_WR_ATOMIC_CMP_AND_SWP &&
+		if (wqe->wr.opcode != IB_WR_ATOMIC_CMP_AND_SWP && /* 必须是 atomic 相关的 wqe 的 */
 		    wqe->wr.opcode != IB_WR_ATOMIC_FETCH_AND_ADD)
 			return COMPST_ERROR;
-		reset_retry_counters(qp);
+		reset_retry_counters(qp); // 通过检查, reset retry timer.
 		return COMPST_ATOMIC;
 
 	case IB_OPCODE_RC_ACKNOWLEDGE: // pure ack 包处理, nak 也是这里
 		syn = aeth_syn(pkt);
 		switch (syn & AETH_TYPE_MASK) {
 		case AETH_ACK: // 这里可以看到没有用 credit count 机制的
-			reset_retry_counters(qp);
+			reset_retry_counters(qp); // 一个 pure ack, 而且是通过 psn 检查的. 说明是 good nak
 			return COMPST_WRITE_SEND;
 
 		case AETH_RNR_NAK:
@@ -397,7 +410,7 @@ static inline enum comp_state check_ack(struct rxe_qp *qp,
 
 		case AETH_NAK:
 			switch (syn) {
-			case AETH_NAK_PSN_SEQ_ERROR:
+			case AETH_NAK_PSN_SEQ_ERROR:	// 只有这一种 NAK 会 implicit ack previous req
 				/* a nak implicitly acks all packets with psns
 				 * before
 				 */
@@ -406,7 +419,7 @@ static inline enum comp_state check_ack(struct rxe_qp *qp,
 							RXE_CNT_RCV_SEQ_ERR);
 					// NAK pkt 间接 ACK 了前面的 pkt, 所以 retry 的时候从 NAK 这个 PSN 开始就可以了
 					// snd_una 前进了很多, nak 隐式前进了很多, nak 前的那些 wqe 如何处理呢?
-					qp->comp.psn = pkt->psn; // NAK BTH:PSN 是 responder 的 ePSN, 即小于 NAK PSN 的都被 ack 了.
+					qp->comp.psn = pkt->psn; // snd_una 前进了
 					if (qp->req.wait_psn) {
 						qp->req.wait_psn = 0;
 						rxe_run_task(&qp->req.task, 0);
@@ -414,6 +427,7 @@ static inline enum comp_state check_ack(struct rxe_qp *qp,
 				}
 				return COMPST_ERROR_RETRY;
 
+				/* 其他 NAK 没有 implicitly acks all pkts with psns before */
 			case AETH_NAK_INVALID_REQ:
 				wqe->status = IB_WC_REM_INV_REQ_ERR;
 				return COMPST_ERROR;
@@ -562,7 +576,7 @@ static inline enum comp_state complete_ack(struct rxe_qp *qp,
 	if (wqe->has_rd_atomic) {
 		wqe->has_rd_atomic = 0;
 		atomic_inc(&qp->req.rd_atomic);
-		if (qp->req.need_rd_atomic) {
+		if (qp->req.need_rd_atomic) { // 有人等着做 rd_atomic, 需要腾出资源. 所以我这里调度一下
 			qp->comp.timeout_retry = 0;
 			qp->req.need_rd_atomic = 0;
 			rxe_run_task(&qp->req.task, 0);
@@ -575,7 +589,7 @@ static inline enum comp_state complete_ack(struct rxe_qp *qp,
 		spin_lock_irqsave(&qp->state_lock, flags);
 		if ((qp->req.state == QP_STATE_DRAIN) &&
 		    (qp->comp.psn == qp->req.psn)) {
-			qp->req.state = QP_STATE_DRAINED;
+			qp->req.state = QP_STATE_DRAINED; // 等待 comp.psn 到达 req.psn 就排空了.
 			spin_unlock_irqrestore(&qp->state_lock, flags);
 
 			if (qp->ibqp.event_handler) {
@@ -592,10 +606,11 @@ static inline enum comp_state complete_ack(struct rxe_qp *qp,
 		}
 	}
 
+	// 生成 cqe
 	do_complete(qp, wqe);
 
 	if (psn_compare(pkt->psn, qp->comp.psn) >= 0)
-		return COMPST_UPDATE_COMP;
+		return COMPST_UPDATE_COMP; // snd_una 右移了
 	else
 		return COMPST_DONE;
 }
@@ -636,7 +651,7 @@ static void rxe_drain_resp_pkts(struct rxe_qp *qp, bool notify)
 
 	// sq 里的 wqe 全部消耗掉
 	while ((wqe = queue_head(qp->sq.queue))) {
-		if (notify) {
+		if (notify) { // 有些错误需要将后续的 WQE 都 flush err
 			wqe->status = IB_WC_WR_FLUSH_ERR;
 			do_complete(qp, wqe);
 		} else {
@@ -646,14 +661,30 @@ static void rxe_drain_resp_pkts(struct rxe_qp *qp, bool notify)
 }
 
 // sq 上的任务完成或者出错了要返回 Work Completion 了
-// 调度时机:
-// - 收到 response pkt 的时候: rxe_comp_queue_pkt
-// - retransmit_timer 触发的时候: retransmit_timer
-// - 非 RC: rxe_xmit_packet 的时候
-// - rxe_qp_drain()
-// - rxe_qp_error()
-// - 有些 local 操作处理完需要返回 wc
-// - post_send 的时候出错了: rxe_post_send_kernel
+//
+// 作为 request 的 completer 被调度
+//   - rxe_comp_queue_pkt(), 收到 response pkt 的时候: 
+//   - rxe_xmit_packet(), 的时候, 比如: UD, 包发完了就可以进行 completion 了
+//   - rxe_requester(), for local operation
+//
+// retran timer
+//   - retransmit_timer(), 触发的时候. qp->comp.timeout
+//
+// 出错处理:
+//   - rxe_post_send_kernel(), post_send 的时候出错了, qp->req.state == QP_STATE_ERROR
+//   - rxe_qp_drain(), qp->req.state = QP_STATE_DRAIN
+//   - rxe_qp_error(), qp->req.state = QP_STATE_ERROR; qp->resp.state = QP_STATE_ERROR; qp->attr.qp_state = IB_QPS_ERR;
+//
+//   - rxe_qp_reset()
+//   - rxe_qp_destroy()
+//
+//
+//
+// 处理流程: Validating Inbound Response pkts
+// - PSNs for retried Response pkts
+// - NAK 处理
+// - lost 检测和 timeout
+// - dup ack 处理: 支持 E2E 的时候, dup ack 里的 credit 需要提取出来处理的
 //
 // ref: 1.4 vol1 Ch9.7.6.1
 int rxe_completer(void *arg)
@@ -667,6 +698,7 @@ int rxe_completer(void *arg)
 
 	rxe_add_ref(qp);
 
+	// error 状态或者 reset 状态, 那么就排空然后 exit 了
 	if (!qp->valid || qp->req.state == QP_STATE_ERROR ||
 	    qp->req.state == QP_STATE_RESET) {
 		rxe_drain_resp_pkts(qp, qp->valid &&
@@ -674,6 +706,7 @@ int rxe_completer(void *arg)
 		goto exit;
 	}
 
+	// retrans timer 调度 completer
 	if (qp->comp.timeout) { // completer 是被 retransmit_timer 触发的
 		qp->comp.timeout_retry = 1;
 		qp->comp.timeout = 0;
@@ -682,9 +715,12 @@ int rxe_completer(void *arg)
 	}
 
 	// 已经处于 retry 状态, 不处理了. 等 rxe_retry 被调度了才处理
+	// completer 检测到需要 retry 的时候会标记的.
+	// retry 是 requester 做的, 这是为了统一 timer retry 和 completer 直接检测到的 retry
 	if (qp->req.need_retry)
 		goto exit;
 
+	// completer 当然是先去拿 response 包了
 	state = COMPST_GET_ACK;
 
 	while (1) {
@@ -695,9 +731,10 @@ int rxe_completer(void *arg)
 			skb = skb_dequeue(&qp->resp_pkts);
 			if (skb) {
 				pkt = SKB_TO_PKT(skb); // ref: rxe_rcv, 里提取了这些信息
+				// 说明这不是一个 timeout retry, 就算前面将 timeout_retry 设置为 1 了. 这要这里获取到了 skb, 就将其设置为 0
 				qp->comp.timeout_retry = 0;
 			}
-			state = COMPST_GET_WQE;	// 有些场景 rxe_completer 的调度不是 response 包引起的, 比如: local 操作, 出错处理
+			state = COMPST_GET_WQE;	// response 肯定是对应 sq 的 wqe 的, 找 oldest wqe 了
 			break;
 
 		case COMPST_GET_WQE:
@@ -708,7 +745,10 @@ int rxe_completer(void *arg)
 			state = check_psn(qp, pkt, wqe);
 			break;
 
-		case COMPST_CHECK_ACK: // ack 正好对应了该 wqe 的 last_psn 么
+		case COMPST_CHECK_ACK:
+			// ref: check_psn(), 如果是 send/write 的累积 ack 会直接去 COMPST_COMP_WQE.
+			// write/send: pkt->psn <= wqe->last_psn
+			// read/atomic: pkt->psn == snd_una <= wqe->last_psn
 			state = check_ack(qp, pkt, wqe);
 			break;
 
@@ -723,11 +763,15 @@ int rxe_completer(void *arg)
 		case COMPST_WRITE_SEND:
 			if (wqe->state == wqe_state_pending &&
 			    wqe->last_psn == pkt->psn)
-				state = COMPST_COMP_ACK; // 正好是对应的 ack
+				state = COMPST_COMP_ACK; // 正好是对应的 ack, 这个 ack 被榨干了
 			else
-				state = COMPST_UPDATE_COMP;
+				state = COMPST_UPDATE_COMP; // 这个 ack 是累积 ack, 不仅仅可以 complete 该 wqe 的.
 			break;
 
+		/* 这里是两条常见路径:
+		 * - COMPST_COM_ACK -> COMPST_UPDATE_COMP
+		 * - COMPST_COMP_WQE -> COMPST_GET_WQE (即重新来)
+		 * */
 		case COMPST_COMP_ACK: // ack 确认了部分 wqe, 这个 pkt 的 ack 已经被榨干了
 			state = complete_ack(qp, pkt, wqe);
 			break;
@@ -761,13 +805,13 @@ int rxe_completer(void *arg)
 			}
 			goto done;
 
-		case COMPST_EXIT: // 出问题了, 退出吧
+		case COMPST_EXIT: // 退出
 			if (qp->comp.timeout_retry && wqe) {
 				state = COMPST_ERROR_RETRY; // retry timer 触发的
 				break;
 			}
 
-			/* re reset the timeout counter if
+			/* re reset the timeout counter if, 因为还要 retry timer 来兜底
 			 * (1) QP is type RC
 			 * (2) the QP is alive
 			 * (3) there is a packet sent by the requester that
@@ -783,7 +827,7 @@ int rxe_completer(void *arg)
 					  jiffies + qp->qp_timeout_jiffies);
 			goto exit;
 
-		case COMPST_ERROR_RETRY:
+		case COMPST_ERROR_RETRY: // 通用 retry 代码: RTO / NAK:Sequence-error / Implicit NAK
 			/* we come here if the retry timer fired and we did
 			 * not receive a response packet. try to retry the send
 			 * queue if that makes sense and the limits have not
@@ -817,6 +861,8 @@ int rxe_completer(void *arg)
 				/* no point in retrying if we have already
 				 * seen the last ack that the requester could
 				 * have caused
+				 *
+				 * 标记 need_retry, 然后调度 rxe_requester()
 				 */
 				if (psn_compare(qp->req.psn,
 						qp->comp.psn) > 0) {
@@ -838,7 +884,7 @@ int rxe_completer(void *arg)
 
 				goto done;
 
-			} else {
+			} else { // 超过了, 去通用 error 处理
 				rxe_counter_inc(rxe, RXE_CNT_RETRY_EXCEEDED);
 				wqe->status = IB_WC_RETRY_EXC_ERR;
 				state = COMPST_ERROR;
@@ -869,9 +915,12 @@ int rxe_completer(void *arg)
 			break;
 
 		case COMPST_ERROR: // 需要向上报告错误的
+			/* - flush wqe */
+			/* - sq 不可用 */
+			/* - 错误可以关联到某个 wqe, 将其通知给 verbs */
 			WARN_ON_ONCE(wqe->status == IB_WC_SUCCESS);
-			do_complete(qp, wqe);
-			rxe_qp_error(qp);
+			do_complete(qp, wqe); // 和这个 wqe 关联, 通过这个 wqe 上报错误
+			rxe_qp_error(qp); // qp 进入error 状态, 在 qp error 处理的时候会 flush 其他 wqe 的
 
 			if (pkt) {
 				rxe_drop_ref(pkt->qp);

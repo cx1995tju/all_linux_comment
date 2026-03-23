@@ -1024,13 +1024,6 @@ static enum resp_states do_complete(struct rxe_qp *qp,
 }
 
 /* 关于 response 回复的 pkt 里的的 BTH:PSN
- * - pure-ack: 使用个最新的 req 的 psn.[[C9-95]]
- * - read/atomic response psn: 用 req 的 psn.  [[C9-96]] [[o9-58]] 
- * - nak 的 psn:
- *   - for non-read req response 用 ePSN, [[C9-111]] [[C9-112]] [[C9-113]]
- *   - read req response, NAK BTH:PSN 用正准备 NAK 的 PSN
- *   - RNR NAK, NAK BTH:PSN 用正准备 NAK 的 PSN
- *
  * 1. ref: acknowledge
  *   - 大部分 nak 使用触发 nak 的 pkt:psn 来回复
  *   - pure ack 使用最新的 psn 来回复
@@ -1040,6 +1033,14 @@ static enum resp_states do_complete(struct rxe_qp *qp,
  *
  * 3. ref: rxe_responder()::case RESPST_ERR_RNR:
  *   - 也用的是当前 pkt 的 psn
+ *
+ * 在 softroce 的实现里, 针对 NAK:Seq-Err 统一用 ePSN.
+ * 其他的都用对应的 pkt->psn. ref: acknowledge()
+ *
+ *
+ * 考虑到 NAK:Seq-err 是最先检测的. 所以如果返回的是其他 NAK:Code, 也就说明触发
+ * 该 NAK 的 pkt 其 psn 不是 dup pkt, 也不是 invalid pkt. 那么该 pkt 就是 ePSN
+ * 了. 换句话说, 所有的 NAK pkt 的 BTH:PSN 都可以认为是 ePSN
  * */
 static int send_ack(struct rxe_qp *qp, struct rxe_pkt_info *pkt,
 		    u8 syndrome, u32 psn)
@@ -1115,7 +1116,7 @@ static enum resp_states acknowledge(struct rxe_qp *qp,
 		return RESPST_CLEANUP;
 
 	if (qp->resp.aeth_syndrome != AETH_ACK_UNLIMITED) // 说明有 nak 要回复
-		send_ack(qp, pkt, qp->resp.aeth_syndrome, pkt->psn); // 这里可以看出 nak response 的 psn 就是触发 nak 的 pkt 的 psn
+		send_ack(qp, pkt, qp->resp.aeth_syndrome, pkt->psn); // ref: send_ack()
 	else if (pkt->mask & RXE_ATOMIC_MASK)
 		send_atomic_ack(qp, pkt, AETH_ACK_UNLIMITED);
 	else if (bth_ack(pkt)) // 必须对方有请求 ack 我们才回复的

@@ -123,7 +123,7 @@ static struct rxe_send_wqe *req_next_wqe(struct rxe_qp *qp)
 	unsigned long flags;
 
 	if (unlikely(qp->req.state == QP_STATE_DRAIN)) {
-		/* check to see if we are drained;
+		/* check to see if we are drained; 这里仅仅是检查是否 DRAINED 了.
 		 * state_lock used by requester and completer
 		 */
 		spin_lock_irqsave(&qp->state_lock, flags);
@@ -144,6 +144,7 @@ static struct rxe_send_wqe *req_next_wqe(struct rxe_qp *qp)
 				break;
 			}
 
+			// 等待所有的 wqe 被完成
 			qp->req.state = QP_STATE_DRAINED;
 			spin_unlock_irqrestore(&qp->state_lock, flags);
 
@@ -167,7 +168,10 @@ static struct rxe_send_wqe *req_next_wqe(struct rxe_qp *qp)
 	// 取出一个 wqe
 	wqe = addr_from_index(qp->sq.queue, qp->req.wqe_index);
 
-	// DRAIN 状态禁止 post wqe
+	// 除非这个 wqe 处理了一半, 那么在 DRAIN 状态, 还让 requester 继续处理.
+	// 否则 verbs 层我们还是允许用户 post. 但是底层不允许其处理 wqe 了.
+	// 等到我们排空后, 切换到 DRAINED 状态, 通知用户后, 用户自己再看着办.
+	// 比如: 可以切换到 error 状态, 可以切换到 RTS 状态. 然后切换回 reset 状态.
 	if (unlikely((qp->req.state == QP_STATE_DRAIN ||
 		      qp->req.state == QP_STATE_DRAINED) &&
 		     (wqe->state != wqe_state_processing)))

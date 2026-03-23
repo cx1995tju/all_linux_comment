@@ -173,12 +173,12 @@ struct rxe_srq {
 };
 
 // 内部实现的状态
-// qp 的 req / resp 段是单独维护的
+// qp 的 req / resp 端是单独维护的(可以简单的理解为 SQ/RQ 是单独维护的状态)
 enum rxe_qp_state {
 	QP_STATE_RESET,
 	QP_STATE_INIT,
 	QP_STATE_READY,
-	QP_STATE_DRAIN,		/* req only */ // ref: rxe_qp_drain, 对应到上层就是 IB 的 SQD 状态: 允许已经 post 的 WQE 发完, 但是不允许 post 新的了
+	QP_STATE_DRAIN,		/* req only */ // ref: rxe_qp_drain, 对应到上层就是 IB 的 SQD 状态: 允许已经 post 的 WQE 发完, 但是不允许 post 新的了. 表示 SQ 需要 DRAIN 了. 由 rxe_requester() / rxe_completer() 来排空
 	QP_STATE_DRAINED,	/* req only */ // ref: complete_ack(), 排空后进入这个状态
 	QP_STATE_ERROR
 };
@@ -206,7 +206,7 @@ struct rxe_comp_info {
 	int			opcode;
 	int			timeout; // ref: rxe_completer
 	int			timeout_retry;
-	int			started_retry;
+	int			started_retry; // 已经处于 retry 状态了
 	u32			retry_cnt;
 	u32			rnr_retry;
 	struct rxe_task		task; // rxe_completer
@@ -285,45 +285,45 @@ struct rxe_resp_info {
 // 大部分属性来自 modify_qp, 而不是 creaet_qp()
 // 有不少信息是对方的信息, rxe_resp_info() 这要在连接建立后才能拿到
 struct rxe_qp {
-	struct rxe_pool_entry	pelem;
-	struct ib_qp		ibqp;
-	struct ib_qp_attr	attr;
-	unsigned int		valid;
+	struct rxe_pool_entry	pelem;	// 挂到 pool 里管理
+	struct ib_qp		ibqp;   // 上层 qp 结构
+	struct ib_qp_attr	attr;   // 上层 qp 属性
+	unsigned int		valid;  // destroy 后设置为 0, qp 可用的总开关
 	unsigned int		mtu;
-	int			is_user;
+	int			is_user; // 是不是用户态调用过来要创建这个 qp
 
 	struct rxe_pd		*pd;
 	struct rxe_srq		*srq;
 	struct rxe_cq		*scq;
 	struct rxe_cq		*rcq;
 
-	enum ib_sig_type	sq_sig_type;
+	enum ib_sig_type	sq_sig_type; // 是不是所有的 wqe 都需要通知
 
 	struct rxe_sq		sq;
 	struct rxe_rq		rq;
 
-	struct socket		*sk;
-	u32			dst_cookie;
-	u16			src_port;
+	struct socket		*sk;         // 方便对接到 ip 层, 来收发报文
+	u32			dst_cookie;  // 保存的出口信息
+	u16			src_port;    // rocev2 外层 udp 报文的 sport
 
-	struct rxe_av		pri_av;
+	struct rxe_av		pri_av;      // 路由信息
 	struct rxe_av		alt_av;
 
 	/* list of mcast groups qp has joined (for cleanup) */
 	struct list_head	grp_list;
 	spinlock_t		grp_lock; /* guard grp_list */
 
-	struct sk_buff_head	req_pkts; // ref: rxe_resp_queue_pkt
-	struct sk_buff_head	resp_pkts;
-	struct sk_buff_head	send_pkts;
+	struct sk_buff_head	req_pkts; // ref: rxe_resp_queue_pkt, 暂存收到的 req pkt
+	struct sk_buff_head	resp_pkts; // 暂存收到的 response pkt
+	struct sk_buff_head	send_pkts; // 没啥用
 
-	struct rxe_req_info	req;
-	struct rxe_comp_info	comp;
-	struct rxe_resp_info	resp;
+	struct rxe_req_info	req;  // 处理 wqe, 发送 req pkt
+	struct rxe_comp_info	comp; // 产生 cqe(sq/rq)
+	struct rxe_resp_info	resp; // 收到 req, 产生 response
 
-	atomic_t		ssn; // 初始值是 0, send sequence number, 和 msn 是一对一的, ref: rxe_qp_init_misc()
-	atomic_t		skb_out;
-	int			need_req_skb;
+	atomic_t		ssn; // 初始值是 0, send sequence number, 和 msn 是一对一的, ref: rxe_qp_init_misc(), post_sq_wqe 的时候 atomic_inc
+	atomic_t		skb_out; // outstanding pkts
+	int			need_req_skb; // 表示 outstanding pkts 太多了, 当前不能向外发送了, 需要给等 req skb credit 空出来
 
 	/* Timer for retranmitting packet when ACKs have been lost. RC
 	 * only. The requester sets it when it is not already
@@ -334,11 +334,11 @@ struct rxe_qp {
 	u64 qp_timeout_jiffies; // 来自 qp_attr, retrans timeout, ref: rxe_qp_from_attr()
 
 	/* Timer for handling RNR NAKS. */
-	struct timer_list rnr_nak_timer; // ref: rxe_qp_init_req, rxe_completer() 负责调度
+	struct timer_list rnr_nak_timer; // ref: rxe_qp_init_req, rxe_completer() 负责调度, 其延迟应该是从 RNR NAK pkt 里提取的.
 
-	spinlock_t		state_lock; /* guard requester and completer */
+	spinlock_t		state_lock; /* guard requester and completer, 排空 SQ 的时候用来协调 requester 和 completer 的 */
 
-	struct execute_work	cleanup_work;
+	struct execute_work	cleanup_work; // 没啥大作用, 就是用 container_of 能找到 qp 这个结构, 用来挂一个 clean work 的
 };
 
 enum rxe_mem_state {

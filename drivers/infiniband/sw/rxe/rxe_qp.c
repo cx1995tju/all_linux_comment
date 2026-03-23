@@ -62,6 +62,7 @@ int rxe_qp_chk_init(struct rxe_dev *rxe, struct ib_qp_init_attr *init)
 	struct rxe_port *port;
 	int port_num = init->port_num;
 
+	// 必须有 cq
 	if (!init->recv_cq || !init->send_cq) {
 		pr_warn("missing cq\n");
 		goto err1;
@@ -196,6 +197,7 @@ static int rxe_qp_init_req(struct rxe_dev *rxe, struct rxe_qp *qp,
 	int err;
 	int wqe_size;
 
+	// udp socket
 	err = sock_create_kern(&init_net, AF_INET, SOCK_DGRAM, 0, &qp->sk);
 	if (err < 0)
 		return err;
@@ -398,7 +400,7 @@ int rxe_qp_chk_attr(struct rxe_dev *rxe, struct rxe_qp *qp,
 	}
 
 	if (mask & IB_QP_STATE) {
-		if (cur_state == IB_QPS_SQD) {
+		if (cur_state == IB_QPS_SQD) { // 在 SQD 状态下, 想要切换(non-err), 必须等待排空的
 			if (qp->req.state == QP_STATE_DRAIN &&
 			    new_state != IB_QPS_ERR)
 				goto err1;
@@ -530,7 +532,7 @@ static void rxe_qp_reset(struct rxe_qp *qp)
 // SQD 状态: 允许已经 post 的 WQE 发完, 但是不允许 post 新的了
 static void rxe_qp_drain(struct rxe_qp *qp)
 {
-	if (qp->sq.queue) {
+	if (qp->sq.queue) { // 切换为 DRAIN 状态, 然后调度 completer 和 requester 来排空.
 		if (qp->req.state != QP_STATE_DRAINED) {
 			qp->req.state = QP_STATE_DRAIN;
 			if (qp_type(qp) == IB_QPT_RC) // 先跑 completion 将可能已经完成的 sq wqe 处理掉, 然后跑 requester 继续排空
@@ -552,11 +554,15 @@ void rxe_qp_error(struct rxe_qp *qp)
 	/* drain work and packet queues */
 	//  rxe_responder() -> get_req() 将外部的 req pkt 全部 drop 掉. ->
 	//  check_resource() 将相关资源全部释放掉, 并且标记 FLUSH_ERR.
+	//
+	//  flush 掉 RQ
 	rxe_run_task(&qp->resp.task, 1);
 
 	// 调度 rxe_completer, 在错误状态, 让其就后续的 WQE 标记为 flush_err.
 	// 将所有的 resp pkt drop 掉
 	// 这里没有异步通知机制, 即 CQ overflow 的时候不是从这里通知的, 而是 rxe_cq_post() 里直接通知的
+	//
+	// flush 掉 SQ
 	if (qp_type(qp) == IB_QPT_RC)
 		rxe_run_task(&qp->comp.task, 1);
 	else
@@ -567,6 +573,9 @@ void rxe_qp_error(struct rxe_qp *qp)
 }
 
 /* called by the modify qp verb */
+// 能够调用到这里, 说明状态的大部分检查已经通过了
+//
+// 不过: IB_QPS_SQE 的检查是在这里进行的
 int rxe_qp_from_attr(struct rxe_qp *qp, struct ib_qp_attr *attr, int mask,
 		     struct ib_udata *udata)
 {
@@ -703,7 +712,7 @@ int rxe_qp_from_attr(struct rxe_qp *qp, struct ib_qp_attr *attr, int mask,
 			qp->req.state = QP_STATE_READY;
 			break;
 
-		case IB_QPS_SQD:
+		case IB_QPS_SQD: // 切换到 SQD 状态, 是需要排空 SQ 的
 			pr_debug("qp#%d state -> SQD\n", qp_num(qp));
 			rxe_qp_drain(qp);
 			break;
@@ -820,9 +829,11 @@ static void rxe_qp_do_cleanup(struct work_struct *work)
 }
 
 /* called when the last reference to the qp is dropped */
+// qp 被放回 pool 的时候会被调用的
 void rxe_qp_cleanup(struct rxe_pool_entry *arg)
 {
 	struct rxe_qp *qp = container_of(arg, typeof(*qp), pelem);
 
+	// 为了安全, 确保这个函数一定是在 process ctx 里被调用
 	execute_in_process_context(rxe_qp_do_cleanup, &qp->cleanup_work);
 }

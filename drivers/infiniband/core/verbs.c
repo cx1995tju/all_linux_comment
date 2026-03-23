@@ -1421,8 +1421,8 @@ EXPORT_SYMBOL(ib_create_qp);
 // qp 状态机
 static const struct {
 	int			valid;
-	enum ib_qp_attr_mask	req_param[IB_QPT_MAX];
-	enum ib_qp_attr_mask	opt_param[IB_QPT_MAX];
+	enum ib_qp_attr_mask	req_param[IB_QPT_MAX]; /* required params */
+	enum ib_qp_attr_mask	opt_param[IB_QPT_MAX]; /* optional params */
 } qp_state_table[IB_QPS_ERR + 1][IB_QPS_ERR + 1] = {
 	[IB_QPS_RESET] = {
 		[IB_QPS_RESET] = { .valid = 1 },
