@@ -341,7 +341,7 @@ static enum resp_states get_srq_wqe(struct rxe_qp *qp)
 	advance_consumer(q);
 
 	if (srq->limit && srq->ibsrq.event_handler &&
-	    (queue_count(q) < srq->limit)) {
+	    (queue_count(q) < srq->limit)) { // rq 里的 wqe 数量小于 limit 了, 需要通知用户空间了, 设置为 0 避免重复通知
 		srq->limit = 0;
 		goto event;
 	}

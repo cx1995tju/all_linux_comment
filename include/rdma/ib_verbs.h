@@ -1205,10 +1205,10 @@ struct ib_wc {
 };
 
 enum ib_cq_notify_flags {
-	IB_CQ_SOLICITED			= 1 << 0,
-	IB_CQ_NEXT_COMP			= 1 << 1,
+	IB_CQ_SOLICITED			= 1 << 0, // solicited completion 的时候通知
+	IB_CQ_NEXT_COMP			= 1 << 1, // 下一个 completion 的时候通知, one-shot 的
 	IB_CQ_SOLICITED_MASK		= IB_CQ_SOLICITED | IB_CQ_NEXT_COMP,
-	IB_CQ_REPORT_MISSED_EVENTS	= 1 << 2,
+	IB_CQ_REPORT_MISSED_EVENTS	= 1 << 2, // 如果设置 notify 之前有 completion 产生了, 那么要立即返回 missed_event
 };
 
 enum ib_srq_type {
