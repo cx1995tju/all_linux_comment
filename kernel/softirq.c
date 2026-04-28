@@ -317,7 +317,7 @@ restart:
 		    --max_restart)
 			goto restart;
 
-		wakeup_softirqd();
+		wakeup_softirqd(); // end 的之前没有做完, 那么要调度 ksoftirqd 来处理了.
 	}
 
 	lockdep_softirq_end(in_hardirq);
@@ -337,7 +337,7 @@ asmlinkage __visible void do_softirq(void)
 
 	local_irq_save(flags);
 
-	pending = local_softirq_pending();
+	pending = local_softirq_pending(); // 当前 core 有软中断在处理
 
 	if (pending && !ksoftirqd_running(pending))
 		do_softirq_own_stack();
