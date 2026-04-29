@@ -56,6 +56,7 @@
  *
  *
  * FAQ: QP1 上 sq/rq/cq 的 post, polling 是谁进行的? ref: ib_mad_port_open()
+ * - ib_mad_port_open() enable 了 port 上 mad 的处理, 创建了 QP, CQ 资源.
  *
  * rq:
  * - post: ib_mad_post_receive_mads().
@@ -63,7 +64,10 @@
  *   - 后续消耗的时候再补充
  *
  * sq:
- * - ib_post_send_mad() 发包的时候
+ * - ib_post_send_mad() 发包的时候提供
+ *
+ * cq:
+ * - 创建的是 IB_POLL_UNBOUND_WORKQUEUE 类型 cq, 会有 ib_cq_poll_work 帮忙 polling 的
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -2202,11 +2206,14 @@ static void ib_mad_recv_done(struct ib_cq *cq, struct ib_wc *wc)
 
 out:
 	/* Post another receive request for this QP */
+	// response 有两个作用
+	// - 响应 mad 的 work buffer, ref: process_mad()
+	// - 作为新的 wr 的 buffer
 	if (response) {
 		ib_mad_post_receive_mads(qp_info, response);
 		kfree(recv);
 	} else
-		ib_mad_post_receive_mads(qp_info, recv);
+		ib_mad_post_receive_mads(qp_info, recv); // 分配新 buffer 失败的时候, 会直接用 老的 recv
 }
 
 static void adjust_timeout(struct ib_mad_agent_private *mad_agent_priv)
