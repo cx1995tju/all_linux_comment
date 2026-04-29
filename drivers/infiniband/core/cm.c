@@ -197,7 +197,7 @@ static struct ib_client cm_client = {
 	.remove = cm_remove_one
 };
 
-// 整个模块的 ctx
+// XXX: 整个模块的 ctx
 static struct ib_cm {
 	spinlock_t lock;
 	struct list_head device_list; // 全局 device list

@@ -72,6 +72,114 @@
  * - rxe_enable_driver,
  * - rxe_mmap,
  *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ * *========================softroce 重要资源的分配与释放路径**======================== 
+ * - 分配:
+ *   - rxe_add_to_pool
+ *   - rxe_alloc(pool)
+ * - 引用:
+ *   - rxe_add_ref(elem) 
+ * - 释放:
+ *   - rxe_drop_ref(elem)
+ *
+ *
+ * ===============*qp* 的分配与释放===============
+ *  分配: rxe_create_qp() -> rxe_alloc() // refcnt=1
+ *
+ *  引用:
+ *  - rxe_rcv_mcast_pkt()
+ *    rxe_resp.c:cleanup()
+ *  - rxe_completer()
+ *  - rxe_requester()
+ *  - rxe_responder()
+ *  - rxe_send()
+ *  - send_atomic_ack()
+
+ *  释放:
+ *  - rxe_create_qp()
+ *  - rxe_destroy_qp()
+ *  - rxe_skb_tx_dtor()
+ *  - rxe_drain_resp_pkts()
+ *  - rxe_completer()
+ *  - rxe_send()
+ *  - rxe_rcv() -> hdr_check()
+ *  - rxe_rcv()
+ *  - rxe_requester()
+ *  - get_req()
+ *  - cleanup()
+ *  - rxe_responder()
+ *  - send_atomic_ack()
+ *  - free_rd_atomic_resource()
+ * 
+ *
+ * 分配与释放路径分析:
+ * 路径1: *pkt 挂到 qp 上的时候 add_ref, pkt 从 qp 被移除的时候会 drop_ref*
+ *   - recv 路径:
+ *     - add_ref
+ *       - rxe_rcv_mcast_pkt()
+ *       - rxe_rcv() -> hdr_check()
+ *     - drop_ref
+ *       - rxe_resp.c:cleanup()
+ *       - rxe_completer()
+ *       - rxe_drain_resp_pkts()
+ *       - get_req()
+ *   - send 路径:
+ *     - add_ref
+ *       - rxe_send
+ *     - drop_ref
+ *       - rxe_skb_tx_dtor
+ *       - rxe_send 出错了, 会直接 drop
+ *       - free_rd_atomic_resource()
+ * 
+ * 
+ * 路径2: *atomic 相关 qp*
+ *  - add_ref()
+ *    - send_atomic_ack
+ *  - drop_ref()
+ *    - free_rd_atomic_resource()
+ * 
+ * 
+ * 路径3 *函数内部要访问 qp, 内部 add, drop*
+ *  - rxe_completer()
+ *  - rxe_requester()
+ *  - rxe_responder()
+ *  - rxe_send()
+ *  - send_atomic_ack()
+ * 
+ * 
+ *  *根路径*
+ *  - rxe_create_qp()
+ *  - rxe_destroy_qp()
+ * 
+ * 
+ * ===============*cq*===============
+ *  分配: rxe_create_cq() 分配 -> rxe_add_to_pool
+ *  引用:
+ *  - rxe_qp_from_init() // cq 关联 qp 了
+ *  释放:
+ *  - rxe_qp_from_init() // 出错路径
+ *  - rxe_qp_do_cleanup() // 解除 qp 和 cq 的关联
+ *  - rxe_destroy_cq()
+
+ * 
+ * ===============*srq*===============
+ *  分配: rxe_create_srq() -> rxe_add_to_pool()
+ *  引用:
+ *  - rxe_qp_from_init() // srq 关联 qp 了
+ *  释放:
+ *  - rxe_qp_from_init() // 出错路径
+ *  - rxe_qp_do_cleanup()  // 解除 qp 和 cq 的关联
+ *  - rxe_destroy_srq()
+ *
+ *
  * */ 
 //
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB

@@ -11,10 +11,16 @@
  *	EXPORT_SYMBOL(__rdma_create_kernel_id);
  *	EXPORT_SYMBOL(rdma_create_user_id);
  *	EXPORT_SYMBOL(rdma_destroy_id);
+ *
+ *
+ *	// 信息收集, 先解析 addr 后解析 route, 因为连接建立的时候拿到的是 ip 地址, 需要将其信息提供给 rdma 模块
  *	EXPORT_SYMBOL(rdma_resolve_route);
  *	EXPORT_SYMBOL(rdma_resolve_addr);
- *	EXPORT_SYMBOL(rdma_listen);
+ *
+ *
+ *	// socket-like 接口
  *	EXPORT_SYMBOL(rdma_bind_addr);
+ *	EXPORT_SYMBOL(rdma_listen);
  *	EXPORT_SYMBOL(rdma_connect_locked);
  *	EXPORT_SYMBOL(rdma_connect);
  *	EXPORT_SYMBOL(rdma_connect_ece);
@@ -68,7 +74,7 @@
  *
  *      - type 3: create id 时 rdma_cm.ko 传入到底层 ib_core.ko 的 handler, 底层连接报文的处理就是这些 handler callback 到 rdma_cm.ko 层的
  *              cma_sidr_rep_handler
- *              cma_ib_handler
+ *              cma_ib_handler      // 重要
  *              cma_ib_req_handler
  *              cma_iw_handler // iwarp
  *              iw_conn_req_handler // iwarp
@@ -89,6 +95,13 @@
  *          - 查找: cma_ps_find()
  *          - 增 node: cma_bind_port()
  *          - 减 node: cma_release_port() -> cma_ps_remove()
+ *
+ *
+ * 6. qp 的操作
+ * - cma_modify_qp_rtr
+ * - cma_modify_qp_rts
+ * - cma_modify_qp_err
+ *
  * */
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
@@ -316,7 +329,7 @@ struct cma_device {
 	refcount_t refcount;
 	struct list_head	id_list;
 	enum ib_gid_type	*default_gid_type; // 一个设备有很多 port, 记录所有 port 的 gid
-	u8			*default_roce_tos; // 数组, 每个 port 一个元素
+	u8			*default_roce_tos; // 数组, 每个 port 一个元素, ref: cma_set_default_roce_tos()
 };
 
 // bind 机制的实现
@@ -1039,7 +1052,7 @@ __rdma_create_kernel_id(struct net *net, rdma_cm_event_handler event_handler,
 }
 EXPORT_SYMBOL(__rdma_create_kernel_id);
 
-// 用户态使用 rdmacm 功能调用这个函数
+// 用户态使用 rdmacm 功能调用这个函数, event handler 有区别的
 struct rdma_cm_id *rdma_create_user_id(rdma_cm_event_handler event_handler,
 				       void *context,
 				       enum rdma_ucm_port_space ps,
@@ -1166,6 +1179,7 @@ static int cma_modify_qp_rtr(struct rdma_id_private *id_priv,
 		goto out;
 	}
 
+	// 切换为 INIT 状态
 	/* Need to update QP attributes from default values. */
 	qp_attr.qp_state = IB_QPS_INIT;
 	ret = rdma_init_qp_attr(&id_priv->id, &qp_attr, &qp_attr_mask);
@@ -1176,6 +1190,7 @@ static int cma_modify_qp_rtr(struct rdma_id_private *id_priv,
 	if (ret)
 		goto out;
 
+	// 切换为 RTR 状态
 	qp_attr.qp_state = IB_QPS_RTR;
 	ret = rdma_init_qp_attr(&id_priv->id, &qp_attr, &qp_attr_mask);
 	if (ret)
@@ -1204,6 +1219,7 @@ static int cma_modify_qp_rts(struct rdma_id_private *id_priv,
 		goto out;
 	}
 
+	// 切换到 RTS 状态
 	qp_attr.qp_state = IB_QPS_RTS;
 	ret = rdma_init_qp_attr(&id_priv->id, &qp_attr, &qp_attr_mask);
 	if (ret)
@@ -1229,6 +1245,7 @@ static int cma_modify_qp_err(struct rdma_id_private *id_priv)
 		goto out;
 	}
 
+	// 切换到 err 状态
 	qp_attr.qp_state = IB_QPS_ERR;
 	ret = ib_modify_qp(id_priv->id.qp, &qp_attr, IB_QP_STATE);
 out:
@@ -2785,7 +2802,7 @@ static void cma_listen_on_dev(struct rdma_id_private *id_priv,
 	dev_id_priv->tos_set = id_priv->tos_set;
 	dev_id_priv->tos = id_priv->tos;
 
-	// 现在才是真正的 listen, ref: rdam_listen -> cma_listen_on_all -> cma_listen_on_dev, 递归dialing
+	// 现在才是真正的 listen, ref: rdam_listen -> cma_listen_on_all -> cma_listen_on_dev, 递归调用
 	ret = rdma_listen(&dev_id_priv->id, id_priv->backlog);
 	if (ret)
 		dev_warn(&cma_dev->device->dev,
@@ -2798,7 +2815,7 @@ static void cma_listen_on_all(struct rdma_id_private *id_priv)
 
 	mutex_lock(&lock);
 	list_add_tail(&id_priv->list, &listen_any_list);
-	list_for_each_entry(cma_dev, &dev_list, list)
+	list_for_each_entry(cma_dev, &dev_list, list) // 一个 for 循环, 处理所有设备上的 listen 的
 		cma_listen_on_dev(id_priv, cma_dev);
 	mutex_unlock(&lock);
 }
@@ -3209,6 +3226,9 @@ static __be32 cma_get_roce_udp_flow_label(struct rdma_id_private *id_priv)
 // path_rec 供后续使用咯
 //
 // rocev2 的底层毕竟不是 ib, 所以各种信息要从 l2/l3 里去搜集转换
+//
+// 收集什么信息:
+// - 
 static int cma_resolve_iboe_route(struct rdma_id_private *id_priv)
 {
 	struct rdma_route *route = &id_priv->id.route;
@@ -3279,7 +3299,7 @@ static int cma_resolve_iboe_route(struct rdma_id_private *id_priv)
 	}
 
 	if (rdma_protocol_roce_udp_encap(id_priv->id.device,
-					 id_priv->id.port_num))
+					 id_priv->id.port_num)) // rocev2
 		route->path_rec->flow_label =
 			cma_get_roce_udp_flow_label(id_priv);
 
@@ -3298,6 +3318,7 @@ err1:
 }
 
 // 根据 id 中已有的地址信息, 获得一些路由信息, 比如路由的度量, MTU 等保存到 id_priv->route.path_rec 里
+// 本质还是收集信息, 后续连接建立的时候需要
 int rdma_resolve_route(struct rdma_cm_id *id, unsigned long timeout_ms)
 {
 	struct rdma_id_private *id_priv;
@@ -3980,9 +4001,11 @@ int rdma_listen(struct rdma_cm_id *id, int backlog)
 	int ret;
 
 	// 先 bound, 再listen, 如果还没有 bound, 就帮你 bound 一下
+	// 那 bind 的地址哪里来的呢?
 	if (!cma_comp_exch(id_priv, RDMA_CM_ADDR_BOUND, RDMA_CM_LISTEN)) {
 		/* For a well behaved ULP state will be RDMA_CM_IDLE */
 		id->route.addr.src_addr.ss_family = AF_INET;
+		// 这里实际的地址就是 any-addr + any port 么? port 会由内核自己分配咯.
 		ret = rdma_bind_addr(id, cma_src_addr(id_priv));
 		if (ret)
 			return ret;
@@ -4033,6 +4056,7 @@ err:
 	return ret;
 }
 EXPORT_SYMBOL(rdma_listen);
+
 
 // 将 addr 绑定到 id 上
 //

@@ -206,7 +206,7 @@ struct ib_mad_port_private {
 	spinlock_t reg_lock;
 	struct ib_mad_mgmt_version_table version[MAX_MGMT_VERSION];
 	struct workqueue_struct *wq;
-	struct ib_mad_qp_info qp_info[IB_MAD_QPS_CORE];
+	struct ib_mad_qp_info qp_info[IB_MAD_QPS_CORE]; // QP0 / QP1, ethernet 设备是没有 QP0 的
 };
 
 int ib_send_mad(struct ib_mad_send_wr_private *mad_send_wr);

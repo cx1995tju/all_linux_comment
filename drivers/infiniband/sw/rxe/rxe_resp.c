@@ -1082,7 +1082,7 @@ static int send_atomic_ack(struct rxe_qp *qp, struct rxe_pkt_info *pkt,
 
 	rxe_add_ref(qp);
 
-	res = &qp->resp.resources[qp->resp.res_head];
+	res = &qp->resp.resources[qp->resp.res_head]; // 这里要复用资源的, 所以之前 resource 关联的 skb 要释放掉
 	free_rd_atomic_resource(qp, res);
 	rxe_advance_resp_resource(qp);
 
@@ -1100,10 +1100,10 @@ static int send_atomic_ack(struct rxe_qp *qp, struct rxe_pkt_info *pkt,
 	rc = rxe_xmit_packet(qp, &ack_pkt, skb);
 	if (rc) {
 		pr_err_ratelimited("Failed sending ack\n");
-		rxe_drop_ref(qp);
+		rxe_drop_ref(qp); // 和前面的 rxe_add_ref 配对, 发送失败立即释放
 	}
 out:
-	return rc;
+	return rc; // 发送成功和 free_rd_atomic_resource 配对.
 }
 
 /* ack / nak / atomic response 走这里

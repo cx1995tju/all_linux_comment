@@ -33,6 +33,37 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  *
+ * EXPORT_SYMBOL(ib_register_mad_agent);
+ * EXPORT_SYMBOL(ib_unregister_mad_agent);
+ * 
+ * EXPORT_SYMBOL(ib_response_mad);
+ *
+ * EXPORT_SYMBOL(ib_create_send_mad);
+ * EXPORT_SYMBOL(ib_free_send_mad);
+ * EXPORT_SYMBOL(ib_post_send_mad);
+ * EXPORT_SYMBOL(ib_free_recv_mad);
+ *
+ * EXPORT_SYMBOL(ib_modify_mad);
+ * EXPORT_SYMBOL(ib_cancel_mad);
+ *
+ * @rmpp
+ * EXPORT_SYMBOL(ib_is_mad_class_rmpp);
+ * EXPORT_SYMBOL(ib_mad_kernel_rmpp_agent);
+ * EXPORT_SYMBOL(ib_get_rmpp_segment);
+ *
+ * @helper
+ * EXPORT_SYMBOL(ib_get_mad_data_offset);
+ *
+ *
+ * FAQ: QP1 上 sq/rq/cq 的 post, polling 是谁进行的? ref: ib_mad_port_open()
+ *
+ * rq:
+ * - post: ib_mad_post_receive_mads().
+ *   - 设备初始化的时候
+ *   - 后续消耗的时候再补充
+ *
+ * sq:
+ * - ib_post_send_mad() 发包的时候
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -85,7 +116,7 @@ MODULE_PARM_DESC(send_queue_size, "Size of send queue in number of work requests
 module_param_named(recv_queue_size, mad_recvq_size, int, 0444);
 MODULE_PARM_DESC(recv_queue_size, "Size of receive queue in number of work requests");
 
-static DEFINE_XARRAY_ALLOC1(ib_mad_clients);
+static DEFINE_XARRAY_ALLOC1(ib_mad_clients); // 核心结构咯
 static u32 ib_mad_client_next;
 static struct list_head ib_mad_port_list;
 
@@ -221,7 +252,7 @@ EXPORT_SYMBOL(ib_response_mad);
  *
  * Context: Process context.
  *
- * 注册一个 agent, 处理某种类型的 mad 报文, mad 报文来自网络中的一些 manager.
+ * 注册一个 agent, 处理特定设备上某种类型的 mad 报文, mad 报文来自网络中的一些 manager.
  * 比如: infiniband 中的 subnet manager
  *
  *
@@ -429,6 +460,8 @@ struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 	/*
 	 * The mlx4 driver uses the top byte to distinguish which virtual
 	 * function generated the MAD, so we must avoid using it.
+	 *
+	 * 核心结构 ib_mad_clients
 	 */
 	ret2 = xa_alloc_cyclic(&ib_mad_clients, &mad_agent_priv->agent.hi_tid,
 			mad_agent_priv, XA_LIMIT(0, (1 << 24) - 1),
@@ -911,6 +944,7 @@ struct ib_mad_send_buf * ib_create_send_mad(struct ib_mad_agent *mad_agent,
 
 	mad_send_wr->sg_list[1].lkey = mad_agent->qp->pd->local_dma_lkey;
 
+	// __ib_process_cq() 调用的
 	mad_send_wr->mad_list.cqe.done = ib_mad_send_done;
 
 	mad_send_wr->send_wr.wr.wr_cqe = &mad_send_wr->mad_list.cqe;
@@ -3007,7 +3041,7 @@ static int ib_mad_port_open(struct ib_device *device,
 	}
 
 	port_priv->cq = ib_alloc_cq(port_priv->device, port_priv, cq_size, 0,
-			IB_POLL_UNBOUND_WORKQUEUE);
+			IB_POLL_UNBOUND_WORKQUEUE); // 这里表示 mad 不会主动 polling 这个 cq 的, 你们自己通过 workqueue 来帮我 polling, ref: ib_cq_poll_work()
 	if (IS_ERR(port_priv->cq)) {
 		dev_err(&device->dev, "Couldn't create ib_mad CQ\n");
 		ret = PTR_ERR(port_priv->cq);
@@ -3019,6 +3053,7 @@ static int ib_mad_port_open(struct ib_device *device,
 		if (ret)
 			goto error6;
 	}
+	// XXX: NOTE:
 	ret = create_mad_qp(&port_priv->qp_info[1], IB_QPT_GSI);
 	if (ret)
 		goto error7;

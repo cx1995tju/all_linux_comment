@@ -37,6 +37,7 @@
 #define _CMA_PRIV_H
 
 
+// 底下的 state 实际暗示了使用 rdmacm 进行连接管理的流程
 // ADDR_BOUND -> ADDR_RESOLVED -> ROUTE_ERSOLVED -> CONNECT
 // rdma_bind_addr() IDLE -> ADDR_BOUND
 enum rdma_cm_state {
@@ -78,7 +79,7 @@ struct rdma_id_private {
 	struct ib_sa_query	*query;
 	int			query_id;
 	union {
-		struct ib_cm_id	*ib;
+		struct ib_cm_id	*ib;   // 底层 spec id
 		struct iw_cm_id	*iw;
 	} cm_id; // cma_ib_listen
 

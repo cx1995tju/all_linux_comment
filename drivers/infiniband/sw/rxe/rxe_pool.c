@@ -330,7 +330,7 @@ void *rxe_alloc(struct rxe_pool *pool)
 		goto out_cnt;
 
 	elem->pool = pool;
-	kref_init(&elem->ref_cnt);
+	kref_init(&elem->ref_cnt); // 刚分配出来 refcnt 为 1
 
 	return elem;
 

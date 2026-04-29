@@ -279,7 +279,7 @@ static void rxe_rcv_mcast_pkt(struct rxe_dev *rxe, struct sk_buff *skb)
 
 		per_qp_pkt = SKB_TO_PKT(per_qp_skb);
 		per_qp_pkt->qp = qp;
-		rxe_add_ref(qp);
+		rxe_add_ref(qp); // 这里为什么 add ref ?
 		rxe_rcv_pkt(per_qp_pkt, per_qp_skb);
 	}
 
@@ -399,7 +399,7 @@ void rxe_rcv(struct sk_buff *skb)
 
 drop:
 	if (pkt->qp)
-		rxe_drop_ref(pkt->qp);
+		rxe_drop_ref(pkt->qp); // hdr_check 里有 add_ref
 
 	kfree_skb(skb);
 }
