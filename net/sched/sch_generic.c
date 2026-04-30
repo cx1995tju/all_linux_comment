@@ -322,7 +322,7 @@ bool sch_direct_xmit(struct sk_buff *skb, struct Qdisc *q,
 	if (root_lock)
 		spin_lock(root_lock);
 
-	if (!dev_xmit_complete(ret)) {
+	if (!dev_xmit_complete(ret)) { // 发送失败了
 		/* Driver returned NETDEV_TX_BUSY - requeue skb */
 		if (unlikely(ret != NETDEV_TX_BUSY))
 			net_warn_ratelimited("BUG %s code %d qlen %d\n",
