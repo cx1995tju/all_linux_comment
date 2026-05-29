@@ -140,6 +140,9 @@ struct neighbour {
 	rwlock_t		lock;
 	refcount_t		refcnt;
 	unsigned int		arp_queue_len_bytes;
+
+	// neigh_resolve_output 发送的时候, 发现这个 neigh 没有 arp 条目,
+	// 报文就暂时在这里缓存下. 等到 arp 条目有了后, 再把这里的报文发送出去
 	struct sk_buff_head	arp_queue;
 	struct timer_list	timer;
 	unsigned long		used;

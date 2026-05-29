@@ -1299,6 +1299,7 @@ static __be32 in_dev_select_addr(const struct in_device *in_dev,
 	return 0;
 }
 
+// 在指定 dev 上，挑一个最适合和 target 通信的本地 IP
 __be32 inet_select_addr(const struct net_device *dev, __be32 dst, int scope)
 {
 	const struct in_ifaddr *ifa;

@@ -350,7 +350,7 @@ static void arp_solicit(struct neighbour *neigh, struct sk_buff *skb)
 	case 0:		/* By default announce any local IP */
 		if (skb && inet_addr_type_dev_table(dev_net(dev), dev,
 					  ip_hdr(skb)->saddr) == RTN_LOCAL)
-			saddr = ip_hdr(skb)->saddr;
+			saddr = ip_hdr(skb)->saddr; // 这里直接用了 skb 里的 sip, 只要其是本机的某个网卡 ip 就可以了
 		break;
 	case 1:		/* Restrict announcements of saddr in same subnet */
 		if (!skb)
@@ -359,7 +359,7 @@ static void arp_solicit(struct neighbour *neigh, struct sk_buff *skb)
 		if (inet_addr_type_dev_table(dev_net(dev), dev,
 					     saddr) == RTN_LOCAL) {
 			/* saddr should be known to target */
-			if (inet_addr_onlink(in_dev, target, saddr))
+			if (inet_addr_onlink(in_dev, target, saddr)) // 除了要求是本机ip, 还必须和目的 ip 是同一个子网
 				break;
 		}
 		saddr = 0;
@@ -370,7 +370,7 @@ static void arp_solicit(struct neighbour *neigh, struct sk_buff *skb)
 	rcu_read_unlock();
 
 	if (!saddr)
-		saddr = inet_select_addr(dev, target, RT_SCOPE_LINK);
+		saddr = inet_select_addr(dev, target, RT_SCOPE_LINK); // 查路由, 选择最好的 ip, 不相信 skb
 
 	probes -= NEIGH_VAR(neigh->parms, UCAST_PROBES);
 	if (probes < 0) {

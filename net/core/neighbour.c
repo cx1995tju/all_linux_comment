@@ -1002,13 +1002,14 @@ static void neigh_invalidate(struct neighbour *neigh)
 static void neigh_probe(struct neighbour *neigh)
 	__releases(neigh->lock)
 {
+	// arp queue 上挂载了上层协议的报文, 上层协议发送不出去的时候, 会暂时在这里挂载
 	struct sk_buff *skb = skb_peek_tail(&neigh->arp_queue);
 	/* keep skb alive even if arp_queue overflows */
 	if (skb)
 		skb = skb_clone(skb, GFP_ATOMIC);
 	write_unlock(&neigh->lock);
 	if (neigh->ops->solicit)
-		neigh->ops->solicit(neigh, skb);
+		neigh->ops->solicit(neigh, skb); // arp_solicit
 	atomic_inc(&neigh->probes);
 	consume_skb(skb);
 }
