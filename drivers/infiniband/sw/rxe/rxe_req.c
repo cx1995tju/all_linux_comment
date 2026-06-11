@@ -51,7 +51,7 @@ static void req_retry(struct rxe_qp *qp)
 
 	// GBN: 从最早的 wqe 开始, 全部 retry
 	qp->req.wqe_index	= consumer_index(qp->sq.queue);
-	qp->req.psn		= qp->comp.psn; // go back n, snd_una 来处理
+	qp->req.psn		= qp->comp.psn; // go back n, snd_una 来处理, 按照 pkt 粒度来重传的.
 	qp->req.opcode		= -1;
 
 	for (wqe_index = consumer_index(qp->sq.queue);
