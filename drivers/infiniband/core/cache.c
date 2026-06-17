@@ -119,7 +119,7 @@ struct ib_gid_table {
 	rwlock_t			rwlock;
 	struct ib_gid_table_entry	**data_vec;
 	/* bit field, each bit indicates the index of default GID */
-	u32				default_gid_indices;
+	u32				default_gid_indices; // 对应的 bit 为 1, 表示 gid table 里对应的 entry 是 default gid. ref: gid_table_reserve_default
 };
 
 static void dispatch_gid_change_event(struct ib_device *ib_dev, u8 port)
@@ -877,7 +877,7 @@ static void gid_table_reserve_default(struct ib_device *ib_dev, u8 port,
 	unsigned int num_default_gids;
 
 	roce_gid_type_mask = roce_gid_type_mask_support(ib_dev, port);
-	num_default_gids = hweight_long(roce_gid_type_mask);
+	num_default_gids = hweight_long(roce_gid_type_mask); // 数一数有多少个 bit 为 1, 如果这个设备同时支持 两种 roce 的话, 就要留两个 default index
 	/* Reserve starting indices for default GIDs */
 	for (i = 0; i < num_default_gids && i < table->sz; i++)
 		table->default_gid_indices |= BIT(i);

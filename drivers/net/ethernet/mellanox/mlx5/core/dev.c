@@ -65,7 +65,7 @@ void mlx5_add_device(struct mlx5_interface *intf, struct mlx5_priv *priv)
 
 	dev_ctx->intf = intf;
 
-	dev_ctx->context = intf->add(dev);
+	dev_ctx->context = intf->add(dev); // mlx5_ib_add
 	if (dev_ctx->context) {
 		set_bit(MLX5_INTERFACE_ADDED, &dev_ctx->state);
 		if (intf->attach)

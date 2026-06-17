@@ -483,6 +483,7 @@ int mlx5_init_qp_table(struct mlx5_ib_dev *dev)
 	INIT_RADIX_TREE(&table->tree, GFP_ATOMIC);
 	mlx5_qp_debugfs_init(dev->mdev);
 
+	// 挂了一个 notifier 到 per device 的通知链上
 	table->nb.notifier_call = rsc_event_notifier;
 	mlx5_notifier_register(dev->mdev, &table->nb);
 

@@ -1,7 +1,62 @@
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
  * Copyright (c) 2013-2020, Mellanox Technologies inc. All rights reserved.
- */
+ *
+ *
+ * =========================================
+ * 模块入口
+ * =========================================
+ * - mlx5_ib_init
+ *
+ * =========================================
+ * ib 设备初始化
+ * =========================================
+ * - mlx5_ib_add() -> pf_profile
+ *
+ *
+ * =========================================
+ * multiport
+ * =========================================
+ *
+ *
+ * =========================================
+ * MAD
+ * =========================================
+ *
+ *
+ * =========================================
+ * DEVX
+ * =========================================
+ * 让用户态直接给固件下命令,绕过内核 verbs 层
+ *
+ * =========================================
+ * UAR / BlueFlamew
+ * =========================================
+ * - mlx5 低延迟通信机制. 将 PCI BAR 的一块 MMIO 空间直接映射到用户态. 让用户态来 doorbell
+ * - UAR page layout: 一个 UAR page 分成 4 个 bfreg
+ *   - BFREG 0
+ *   - BFREG 1
+ *   - BFREG 2
+ *   - BFREG 3
+ *
+ *
+ * BlueFlame 用来写合并 doorbell 的. WQE 和 doorbell 信息一次性直接写到 BFreg 里, 这样设备不需要 DMA 就可以直接拿到 WQE 了.
+ *
+ *
+ * =========================================
+ * DM / PD / MCG
+ * =========================================
+ *
+ * =========================================
+ * UMR fence
+ * =========================================
+ *
+ *
+ * =========================================
+ * LAG
+ * =========================================
+ *
+ */ 
 
 #include <linux/debugfs.h>
 #include <linux/highmem.h>
@@ -77,6 +132,12 @@ static DEFINE_MUTEX(mlx5_ib_multiport_mutex);
 
 /* We can't use an array for xlt_emergency_page because dma_map_single
  * doesn't work on kernel modules memory
+ *
+ * 模块加载的时候分配一个 page, 用于极端情况下完全分不出内存的时候使用
+ *
+ * mlx5 中 UMR 的注册本质也是一个 post 操作, 这种情况下分不出内存, 就使用这个咯, ref: MLX5_IB_QPT_REG_UMR
+ *
+ * 当然由于 page 只有一个, 此时所有临时需要内存的操作都会阻塞在这个 page 的锁上的.
  */
 static unsigned long xlt_emergency_page;
 static struct mutex xlt_emergency_page_mutex;
@@ -155,6 +216,7 @@ static struct mlx5_roce *mlx5_get_rep_roce(struct mlx5_ib_dev *dev,
 	return NULL;
 }
 
+// 处理网络事件的 callback
 static int mlx5_netdev_event(struct notifier_block *this,
 			     unsigned long event, void *ptr)
 {
@@ -3028,6 +3090,7 @@ static u8 mlx5_get_umr_fence(u8 umr_fence_cap)
 
 static int mlx5_ib_dev_res_init(struct mlx5_ib_dev *dev)
 {
+	// 创建了一些内部使用的资源: mlx5_ib_resources
 	struct mlx5_ib_resources *devr = &dev->devr;
 	struct ib_srq_init_attr attr;
 	struct ib_device *ibdev;
@@ -3945,8 +4008,10 @@ static int mlx5_ib_stage_init_init(struct mlx5_ib_dev *dev)
 		dev->port[i].roce.last_port_state = IB_PORT_DOWN;
 	}
 
+	// odp 相关能力探测
 	mlx5_ib_internal_fill_odp_caps(dev);
 
+	// mulitport 设备这里会初始化
 	err = mlx5_ib_init_multiport_master(dev);
 	if (err)
 		return err;
@@ -4139,6 +4204,18 @@ static void mlx5_ib_stage_caps_cleanup(struct mlx5_ib_dev *dev)
 	bitmap_free(dev->var_table.bitmap);
 }
 
+/* cap 声明, 还有注册 cap 相关的 callback
+ * - ipoib: 增强卸载. 比如: checksum offload, tso 等
+ * - pf: 如果是 pf 设备, 可以通过这里注册的 callback 来管理 vf
+ * - umr: umr fence. UMR 机制是动态修改 MR 映射的. 和普通操作之间需要 fence, 固件支持三种 order:
+ *   - MLX5_CAP_UMR_FENCE_STRONG
+ *   - MLX5_CAP_UMR_FENCE_SMALL
+ *   - MLX5_CAP_UMR_FENCE_NULL
+ *   这里将其翻译为 WQE 中需要使用的字段, 存到 umr_fence 里
+ * - mw: 对 MW 的支持
+ * - xrc: 对 XRC QP 的支持
+ * - device memory: 对 device memory 的支持
+ */
 static int mlx5_ib_stage_caps_init(struct mlx5_ib_dev *dev)
 {
 	struct mlx5_core_dev *mdev = dev->mdev;
@@ -4204,6 +4281,9 @@ static int mlx5_ib_stage_caps_init(struct mlx5_ib_dev *dev)
 		ib_set_device_ops(&dev->ib_dev, &mlx5_ib_dev_xrc_ops);
 	}
 
+	/* 路径 A: MLX5_CAP_DEV_MEM. 固件在 BAR 里画出一段专用内存, 可以用 alloc_dm() 接口来使用
+	 * 路径 B: SW_ICM. 固件将各种硬件表 (QP/CQ/MR entry) 存到主机内存的机制, 让软件管理
+	 * */
 	if (MLX5_CAP_DEV_MEM(mdev, memic) ||
 	    MLX5_CAP_GEN_64(dev->mdev, general_obj_types) &
 	    MLX5_GENERAL_OBJ_TYPES_CAP_SW_ICM)
@@ -4223,6 +4303,8 @@ static int mlx5_ib_stage_caps_init(struct mlx5_ib_dev *dev)
 	     MLX5_CAP_GEN(dev->mdev, disable_local_lb_mc)))
 		mutex_init(&dev->lb.mutex);
 
+	// 这个卡是否支持 virtio net queue. 如果支持的话, 这个卡可以支持 vDPA.
+	// 但是这需要一段空间做独立的 doorbell, 就是 VAR(virtio address region)
 	if (MLX5_CAP_GEN_64(dev->mdev, general_obj_types) &
 			MLX5_GENERAL_OBJ_TYPES_CAP_VIRTIO_NET_Q) {
 		err = mlx5_ib_init_var_table(dev);
@@ -4230,6 +4312,7 @@ static int mlx5_ib_stage_caps_init(struct mlx5_ib_dev *dev)
 			return err;
 	}
 
+	// cq 动态中断调节机制
 	dev->ib_dev.use_cq_dim = true;
 
 	return 0;
@@ -4257,6 +4340,9 @@ static int mlx5_ib_stage_raw_eth_non_default_cb(struct mlx5_ib_dev *dev)
 	return 0;
 }
 
+// WQ: Work Queue
+// RWQ:Receive Work Queue
+// RWQ indirection table: 将接收流量 hash 到多个 RQ 的表
 static const struct ib_device_ops mlx5_ib_dev_common_roce_ops = {
 	.create_rwq_ind_table = mlx5_ib_create_rwq_ind_table,
 	.create_wq = mlx5_ib_create_wq,
@@ -4280,7 +4366,7 @@ static int mlx5_ib_roce_init(struct mlx5_ib_dev *dev)
 	port_type_cap = MLX5_CAP_GEN(mdev, port_type);
 	ll = mlx5_port_type_cap_to_rdma_ll(port_type_cap);
 
-	if (ll == IB_LINK_LAYER_ETHERNET) {
+	if (ll == IB_LINK_LAYER_ETHERNET) { // rocev2 here
 		dev->ib_dev.uverbs_ex_cmd_mask |=
 			(1ull << IB_USER_VERBS_EX_CMD_CREATE_WQ) |
 			(1ull << IB_USER_VERBS_EX_CMD_MODIFY_WQ) |
@@ -4289,9 +4375,12 @@ static int mlx5_ib_roce_init(struct mlx5_ib_dev *dev)
 			(1ull << IB_USER_VERBS_EX_CMD_DESTROY_RWQ_IND_TBL);
 		ib_set_device_ops(&dev->ib_dev, &mlx5_ib_dev_common_roce_ops);
 
+		// 减1 是因为 ib 里 port 编号都是从 1 开始的,  ref: alloc_port_data()
+		// 而 c 语言里的数组是 从 0 开始的
 		port_num = mlx5_core_native_port_num(dev->mdev) - 1;
 
 		/* Register only for native ports */
+		// 需要监控对应的 netdev 设备的
 		err = mlx5_add_netdev_notifier(dev, port_num);
 		if (err || dev->is_rep || !mlx5_is_roce_enabled(mdev))
 			/*
@@ -4346,6 +4435,7 @@ static void mlx5_ib_stage_cong_debugfs_cleanup(struct mlx5_ib_dev *dev)
 
 static int mlx5_ib_stage_uar_init(struct mlx5_ib_dev *dev)
 {
+	// 用来让用户直接 mmap 映射的 page
 	dev->mdev->priv.uar = mlx5_get_uars_page(dev->mdev);
 	return PTR_ERR_OR_ZERO(dev->mdev->priv.uar);
 }
@@ -4597,13 +4687,14 @@ void __mlx5_ib_remove(struct mlx5_ib_dev *dev,
 }
 
 void *__mlx5_ib_add(struct mlx5_ib_dev *dev,
-		    const struct mlx5_ib_profile *profile)
+		    const struct mlx5_ib_profile *profile) // % pf_profile
 {
 	int err;
 	int i;
 
 	dev->profile = profile;
 
+	// 一个又一个 stage 来调用 init 函数咯
 	for (i = 0; i < MLX5_IB_STAGE_MAX; i++) {
 		if (profile->stage[i].init) {
 			err = profile->stage[i].init(dev);
@@ -4623,63 +4714,91 @@ err_out:
 }
 
 static const struct mlx5_ib_profile pf_profile = {
+	// * 设备结构基本的初始化
 	STAGE_CREATE(MLX5_IB_STAGE_INIT,
 		     mlx5_ib_stage_init_init,
 		     mlx5_ib_stage_init_cleanup),
+	// flow steering 子系统
+	// 会向 ib device 注册: mlx5_ib_create_flow mlx5_ib_destroy_flow 等 flow 相关的 callback
 	STAGE_CREATE(MLX5_IB_STAGE_FS,
 		     mlx5_ib_fs_init,
 		     mlx5_ib_fs_cleanup),
+	// * cap 声明, 还有注册 cap 相关的 callback
+	// - ipoib
+	// - pf
+	// - umr
+	// - mw
+	// - xrc
+	// - device memory
 	STAGE_CREATE(MLX5_IB_STAGE_CAPS,
 		     mlx5_ib_stage_caps_init,
 		     mlx5_ib_stage_caps_cleanup),
+	// port 级别 callback, 两个简单的查询接口
 	STAGE_CREATE(MLX5_IB_STAGE_NON_DEFAULT_CB,
 		     mlx5_ib_stage_non_default_cb,
 		     NULL),
+	// * roce 相关初始化. 比如和 netdev 关联
 	STAGE_CREATE(MLX5_IB_STAGE_ROCE,
 		     mlx5_ib_roce_init,
 		     mlx5_ib_roce_cleanup),
+	// * 存储 QP 的 table 初始化
 	STAGE_CREATE(MLX5_IB_STAGE_QP,
 		     mlx5_init_qp_table,
 		     mlx5_cleanup_qp_table),
+	// * SRQ 初始化
 	STAGE_CREATE(MLX5_IB_STAGE_SRQ,
 		     mlx5_init_srq_table,
 		     mlx5_cleanup_srq_table),
+	// 驱动内部使用的一些特殊对象
 	STAGE_CREATE(MLX5_IB_STAGE_DEVICE_RESOURCES,
 		     mlx5_ib_dev_res_init,
 		     mlx5_ib_dev_res_cleanup),
+	// * 注册硬件事件 callback. mlx5_ib_event
 	STAGE_CREATE(MLX5_IB_STAGE_DEVICE_NOTIFIER,
 		     mlx5_ib_stage_dev_notifier_init,
 		     mlx5_ib_stage_dev_notifier_cleanup),
+	// on-demand paging 机制
 	STAGE_CREATE(MLX5_IB_STAGE_ODP,
 		     mlx5_ib_odp_init_one,
 		     mlx5_ib_odp_cleanup_one),
+	// counter 子系统
 	STAGE_CREATE(MLX5_IB_STAGE_COUNTERS,
 		     mlx5_ib_counters_init,
 		     mlx5_ib_counters_cleanup),
+	// debugfs 子系统
 	STAGE_CREATE(MLX5_IB_STAGE_CONG_DEBUGFS,
 		     mlx5_ib_stage_cong_debugfs_init,
 		     mlx5_ib_stage_cong_debugfs_cleanup),
+	// UAR: 用户态映射的资源
 	STAGE_CREATE(MLX5_IB_STAGE_UAR,
 		     mlx5_ib_stage_uar_init,
 		     mlx5_ib_stage_uar_cleanup),
+	// BlueFlame register 机制
 	STAGE_CREATE(MLX5_IB_STAGE_BFREG,
 		     mlx5_ib_stage_bfrag_init,
 		     mlx5_ib_stage_bfrag_cleanup),
+	// UMR
 	STAGE_CREATE(MLX5_IB_STAGE_PRE_IB_REG_UMR,
 		     NULL,
 		     mlx5_ib_stage_pre_ib_reg_umr_cleanup),
+	// DEVX 白名单. 有些设备可以在用户态直接发固件命令
 	STAGE_CREATE(MLX5_IB_STAGE_WHITELIST_UID,
 		     mlx5_ib_devx_init,
 		     mlx5_ib_devx_cleanup),
+	// 向 ib_core 注册设备了
 	STAGE_CREATE(MLX5_IB_STAGE_IB_REG,
 		     mlx5_ib_stage_ib_reg_init,
 		     mlx5_ib_stage_ib_reg_cleanup),
+	// 创建 UMR QP, 驱动自己用的, 用来下发命令的
+	// 启动 MR cache
 	STAGE_CREATE(MLX5_IB_STAGE_POST_IB_REG_UMR,
 		     mlx5_ib_stage_post_ib_reg_umr_init,
 		     NULL),
+	// delay drop 机制
 	STAGE_CREATE(MLX5_IB_STAGE_DELAY_DROP,
 		     mlx5_ib_stage_delay_drop_init,
 		     mlx5_ib_stage_delay_drop_cleanup),
+	// resource track 机制
 	STAGE_CREATE(MLX5_IB_STAGE_RESTRACK,
 		     mlx5_ib_restrack_init,
 		     NULL),
@@ -4783,6 +4902,10 @@ static void *mlx5_ib_add_slave_port(struct mlx5_core_dev *mdev)
 	return mpi;
 }
 
+// 核心是:
+// - 判断设备类型
+// - 分配初始化 mlx5_ib_dev
+// - 深入进一步初始化 __mlx5_ib_add(dev, profile);
 static void *mlx5_ib_add(struct mlx5_core_dev *mdev)
 {
 	const struct mlx5_ib_profile *profile;
@@ -4798,6 +4921,7 @@ static void *mlx5_ib_add(struct mlx5_core_dev *mdev)
 		return mdev;
 	}
 
+	// rocev2 用 IB_LINK_LAYER_ETHERNET
 	port_type_cap = MLX5_CAP_GEN(mdev, port_type);
 	ll = mlx5_port_type_cap_to_rdma_ll(port_type_cap);
 
@@ -4806,9 +4930,12 @@ static void *mlx5_ib_add(struct mlx5_core_dev *mdev)
 
 	num_ports = max(MLX5_CAP_GEN(mdev, num_ports),
 			MLX5_CAP_GEN(mdev, num_vhca_ports));
+	// rocev2 一般 num_ports 是 1
+	// 调用 linux rdma 核心模块来分配 device 结构咯
 	dev = ib_alloc_device(mlx5_ib_dev, ib_dev);
 	if (!dev)
 		return NULL;
+	// 分配 port 结构
 	dev->port = kcalloc(num_ports, sizeof(*dev->port),
 			     GFP_KERNEL);
 	if (!dev->port) {
@@ -4822,7 +4949,7 @@ static void *mlx5_ib_add(struct mlx5_core_dev *mdev)
 	if (ll == IB_LINK_LAYER_ETHERNET && !mlx5_is_roce_enabled(mdev))
 		profile = &raw_eth_profile;
 	else
-		profile = &pf_profile;
+		profile = &pf_profile; // rocev2 走这里
 
 	return __mlx5_ib_add(dev, profile);
 }
@@ -4873,20 +5000,26 @@ static int __init mlx5_ib_init(void)
 {
 	int err;
 
+	// 1. 分配 emergency page
 	xlt_emergency_page = __get_free_page(GFP_KERNEL);
 	if (!xlt_emergency_page)
 		return -ENOMEM;
 
 	mutex_init(&xlt_emergency_page_mutex);
 
+	// 2. 分配 event wq
 	mlx5_ib_event_wq = alloc_ordered_workqueue("mlx5_ib_event_wq", 0);
 	if (!mlx5_ib_event_wq) {
 		free_page(xlt_emergency_page);
 		return -ENOMEM;
 	}
 
+	// 3. odp 机制初始化
 	mlx5_ib_odp_init();
 
+	// 4. mlx5 内部设备管理机制. 每种 mlx 设备类型(ethernet, ib, vdpa), 自己注册接口
+	// - 针对已有的 device 调用其 add 函数: mlx5_ib_add
+	// - 如果先完成了模块加载, 再添加设备, 则是走另一条路径: mlx5_register_device -> mlx5_ib_add
 	err = mlx5_register_interface(&mlx5_ib_interface);
 
 	return err;

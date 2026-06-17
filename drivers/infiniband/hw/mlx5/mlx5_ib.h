@@ -716,13 +716,13 @@ struct mlx5_ib_port_resources {
 };
 
 struct mlx5_ib_resources {
-	struct ib_cq	*c0;
+	struct ib_cq	*c0; // 一个最小的 CQ (cqe=1)
 	u32 xrcdn0;
 	u32 xrcdn1;
-	struct ib_pd	*p0;
-	struct ib_srq	*s0;
-	struct ib_srq	*s1;
-	struct mlx5_ib_port_resources ports[2];
+	struct ib_pd	*p0; // 一个内核用的 pd
+	struct ib_srq	*s0; // XRC 类型的 SRQ(max_sge=1, max_wr=1)
+	struct ib_srq	*s1; // BASIC类型 SRQ(max_sge=1, max_wr=1)
+	struct mlx5_ib_port_resources ports[2];  // per port 的 GSI QP(QP1) 指针 + pkey work
 	/* Protects changes to the port resources */
 	struct mutex	mutex;
 };
@@ -965,6 +965,7 @@ struct mlx5_var_table {
 	u64 num_var_hw_entries;
 };
 
+// ref: mlx5_ib_stage_init_init
 struct mlx5_ib_dev {
 	struct ib_device		ib_dev;
 	struct mlx5_core_dev		*mdev;
@@ -1013,7 +1014,7 @@ struct mlx5_ib_dev {
 	const struct mlx5_ib_profile	*profile;
 
 	struct mlx5_ib_lb_state		lb;
-	u8			umr_fence;
+	u8			umr_fence; // ref: mlx5_ib_stage_caps_init
 	struct list_head	ib_dev_list;
 	u64			sys_image_guid;
 	struct mlx5_dm		dm;

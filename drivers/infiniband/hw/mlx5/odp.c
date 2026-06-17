@@ -1,4 +1,79 @@
-/*
+/* On-Demand Paging
+ *
+ * 传统 MR 要求注册时把所有页 pin 住(`get_user_pages`,禁止换出),代价是:内存被钉
+ * 死、`mmap`/`fork`/`migrate` 受限、大 MR 浪费。ODP 反过来:MR 只登记一个虚拟地
+ * 址范围,真正访问时谁缺页谁触发。代价是延迟 + 一套页表同步机制——本文件就是这套
+ * 机制。
+ *
+ * 网卡侧用两层 mkey 表达这个范围,驱动要维持它和 CPU 页表的同步。
+ *
+ * mkey: mr key, 固件内使用的, 用户看到的是 lkey/rkey
+ *
+ *
+ *
+ * ==========================================
+ * 数据模型: IMR(KSM)→ 子 MTT 两级树
+ * ==========================================
+ * IMR: implicit MR
+ * KSM: Key Segmnt Map
+ *
+ * 一个 IMR 覆盖完整的进程空间(TASK_SIZE), 其是两级表:
+ * - 第一级指向一个 子 MR 或者一个 null_mkey
+ * - 每个 子 MR 覆盖 固定的 1G 的空间: MLX5_IMR_MTT_BITS. page fault
+ 的时候创建的, implicit_get_child_mr
+ *
+ *
+ * ==========================================
+ * page fault 路径
+ * ==========================================
+ * 1. NIC 缺页, 中断入口: 向专门的 EQ((Page Fault EQ)) 丢一个 EQE, 然后取出 EQE
+ 并处理
+ * - mlx5_ib_eq_pf_int -> mlx5_ib_eq_pf_process
+ * - mlx5_ib_eq_pf_action -> mlx5_ib_eq_pf_process
+ *   
+
+ *
+ * 2. dispatch: WQE / RDMA
+ * - mlx5_ib_mr_wqe_pfault_handler. 找到缺页的 WQE 处理
+ * - mlx5_ib_mr_rdma_pfault_handler. 解析 RDMA desc 里的 rkey, addr, len
+ *
+ * 3. pagefault_single_data_segment
+ *
+ * 4. 建表: pagefault_mr
+ *
+ * 5. 收尾: mlx5_ib_page_fault_resume
+ *
+ * ==========================================
+ * 失效路径
+ * ==========================================
+ * - mlx5_ib_invalidate_range, 基于 mmu notifier
+ *
+ *
+ * ==========================================
+ * 并发模型
+ * ==========================================
+ * ODP 同时有"硬件 fault in"和"CPU invalidate"两条异步路径改同一张 MTT
+ * 表,还要应付 MR 的随时销毁。三把锁 + RCU 配合:
+ * - dev->odp_srcu
+ * - umem_odp->umem_mutex
+ * - imr->implicit_children
+ *
+ *
+ * ==========================================
+ * lifecyle / 对外接口
+ * ==========================================
+ * - 模块级:
+ *   - mlx5_ib_odp_init
+ * - 设备级
+ *   - mlx5_ib_odp_init_one
+ *   - cleanup_one
+ * - MR 缓存条目
+ *   - mlx5_odp_init_mr_cache_entry
+ * - MR lifecycle
+ *   - 注册: mlx5_ib_init_odp_mr
+ *   - 预取: mlx5_ib_advise_mr_prefetch
+ *
+ *
  * Copyright (c) 2013-2015, Mellanox Technologies. All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -1588,6 +1663,7 @@ enum {
 	MLX5_IB_NUM_PF_DRAIN	= 64,
 };
 
+// 用来处理 page fault 的 eq
 static int
 mlx5_ib_create_pf_eq(struct mlx5_ib_dev *dev, struct mlx5_ib_pf_eq *eq)
 {
@@ -1714,6 +1790,8 @@ void mlx5_ib_odp_cleanup_one(struct mlx5_ib_dev *dev)
 
 int mlx5_ib_odp_init(void)
 {
+	// 计算 imr 中 ksm 的 entry 数量
+	// ref: MLX5_IMR_MTT_BITS 每个 IMR MTT 覆盖 1G 的空间范围
 	mlx5_imr_ksm_entries = BIT_ULL(get_order(TASK_SIZE) -
 				       MLX5_IMR_MTT_BITS);
 

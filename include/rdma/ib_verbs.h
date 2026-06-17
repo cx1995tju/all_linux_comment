@@ -2425,7 +2425,7 @@ enum ib_mad_result {
 struct ib_port_cache {
 	u64		      subnet_prefix;
 	struct ib_pkey_cache  *pkey;
-	struct ib_gid_table   *gid;	// gid table, ref: rdma_gid_table
+	struct ib_gid_table   *gid;	// gid table, ref: rdma_gid_table, _gid_table_setup_one
 	u8                     lmc;
 	enum ib_port_state     port_state;
 };
@@ -2763,6 +2763,8 @@ struct ib_device_ops {
 	int (*detach_mcast)(struct ib_qp *qp, union ib_gid *gid, u16 lid);
 	int (*alloc_xrcd)(struct ib_xrcd *xrcd, struct ib_udata *udata);
 	int (*dealloc_xrcd)(struct ib_xrcd *xrcd, struct ib_udata *udata);
+	//
+	// ref: flow 相关 mlx5_ib_fs_init
 	struct ib_flow *(*create_flow)(struct ib_qp *qp,
 				       struct ib_flow_attr *flow_attr,
 				       struct ib_udata *udata);
@@ -2778,6 +2780,7 @@ struct ib_device_ops {
 		struct uverbs_attr_bundle *attrs);
 	int (*set_vf_link_state)(struct ib_device *device, int vf, u8 port,
 				 int state);
+	// ref: mlx5_ib_dev_sriov_ops
 	int (*get_vf_config)(struct ib_device *device, int vf, u8 port,
 			     struct ifla_vf_info *ivf);
 	int (*get_vf_stats)(struct ib_device *device, int vf, u8 port,
@@ -2787,6 +2790,7 @@ struct ib_device_ops {
 			    struct ifla_vf_guid *port_guid);
 	int (*set_vf_guid)(struct ib_device *device, int vf, u8 port, u64 guid,
 			   int type);
+	// ref: mlx5_ib_dev_common_roce_ops, roce 特有的一些接口
 	struct ib_wq *(*create_wq)(struct ib_pd *pd,
 				   struct ib_wq_init_attr *init_attr,
 				   struct ib_udata *udata);
@@ -2985,8 +2989,9 @@ struct ib_device {
 	 */
 	const struct attribute_group	*groups[3];
 
-	u64			     uverbs_cmd_mask; // 支持的 uverbs cmd, ref: IB_USER_VERBS_CMD_GET_CONTEXT
-	u64			     uverbs_ex_cmd_mask; // 支持的 uverbs ex cmd, ref: IB_USER_VERBS_EX_CMD_CREATE_CQ
+	u64			     uverbs_cmd_mask; // 支持的 uverbs cmd, ref: IB_USER_VERBS_CMD_GET_CONTEXT, mlx5_ib_stage_caps_init
+	u64			     uverbs_ex_cmd_mask; // 支持的 uverbs ex cmd, ref: IB_USER_VERBS_EX_CMD_CREATE_CQ, mlx5_ib_stage_caps_init
+
 
 	char			     node_desc[IB_DEVICE_NODE_DESC_MAX];
 	__be64			     node_guid; // 硬件不变的一个 id ?
@@ -3037,6 +3042,7 @@ struct ib_device {
 };
 
 struct ib_client_nl_info;
+// 主要是用来监控 ib 设备的添加删除, 然后各个模块需要做一些自己的事情.
 struct ib_client {
 	const char *name;
 	int (*add)(struct ib_device *ibdev);
@@ -3313,7 +3319,9 @@ static inline bool rdma_cap_ib_switch(const struct ib_device *device)
  */
 static inline u8 rdma_start_port(const struct ib_device *device)
 {
-	return rdma_cap_ib_switch(device) ? 0 : 1; // IB switch 的 port 0 是保留的 ref: IB spec vol1 Ch18.1.1
+	/* IB spec vol1 Ch18.1.1 规定了, 除了 switch port 0 有特殊作用, 其他的
+	 * ib 设备 port 0 都是保留的不用的, 索引从 1 开始. */
+	return rdma_cap_ib_switch(device) ? 0 : 1;
 }
 
 /**

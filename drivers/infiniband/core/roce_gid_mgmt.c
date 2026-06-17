@@ -106,6 +106,7 @@ static const struct {
 
 #define CAP_TO_GID_TABLE_SIZE	ARRAY_SIZE(PORT_CAP_TO_GID_TYPE)
 
+// 判断支持哪种 roce
 unsigned long roce_gid_type_mask_support(struct ib_device *ib_dev, u8 port)
 {
 	int i;
@@ -534,6 +535,9 @@ static void enum_all_gids_of_dev_cb(struct ib_device *ib_dev,
  * and add their gids, as needed, to the relevant RoCE devices.
  *
  * @device:         the rdma device
+ *
+ *
+ * 扫描 ib 设备上所有 port 关联的 net_device, 去拿其 ip 信息, 转换为 gid
  */
 void rdma_roce_rescan_device(struct ib_device *ib_dev)
 {

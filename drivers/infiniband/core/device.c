@@ -1377,7 +1377,7 @@ static int enable_device_and_get(struct ib_device *device)
 
 	down_read(&clients_rwsem);
 	xa_for_each_marked (&clients, index, client, CLIENT_REGISTERED) {
-		ret = add_client_context(device, client);
+		ret = add_client_context(device, client); // 有一个 client 注册失败，就不能注册 device
 		if (ret)
 			break;
 	}
@@ -1411,6 +1411,7 @@ static void prevent_dealloc_device(struct ib_device *ib_dev)
  * asynchronously then the device pointer may become freed as soon as this
  * function returns.
  */
+// 底层 driver 用这个注册设备的时候, 所有的 client 都会有一个设备添加的回调
 int ib_register_device(struct ib_device *device, const char *name,
 		       struct device *dma_device)
 {
@@ -1425,6 +1426,7 @@ int ib_register_device(struct ib_device *device, const char *name,
 	if (ret)
 		return ret;
 
+	// 同步好 gid
 	ret = ib_cache_setup_one(device);
 	if (ret) {
 		dev_warn(&device->dev,
@@ -1432,8 +1434,10 @@ int ib_register_device(struct ib_device *device, const char *name,
 		return ret;
 	}
 
+	// rdma cgroup
 	ib_device_register_rdmacg(device);
 
+	// 初始化一些 counter
 	rdma_counter_init(device);
 
 	/*
@@ -1445,6 +1449,7 @@ int ib_register_device(struct ib_device *device, const char *name,
 	if (ret)
 		goto cg_cleanup;
 
+	// sysfs
 	ret = ib_device_register_sysfs(device);
 	if (ret) {
 		dev_warn(&device->dev,
@@ -1452,6 +1457,7 @@ int ib_register_device(struct ib_device *device, const char *name,
 		goto dev_cleanup;
 	}
 
+	// 这里要通知那些 ib client 了, ref: ib_register_client()
 	ret = enable_device_and_get(device);
 	dev_set_uevent_suppress(&device->dev, false);
 	/* Mark for userspace that device is ready */

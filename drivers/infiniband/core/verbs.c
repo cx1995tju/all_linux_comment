@@ -2518,6 +2518,16 @@ EXPORT_SYMBOL(ib_dealloc_xrcd_user);
  * on return.
  * If ib_create_wq() succeeds, then max_wr and max_sge will always be
  * at least as large as the requested values.
+ *
+ * ref: rdma-core workqueue 机制
+ * WQ: ref: 2864904f82bf3f08f9c87225238d107a66ef31b2
+ *  关于 WQ 机制. WQ 不是 spec 里的内容. 是为了支持 RSS 的. ibv_create_wq() 可
+ *  以创建多个接收队列, 然后将其关联到一个 Indirection Table. 数据包到达的时候
+ *  会根据 hash 算法将其分发到不同 WQ. WQ 机制一般是用来处理 Raw Ethernet 的时
+ *  候使用的.
+ *
+ *  UD 服务有时候也会用 WQ 机制, 某个 UD QP 的流量特别大的时候, 将其分发到多个
+ *  WQ.
  */
 struct ib_wq *ib_create_wq(struct ib_pd *pd,
 			   struct ib_wq_init_attr *wq_attr)

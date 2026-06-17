@@ -563,6 +563,8 @@ void mlx5_lag_add(struct mlx5_core_dev *dev, struct net_device *netdev)
 	if (tmp_dev)
 		ldev = tmp_dev->priv.lag;
 
+	// 一个网卡的两个 PF 共用一个 lag 设备的, 这里把 lag 设备创建好了, 但是没有激活的
+	// ref: mlx5_handle_changeupper_event
 	if (!ldev) {
 		ldev = mlx5_lag_dev_alloc();
 		if (!ldev) {

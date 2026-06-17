@@ -51,9 +51,12 @@ static struct mlx5_nb events_nbs_ref[] = {
 	{.nb.notifier_call = forward_event,   .event_type = MLX5_EVENT_TYPE_SRQ_RQ_LIMIT },
 };
 
+// ref: mlx5_events_init
 struct mlx5_events {
 	struct mlx5_core_dev *dev;
 	struct workqueue_struct *wq;
+	// EQ 通知链, 内部使用. 固件通过 EQ 向上发送事件, driver 通过通知链在内部消费
+	// forward_event 函数会将其转发给 下面的 nh 通知链
 	struct mlx5_event_nb  notifiers[ARRAY_SIZE(events_nbs_ref)];
 	/* driver notifier chain */
 	struct atomic_notifier_head nh;
@@ -385,6 +388,7 @@ void mlx5_events_stop(struct mlx5_core_dev *dev)
 
 int mlx5_notifier_register(struct mlx5_core_dev *dev, struct notifier_block *nb)
 {
+	// ref: struct mlx5_events
 	struct mlx5_events *events = dev->priv.events;
 
 	return atomic_notifier_chain_register(&events->nh, nb);
