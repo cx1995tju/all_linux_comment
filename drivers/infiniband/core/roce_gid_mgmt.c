@@ -49,6 +49,10 @@
  * - inetaddr_event / inet6addr_event: 监测设备 up/down 事件
  *
  *
+ * 关键是通过 netdevice 设备找到对应的 ib 设备:
+ * - 遍历 ib 设备, 调用其 get_netdev() 接口拿到 netdevice 后, 然后和事件传进来的 netdevice 比较
+ *
+ *
  * 因为 roce 的 gid 是通过 ip 转换来的. roce 也依附于内核的以太网设备. 所以这里
  * 就是在内核以太网设备和 ib_device 之间做了个中间转换层.
  *

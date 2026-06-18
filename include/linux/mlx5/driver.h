@@ -1066,7 +1066,7 @@ enum {
 };
 
 struct mlx5_interface {
-	void *			(*add)(struct mlx5_core_dev *dev);
+	void *			(*add)(struct mlx5_core_dev *dev); // mlx5_ib_add
 	void			(*remove)(struct mlx5_core_dev *dev, void *context);
 	int			(*attach)(struct mlx5_core_dev *dev, void *context);
 	void			(*detach)(struct mlx5_core_dev *dev, void *context);
@@ -1175,8 +1175,9 @@ static inline bool mlx5_rl_is_supported(struct mlx5_core_dev *dev)
 
 static inline int mlx5_core_is_mp_slave(struct mlx5_core_dev *dev)
 {
+	// 这些信息都是固件里保存的, 查询出来咯, ref: mlx5_ifc_cmd_hca_cap_bits
 	return MLX5_CAP_GEN(dev, affiliate_nic_vport_criteria) &&
-	       MLX5_CAP_GEN(dev, num_vhca_ports) <= 1;
+	       MLX5_CAP_GEN(dev, num_vhca_ports) <= 1; // 这个 multiport 视角下看到的 v-hca port 数量, 从固件里查询出来的
 }
 
 static inline int mlx5_core_is_mp_master(struct mlx5_core_dev *dev)

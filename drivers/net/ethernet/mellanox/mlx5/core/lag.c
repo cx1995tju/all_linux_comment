@@ -700,6 +700,7 @@ struct net_device *mlx5_lag_get_roce_netdev(struct mlx5_core_dev *dev)
 	if (!(ldev && __mlx5_lag_is_roce(ldev)))
 		goto unlock;
 
+	// 必须是 lag dev, 且是 roce 才会继续走下来
 	if (ldev->tracker.tx_type == NETDEV_LAG_TX_TYPE_ACTIVEBACKUP) {
 		ndev = ldev->tracker.netdev_state[MLX5_LAG_P1].tx_enabled ?
 		       ldev->pf[MLX5_LAG_P1].netdev :

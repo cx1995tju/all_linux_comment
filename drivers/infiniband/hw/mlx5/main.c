@@ -8,15 +8,146 @@
  * =========================================
  * - mlx5_ib_init
  *
- * =========================================
- * ib 设备初始化
- * =========================================
- * - mlx5_ib_add() -> pf_profile
  *
+ * =========================================
+ * ib 设备管理
+ * =========================================
+ * - 核心结构: mlx5_ib_dev
+ * - 初始化: mlx5_ib_add() -> pf_profile
+ *
+ *
+ * - mlx5_core_dev mdev
+ * - mlx5_ib_dev   ibdev
+ * - mlx5_roce     roce
+ * - net_device    ndev
+ *
+ * ┌───────────────┬─────────┬──────────────────────────────────────────┐
+ * │     结构      │  层级   │                   作用                   │
+ * ├───────────────┼─────────┼──────────────────────────────────────────┤
+ * │ mlx5_core_dev │ 硬件层  │ 代表一个 PCIe PF/VF，管理底层硬件资源    │
+ * │ mdev          │         │ 以太网, vdpa 都要用这个结构的            │
+ * ├───────────────┼─────────┼──────────────────────────────────────────┤
+ * │ mlx5_ib_dev   │ RDMA 层 │ IB 设备抽象，向上层 RDMA 栈提供接口      │
+ * │ ibdev         │         │                                          │
+ * ├───────────────┼─────────┼──────────────────────────────────────────┤
+ * │ mlx5_ib_port  │ 端口层  │ IB 设备的一个端口，内嵌在 mlx5_ib_dev 中 │
+ * │ port          │         │                                          │
+ * ├───────────────┼─────────┼──────────────────────────────────────────┤
+ * │ mlx5_roce     │ RoCE 层 │ RoCE 特定信息，内嵌在 mlx5_ib_port 中    │
+ * │ roce          │         │                                          │
+ * ├───────────────┼─────────┼──────────────────────────────────────────┤
+ * │ net_device    │ 网络层  │ Linux 网络设备，由网络子系统管理         │
+ * │ ndev          │         │                                          │
+ * ├───────────────┼─────────┼──────────────────────────────────────────┤
+ * │ mlx5_eswitch  │         │ CX 内部的交换机结构                      │
+ * └───────────────┴─────────┴──────────────────────────────────────────┘
+ *
+ * mlx5_roce 和 net_device 关系的建立:
+ * - mlx5_netdev_event: ib 设备先加载, net 设备后加载
+ *
+ *
+ * 各种结构的关系:
+ * - mlx5_get_rep_roce(ibdev, ndev) : 找出 ibdev 上关联到 ndev 的一个 rep port
+ * 的 roce 结构
+ * - mlx5_ib_get_netdev(ibdev, port_num):  ibdev 的 port_num 这个 port 对应的
+ * ndev
+ * - mlx5_ib_get_native_port_mdev(ibdev, ib_port_num): ibdev 的 port_num 这个
+ * port 对应的 mdev
  *
  * =========================================
  * multiport
  * =========================================
+ * 普通情况下, 多口 cx 网卡会呈现为多个 rocev2 设备. multiport 下符合 ib spec,
+ * 单个 ib device 有多个 ports. 多个 port 共享 ib_device 资源.
+ *
+ * ref: mlx5_core_is_mp_master, 需要固件里 enable 了该功能.
+ *
+ *
+ * =========================================
+ * EVENT 机制
+ * =========================================
+ * *mlx5_ib_event*
+ * global event 处理: mlx5_ib_event
+ * 1. mlx 硬件通过 EQ 向 driver 发送事件
+ * 2. EQ 中断处理, 将其分发到 mlx5_eq_notifier_register() 注册的 per-event-type
+ * handlers, ref:
+ *    - ref: mlx5_events_start() 里注册了很多 handler, 其中最重要的是
+ * forward_event()
+ * 3. forward_event() 通过一个 per device 的内核通知链, 将其分发到 mlx5_ib_event
+ * 4. 然后进一步分发到 mlx5_ib_event_wq, 但是其仅仅处理很少量的一些 global 事件,
+ * mlx5_ib_handle_event
+ *
+ *
+ * *mlx5_netdev_event*
+ * - 内核 netdev 事件处理 per-port 都会注册这个 notifier 到 netdev 子系统
+ *
+ *
+ * *ib_dispatch_event*
+ * - driver 层调用这个接口向 ib 协议栈层分发事件
+ *
+ * =========================================
+ * gid 管理
+ * =========================================
+ * add_gid() callback 配置到硬件
+ * driver 实现 add_gid 和 del_gid callback 即可了. ref: roce_gid_mgmt.c
+ *
+ * roce 子系统监听 netdevice 系统 ~netdevice_event~, 然后将 gid 同步到 roce 设备
+ * 核心: netdevice 如何找到 roce 设备.
+ * - 遍历 ib 设备, 然后通过 callback get_netdev 返回其 netdev.
+ * - 和 netdevice 事件传过来的 netdev 进行比较
+ *
+ * =========================================
+ * ucontext / UAR / BlueFlame
+ * =========================================
+ * ucontext: 用户态进程打开 rdma 设备的时候有一个该 ctx. ucontext 中的资源:
+ * - uar(user access region) / BFREG: ucontext 中有一部分可以让用户态进程直接 mmap
+ *   来访问硬件的. 一个 UAR page 分成 4 个 bfreg
+ *   - BFREG 0
+ *   - BFREG 1
+ *   - BFREG 2
+ *   - BFREG 3
+ * BlueFlame 用来写合并 doorbell 的. WQE 和 doorbell 信息一次性直接写到 BFreg
+ * 里, 这样设备不需要 DMA 就可以直接拿到 WQE 了.
+ *
+ * - Transport Domian(TD): 隔离不同进程的网络流量
+ *
+ * - DEVX UID: 用户态直接访问固件命令的接口
+ *
+ *
+ * UAR page 位于 bar 空间, uar page layout
+ * +----+----+----+----+----+----+----+----+----+----+----+-----------------------------------------+---------+------+
+ * | 31 | 30 | 29 | 28 | 27 | 26 | 25 | 24 | 23 | 22 | 21 | 20 ................................... 0| Offset  | REG  |
+ * +----+----+----+----+----+----+----+----+----+----+----+-----------------------------------------+---------+------+
+ * |                                                                                                | 00h-1Ch |      |
+ * +---------+---------+--------------+----+--------------------------------------------------------+---------+      |
+ * |         |  cmdsn  |              |cmd |                       cq_ci                            | 20h     | CQ   |
+ * +---------+---------+-------------------+--------------------------------------------------------+---------+      |
+ * |                                       |             cq_n                                       | 24h     |      |
+ * +---------------------------------------+--------------------------------------------------------+---------+------+
+ * |                                                                                                | 28h-3Ch |      |
+ * +---------------------------------------+--------------------------------------------------------+---------+      |
+ * |    eqn (update CI and Arm)            |             Consumer Index                             | 40h     | EQ   |
+ * +---------------------------------------+--------------------------------------------------------+---------+      |
+ * |                                                                                                | 44h     |      |
+ * +---------------------------------------+--------------------------------------------------------+---------+      |
+ * |         eqn (update CI)               |             Consumer Index                             | 48h     |      |
+ * +---------------------------------------+--------------------------------------------------------+---------+------+
+ * |                                                                                                |04Ch-7FCh|      |
+ * +------------------------------------------------------------------------------------------------+---------+------+
+ * |                                    DB_BlueFlame_Buffer0_even                                   | 800h-   | Blue |
+ * |                                                                                                |  0FCh   | Flame|
+ * +------------------------------------------------------------------------------------------------+---------+ Reg0 |
+ * |                                    DB_BlueFlame_Buffer0_odd                                    | 900h-   |      |
+ * |                                                                                                |  9FCh   |      |
+ * +------------------------------------------------------------------------------------------------+---------+------+
+ * |                                    DB_BlueFlame_Buffer1_even                                   | A00h-   | Blue |
+ * |                                                                                                |  AFCh   | Flame|
+ * +------------------------------------------------------------------------------------------------+---------+ Reg1 |
+ * |                                    DB_BlueFlame_Buffer1_odd                                    | B00h-   |      |
+ * |                                                                                                |  BFCh   |      |
+ * +------------------------------------------------------------------------------------------------+---------+------+
+ *
+ *
  *
  *
  * =========================================
@@ -29,34 +160,36 @@
  * =========================================
  * 让用户态直接给固件下命令,绕过内核 verbs 层
  *
- * =========================================
- * UAR / BlueFlamew
- * =========================================
- * - mlx5 低延迟通信机制. 将 PCI BAR 的一块 MMIO 空间直接映射到用户态. 让用户态来 doorbell
- * - UAR page layout: 一个 UAR page 分成 4 个 bfreg
- *   - BFREG 0
- *   - BFREG 1
- *   - BFREG 2
- *   - BFREG 3
  *
  *
- * BlueFlame 用来写合并 doorbell 的. WQE 和 doorbell 信息一次性直接写到 BFreg 里, 这样设备不需要 DMA 就可以直接拿到 WQE 了.
  *
  *
  * =========================================
  * DM / PD / MCG
  * =========================================
  *
+ *
  * =========================================
  * UMR fence
  * =========================================
+ *
  *
  *
  * =========================================
  * LAG
  * =========================================
  *
- */ 
+ *
+ *
+ *
+ * =========================================
+ * global variables
+ * =========================================
+ * multiport 设备管理:
+ *   - mlx5_ib_unaffiliated_port_list
+ *   - mlx5_ib_dev_list
+ *
+ */
 
 #include <linux/debugfs.h>
 #include <linux/highmem.h>
@@ -122,8 +255,11 @@ enum {
 	MLX5_ATOMIC_SIZE_QP_8BYTES = 1 << 3,
 };
 
+// global event queue ? mlx5_ib_handle_event
 static struct workqueue_struct *mlx5_ib_event_wq;
+// 维护等待归属的孤儿端口, 即已经出现但是还没有被 master 认领的设备
 static LIST_HEAD(mlx5_ib_unaffiliated_port_list);
+// 用于维护 multi-port 设备
 static LIST_HEAD(mlx5_ib_dev_list);
 /*
  * This mutex should be held when accessing either of the above lists
@@ -142,6 +278,7 @@ static DEFINE_MUTEX(mlx5_ib_multiport_mutex);
 static unsigned long xlt_emergency_page;
 static struct mutex xlt_emergency_page_mutex;
 
+// helper
 struct mlx5_ib_dev *mlx5_ib_get_ibdev_from_mpi(struct mlx5_ib_multiport_info *mpi)
 {
 	struct mlx5_ib_dev *dev;
@@ -152,19 +289,21 @@ struct mlx5_ib_dev *mlx5_ib_get_ibdev_from_mpi(struct mlx5_ib_multiport_info *mp
 	return dev;
 }
 
+// helper
 static enum rdma_link_layer
 mlx5_port_type_cap_to_rdma_ll(int port_type_cap)
 {
 	switch (port_type_cap) {
-	case MLX5_CAP_PORT_TYPE_IB:
+	case MLX5_CAP_PORT_TYPE_IB: // native ib
 		return IB_LINK_LAYER_INFINIBAND;
-	case MLX5_CAP_PORT_TYPE_ETH:
+	case MLX5_CAP_PORT_TYPE_ETH: // roce, rocev2
 		return IB_LINK_LAYER_ETHERNET;
 	default:
 		return IB_LINK_LAYER_UNSPECIFIED;
 	}
 }
 
+// helper
 static enum rdma_link_layer
 mlx5_ib_port_link_layer(struct ib_device *device, u8 port_num)
 {
@@ -197,6 +336,7 @@ static struct mlx5_roce *mlx5_get_rep_roce(struct mlx5_ib_dev *dev,
 	struct mlx5_ib_port *port;
 	int i;
 
+	// netdev -> represnetor -> 该 representor port 的 roce 信息
 	for (i = 0; i < dev->num_ports; i++) {
 		port  = &dev->port[i];
 		if (!port->rep)
@@ -232,12 +372,13 @@ static int mlx5_netdev_event(struct notifier_block *this,
 		return NOTIFY_DONE;
 
 	switch (event) {
-	case NETDEV_REGISTER:
-		/* Should already be registered during the load */
+	case NETDEV_REGISTER: // 注册了一个 netdev 设备, 这个设备是关联我们的
+			      // 建立了 roce 和 netdev 的关系
+		/* Should already be registered during the load? 错过了怎么办? */
 		if (ibdev->is_rep)
 			break;
 		write_lock(&roce->netdev_lock);
-		if (ndev->dev.parent == mdev->device)
+		if (ndev->dev.parent == mdev->device) // 是我这个设备的事件才处理
 			roce->netdev = ndev;
 		write_unlock(&roce->netdev_lock);
 		break;
@@ -245,7 +386,7 @@ static int mlx5_netdev_event(struct notifier_block *this,
 	case NETDEV_UNREGISTER:
 		/* In case of reps, ib device goes away before the netdevs */
 		write_lock(&roce->netdev_lock);
-		if (roce->netdev == ndev)
+		if (roce->netdev == ndev) // 是我这个设备的事件才处理
 			roce->netdev = NULL;
 		write_unlock(&roce->netdev_lock);
 		break;
@@ -265,6 +406,9 @@ static int mlx5_netdev_event(struct notifier_block *this,
 			roce = mlx5_get_rep_roce(ibdev, ndev, &port_num);
 		if (!roce)
 			return NOTIFY_DONE;
+		// case 1: 我是 slave, 我的 bond 口有 事件, 我要处理的
+		// case 2: 是我的事件, 我来处理
+		// 监控 netdev up/down 等事件来修改对应的 roce 的 port state, 同时需要将事件分发到 rdma 协议栈层
 		if ((upper == ndev || (!upper && ndev == roce->netdev))
 		    && ibdev->ib_active) {
 			struct ib_event ibev = { };
@@ -508,6 +652,7 @@ static int translate_eth_proto_oper(u32 eth_proto_oper, u16 *active_speed,
 						active_width);
 }
 
+// 收集 ib_port 属性, 关注这些属性怎么来的, 基本都是从硬件里去捞咯
 static int mlx5_query_port_roce(struct ib_device *device, u8 port_num,
 				struct ib_port_attr *props)
 {
@@ -538,6 +683,7 @@ static int mlx5_query_port_roce(struct ib_device *device, u8 port_num,
 	 * of an error it will still be zeroed out.
 	 * Use native port in case of reps
 	 */
+	// 硬件里捞一些信息
 	if (dev->is_rep)
 		err = mlx5_query_port_ptys(mdev, out, sizeof(out), MLX5_PTYS_EN,
 					   1);
@@ -552,6 +698,7 @@ static int mlx5_query_port_roce(struct ib_device *device, u8 port_num,
 	props->active_width     = IB_WIDTH_4X;
 	props->active_speed     = IB_SPEED_QDR;
 
+	// 捞出 active_speed 和 active_width
 	translate_eth_proto_oper(eth_prot_oper, &props->active_speed,
 				 &props->active_width, ext);
 
@@ -604,6 +751,11 @@ out:
 	return err;
 }
 
+// 将信息传递给硬件罢了, 对于 rocev2 来说, 其中 mac+vlan 自己去 netdev 上拿,
+// 然后给硬件
+// 1.  ipv6 地址
+// 2.  mac 地址
+// 3.  vlan
 static int set_roce_addr(struct mlx5_ib_dev *dev, u8 port_num,
 			 unsigned int index, const union ib_gid *gid,
 			 const struct ib_gid_attr *attr)
@@ -658,6 +810,7 @@ static int mlx5_ib_del_gid(const struct ib_gid_attr *attr,
 			     attr->index, NULL, NULL);
 }
 
+// 硬件里捞一些信息罢了
 __be16 mlx5_get_roce_udp_sport_min(const struct mlx5_ib_dev *dev,
 				   const struct ib_gid_attr *attr)
 {
@@ -669,6 +822,10 @@ __be16 mlx5_get_roce_udp_sport_min(const struct mlx5_ib_dev *dev,
 
 static int mlx5_use_mad_ifc(struct mlx5_ib_dev *dev)
 {
+	// native ib 才有, native ib 设备是需要用 mad 管理报文的方式来查询端口信息的
+	// 否则使用:
+	// - vport context: 虚拟 IB 设备
+	// - NIC: RoCE 设备
 	if (MLX5_CAP_GEN(dev->mdev, port_type) == MLX5_CAP_PORT_TYPE_IB)
 		return !MLX5_CAP_GEN(dev->mdev, ib_virt);
 	return 0;
@@ -680,18 +837,20 @@ enum {
 	MLX5_VPORT_ACCESS_METHOD_NIC,
 };
 
+// 不铜类型的设备用不同的方式获取 vport 嘻嘻
 static int mlx5_get_vport_access_method(struct ib_device *ibdev)
 {
 	if (mlx5_use_mad_ifc(to_mdev(ibdev)))
-		return MLX5_VPORT_ACCESS_METHOD_MAD;
+		return MLX5_VPORT_ACCESS_METHOD_MAD; // native ib 走这里
 
 	if (mlx5_ib_port_link_layer(ibdev, 1) ==
-	    IB_LINK_LAYER_ETHERNET)
+	    IB_LINK_LAYER_ETHERNET) // roce 走这里
 		return MLX5_VPORT_ACCESS_METHOD_NIC;
 
 	return MLX5_VPORT_ACCESS_METHOD_HCA;
 }
 
+// 硬件里捞信息
 static void get_atomic_caps(struct mlx5_ib_dev *dev,
 			    u8 atomic_size_qp,
 			    struct ib_device_attr *props)
@@ -722,6 +881,7 @@ static void get_atomic_caps_qp(struct mlx5_ib_dev *dev,
 	get_atomic_caps(dev, atomic_size_qp, props);
 }
 
+// 硬件里捞 image_guid 信息
 static int mlx5_query_system_image_guid(struct ib_device *ibdev,
 					__be64 *sys_image_guid)
 {
@@ -754,6 +914,7 @@ static int mlx5_query_system_image_guid(struct ib_device *ibdev,
 
 }
 
+// 硬件里捞 max_pkeys 信息
 static int mlx5_query_max_pkeys(struct ib_device *ibdev,
 				u16 *max_pkeys)
 {
@@ -839,6 +1000,7 @@ static int mlx5_query_node_desc(struct mlx5_ib_dev *dev, char *node_desc)
 				    MLX5_REG_NODE_DESC, 0, 0);
 }
 
+// 查询 device 的各种信息, 基本就是从硬件去捞
 static int mlx5_ib_query_device(struct ib_device *ibdev,
 				struct ib_device_attr *props,
 				struct ib_udata *uhw)
@@ -1324,6 +1486,7 @@ static int translate_max_vl_num(struct ib_device *ibdev, u8 vl_hw_cap,
 	return 0;
 }
 
+// 查询 port 信息
 static int mlx5_query_hca_port(struct ib_device *ibdev, u8 port,
 			       struct ib_port_attr *props)
 {
@@ -1392,6 +1555,7 @@ out:
 	return err;
 }
 
+// 不同的 ib 设备用不同的方法查询, 比如 native ib 要用 mad 报文去查询
 int mlx5_ib_query_port(struct ib_device *ibdev, u8 port,
 		       struct ib_port_attr *props)
 {
@@ -1437,6 +1601,7 @@ int mlx5_ib_query_port(struct ib_device *ibdev, u8 port,
 	return ret;
 }
 
+// ib rep 设备的查询
 static int mlx5_ib_rep_query_port(struct ib_device *ibdev, u8 port,
 				  struct ib_port_attr *props)
 {
@@ -1455,6 +1620,9 @@ static int mlx5_ib_rep_query_port(struct ib_device *ibdev, u8 port,
 	return ret;
 }
 
+// roce 不支持么? ref: 这个接口 roce 不使用的
+// - config_non_roce_gid_cache
+// - __ib_query_portk
 static int mlx5_ib_query_gid(struct ib_device *ibdev, u8 port, int index,
 			     union ib_gid *gid)
 {
@@ -1516,6 +1684,7 @@ static int mlx5_ib_query_pkey(struct ib_device *ibdev, u8 port, u16 index,
 	}
 }
 
+// 不重要, 能改的东西很少的
 static int mlx5_ib_modify_device(struct ib_device *ibdev, int mask,
 				 struct ib_device_modify *props)
 {
@@ -1579,6 +1748,7 @@ out:
 	return err;
 }
 
+// 能改的东西也很少
 static int mlx5_ib_modify_port(struct ib_device *ibdev, u8 port, int mask,
 			       struct ib_port_modify *props)
 {
@@ -3582,6 +3752,7 @@ static int mlx5_ib_init_multiport_master(struct mlx5_ib_dev *dev)
 	int err;
 	int i;
 
+	// 固件里查询到是一个 roce 类型的 mp master 设备, 那么就继续
 	if (!mlx5_core_is_mp_master(dev->mdev) || ll != IB_LINK_LAYER_ETHERNET)
 		return 0;
 
@@ -3590,6 +3761,7 @@ static int mlx5_ib_init_multiport_master(struct mlx5_ib_dev *dev)
 	if (err)
 		return err;
 
+	// 向硬件发命令咯
 	err = mlx5_nic_vport_enable_roce(dev->mdev);
 	if (err)
 		return err;

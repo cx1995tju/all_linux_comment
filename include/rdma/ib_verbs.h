@@ -237,7 +237,7 @@ rdma_gid_attr_network_type(const struct ib_gid_attr *attr)
 
 enum rdma_link_layer {
 	IB_LINK_LAYER_UNSPECIFIED,
-	IB_LINK_LAYER_INFINIBAND,
+	IB_LINK_LAYER_INFINIBAND, // nativ ib
 	IB_LINK_LAYER_ETHERNET,	// roce/rocev2 都是这个
 };
 
@@ -508,6 +508,7 @@ struct ib_dm_alloc_attr {
 	u32	flags;
 };
 
+// ref: mlx5_ib_query_device
 struct ib_device_attr {
 	u64			fw_ver;
 	__be64			sys_image_guid;
@@ -519,65 +520,87 @@ struct ib_device_attr {
 	u32			vendor_part_id;
 	u32			hw_ver;
 
-	int			max_qp;             // 设备支持的最大 QP 数量
-	int			max_qp_wr;          // 单个 QP 中最大的 outstanding WR 数量.
+	int			max_qp;             // 设备支持的最大 QP 数量, bf3: 128k
+	int			max_qp_wr;          // 单个 QP 中最大的 outstanding WR 数量. bf3: 32k
 
+	/* bf3: 0x25321c36
+         * BAD_PKEY_CNTR
+         * BAD_QKEY_CNTR
+         * AUTO_PATH_MIG
+         * CHANGE_PHY_PORT
+         * PORT_ACTIVE_EVENT
+         * SYS_IMAGE_GUID
+         * RC_RNR_NAK_GEN
+         * MEM_WINDOW
+         * XRC
+         * MEM_MGT_EXTENSIONS
+         * MEM_WINDOW_TYPE_2B
+         * RAW_IP_CSUM
+         * MANAGED_FLOW_STEERING
+	 * */
 	u64			device_cap_flags;   // ref: ib_device_cap_flags
 
-	int			max_send_sge;       // send Work Request 里 scatter/gather entry 的数目
-	int			max_recv_sge;       // recv Work Request 里 scatter/gather entry 的数目
-	int			max_sge_rd;         // read WR 里最大的 sge 数量
+	int			max_send_sge;       // send Work Request 里 scatter/gather entry 的数目, bf3: 30
+	int			max_recv_sge;       // recv Work Request 里 scatter/gather entry 的数目, bf3: 30
+	int			max_sge_rd;         // read WR 里最大的 sge 数量, bf3: 30
 
-	int			max_cq;             // hca 支持的最大 cq 数量
-	int			max_cqe;            // cq 里最大 cqe 数量
+	int			max_cq;             // hca 支持的最大 cq 数量, bf3: 16777216
+	int			max_cqe;            // cq 里最大 cqe 数量, bf3: 4194303
 
-	int			max_mr;             // hca 支持的最大 mr 数量
+	int			max_mr;             // hca 支持的最大 mr 数量, bf3: 16777216
 
-	int			max_pd;             // hca 支持的最大 protection domain 数量
+	int			max_pd;             // hca 支持的最大 protection domain 数量, bf3: 8388608
 
-	int			max_qp_rd_atom;     // max num of outstanding RDMA Reads/atomic operations with this hca as the target per CQ
-	int			max_ee_rd_atom;     // max num of outstanding RDMA Reads/atomic operations with this hca as the target  per EE
-	int			max_res_rd_atom;    // The maximum number  of resources used for RDMA Reads & atomic operations by  this HCA with this HCA as the target
-	int			max_qp_init_rd_atom;// max depth per qp for initiation of RDMA Read & atomic ops by this HCA
-	int			max_ee_init_rd_atom;// max depth per ee for initiation of RDMA Read & atomic ops by this HCA
-	enum ib_atomic_cap	atomic_cap;
+	int			max_qp_rd_atom;     // max num of outstanding RDMA Reads/atomic operations with this hca as the target per qp. bf3: 16
+	int			max_ee_rd_atom;     // max num of outstanding RDMA Reads/atomic operations with this hca as the target  per EE. bf3: 0
+	int			max_res_rd_atom;    // The maximum number  of resources used for RDMA Reads & atomic operations by  this HCA with this HCA as the target. bf3:  2097152
+	int			max_qp_init_rd_atom;// max depth per qp for initiation of RDMA Read & atomic ops by this HCA. bf3: 16
+	int			max_ee_init_rd_atom;// max depth per ee for initiation of RDMA Read & atomic ops by this HCA. bf3: 0
+	enum ib_atomic_cap	atomic_cap; // bf3: ATOMIC_HCA. HCA 粒度
 	enum ib_atomic_cap	masked_atomic_cap;
 
-	int			max_ee;             // max num of ee
-	int			max_rdd;            // max num of rdd
-	int			max_mw;             // max number memory window
+	int			max_ee;             // max num of ee. bf3: 0
+	int			max_rdd;            // max num of rdd. bf3: 0
+	int			max_mw;             // max number memory window. bf3: 16777216
 
-	int			max_raw_ipv6_qp;
-	int			max_raw_ethy_qp;
+	int			max_raw_ipv6_qp; // bf3: 0
+	int			max_raw_ethy_qp; // bf3: 0
 
-	int			max_mcast_grp;
-	int			max_mcast_qp_attach;
-	int			max_total_mcast_qp_attach;
+	int			max_mcast_grp; // bf3: 2097152
+	int			max_mcast_qp_attach; // bf3: 240
+	int			max_total_mcast_qp_attach; // bf3: 503316480
 
-	int			max_ah;             // max address handle
+	int			max_ah;             // max address handle. bf3: 2147483647
 
-	int			max_srq;            // max srq
-	int			max_srq_wr;         // srq 里 max wr
-	int			max_srq_sge;        // srq 里的每个 wr 里最多的 sg entries 数目
+	int			max_srq;            // max srq. bf3: 8388608
+	int			max_srq_wr;         // srq 里 max wr. bf3: 32767
+	int			max_srq_sge;        // srq 里的每个 wr 里最多的 sg entries 数目. bf3: 31
 
 	unsigned int		max_fast_reg_page_list_len;    // fast reg 时 page list 长度
 	unsigned int		max_pi_fast_reg_page_list_len; // protection information(e.g. T10 DIF) 场景下的 fast reg 限制
 
-	u16			max_pkeys;          // partition key 的最大数量. (Pkey)
+	u16			max_pkeys;          // partition key 的最大数量. (Pkey), bf3: 128
 
-	u8			local_ca_ack_delay; // 本地 hca 对 reponse 报文的 ack 延迟, 计算公式 Tiime = 4.096 * 2^delay us. 帮助协议栈计算 timeout
+	u8			local_ca_ack_delay; // 本地 hca 对 reponse 报文的 ack 延迟, 计算公式 Tiime = 4.096 * 2^delay us. 帮助协议栈计算 timeout. bf3: 16
 
 	int			sig_prot_cap;
 	int			sig_guard_cap;
 
 	struct ib_odp_caps	odp_caps;
 
-	uint64_t		timestamp_mask; // timestamp counter bitmask
-	uint64_t		hca_core_clock; /* in KHZ */ // 两者放到一起可以计算时间
+	uint64_t		timestamp_mask; // completion timestamp counter bitmask, bf3: 0x7fffffffffffffff
+	uint64_t		hca_core_clock; /* in KHZ */ // 两者放到一起可以计算时间, bf3: 1000000kHZ
 
+	/*
+	 * max_rwq_indirection_tables:			1048576
+	 * max_rwq_indirection_table_size:			2048
+	 * rx_hash_function:				0x1
+	 * rx_hash_fields_mask:				0x800000FF
+	 * supported_qp: SUPPORT_RAW_PACKET
+	 * */
 	struct ib_rss_caps	rss_caps;
 
-	u32			max_wq_type_rq;	               // (???)
+	u32			max_wq_type_rq;	               // (???),  bf3: 8388608
 
 	u32			raw_packet_caps; /* Use ib_raw_packet_caps enum */
 
@@ -585,7 +608,7 @@ struct ib_device_attr {
 
 	struct ib_cq_caps       cq_caps;
 
-	u64			max_dm_size; // device memory 最大可用容量, 为 0 表示, 不支持使用板载内存
+	u64			max_dm_size; // device memory 最大可用容量, 为 0 表示, 不支持使用板载内存. bf3: 64KB
 
 	/* Max entries for sgl for optimized performance per READ */
 	// read 操作里总的 SGL 深度. 有些硬件支持 nested/indirect scatter list, 或者 mw 级别的 sgl (??)
@@ -819,27 +842,29 @@ static inline struct rdma_hw_stats *rdma_alloc_hw_stats_struct(
 
 #define RDMA_CORE_PORT_USNIC		(RDMA_CORE_CAP_PROT_USNIC)
 
+// Table 164
+// ref: mlx5_query_hca_port
 struct ib_port_attr {
-	u64			subnet_prefix;	// rocev2 下就是 ipv6 的前缀, ref: __ib_query_port(), 临时从 gid 里提取的
+	u64			subnet_prefix;	 // rocev2 下就是 ipv6 的前缀, ref: __ib_query_port(), 临时从 gid 里提取的
 	enum ib_port_state	state;
 	enum ib_mtu		max_mtu;
 	enum ib_mtu		active_mtu;
 	u32                     phys_mtu;
-	int			gid_tbl_len;
-	unsigned int		ip_gids:1;
+	int			gid_tbl_len;     // gid table length, 毕竟是真的要存在硬件的, bf3: 255
+	unsigned int		ip_gids:1;       // rocev2 这里是 1
 	/* This is the value from PortInfo CapabilityMask, defined by IBA */
-	u32			port_cap_flags; // rocev2 设置为 RDMA_CORE_CAP_PROT_ROCE_UDP_ENCAP
-	u32			max_msg_sz;
-	u32			bad_pkey_cntr;
-	u32			qkey_viol_cntr;
-	u16			pkey_tbl_len;
-	u32			sm_lid;
-	u32			lid;
-	u8			lmc;
-	u8			max_vl_num;
-	u8			sm_sl;
-	u8			subnet_timeout;
-	u8			init_type_reply;
+	u32			port_cap_flags;  // rocev2 设置为 RDMA_CORE_CAP_PROT_ROCE_UDP_ENCAP
+	u32			max_msg_sz;      // bf3 1G, 支持的最大消息大小
+	u32			bad_pkey_cntr;   // bad pkey counter
+	u32			qkey_viol_cntr;  // bad qkey counter
+	u16			pkey_tbl_len;    // pkey 表大小, bf3: 1
+	u32			sm_lid;          // roce 不重要
+	u32			lid;             // roce 不重要
+	u8			lmc;             // roce 不重要
+	u8			max_vl_num;      // roce 不重要
+	u8			sm_sl;           // roce 不重要
+	u8			subnet_timeout;  // roce 不重要
+	u8			init_type_reply; // roce 不重要
 	u8			active_width;
 	u16			active_speed;
 	u8                      phys_state;
@@ -2651,6 +2676,8 @@ struct ib_device_ops {
 	 * query_gid should be return GID value for @device, when @port_num
 	 * link layer is either IB or iWarp. It is no-op if @port_num port
 	 * is RoCE link layer.
+	 *
+	 * ref: 这个接口 roce 不使用的: config_non_roce_gid_cache() __ib_query_port()
 	 */
 	int (*query_gid)(struct ib_device *device, u8 port_num, int index,
 			 union ib_gid *gid);

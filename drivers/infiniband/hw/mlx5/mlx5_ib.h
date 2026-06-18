@@ -762,7 +762,7 @@ struct mlx5_ib_port {
 	struct mlx5_ib_multiport mp;
 	struct mlx5_ib_dbg_cc_params *dbg_cc_params;
 	struct mlx5_roce roce;
-	struct mlx5_eswitch_rep		*rep;
+	struct mlx5_eswitch_rep		*rep; // 表示这是一个 representor port
 };
 
 struct mlx5_ib_dbg_param {
@@ -970,6 +970,18 @@ struct mlx5_ib_dev {
 	struct ib_device		ib_dev;
 	struct mlx5_core_dev		*mdev;
 	struct notifier_block		mdev_events;
+	/* ref: mlx5_ib_add()
+	 *
+	 * num_ports 取决于 mlx 固件里两个值:
+	 * - num_ports
+	 * - num_vhca_ports
+	 *
+	 * case 1: 单口 cx 设备, num_ports = 1, num_vhca_ports = 0
+	 * case 2: 双口 cx 设备, num_ports = 2, num_vhca_ports = 0
+	 * case 3: multiport 设备(ib spec), num_ports = 1, num_vhca_ports = 2
+	 *
+	 * multiport 设备符合 ib spec 的, 多个 port share 一个 ib_device 资源.
+	 * */
 	int				num_ports;
 	/* serialize update of capability mask
 	 */

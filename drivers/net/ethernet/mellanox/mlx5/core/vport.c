@@ -415,6 +415,7 @@ int mlx5_modify_nic_vport_vlans(struct mlx5_core_dev *dev,
 }
 EXPORT_SYMBOL_GPL(mlx5_modify_nic_vport_vlans);
 
+// 去硬件里捞信息咯
 int mlx5_query_nic_vport_system_image_guid(struct mlx5_core_dev *mdev,
 					   u64 *system_image_guid)
 {
@@ -900,6 +901,7 @@ enum mlx5_vport_roce_state {
 	MLX5_VPORT_ROCE_ENABLED  = 1,
 };
 
+// 向硬件发命令咯
 static int mlx5_nic_vport_update_roce_state(struct mlx5_core_dev *mdev,
 					    enum mlx5_vport_roce_state state)
 {
