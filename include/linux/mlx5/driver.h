@@ -713,7 +713,7 @@ struct mlx5_core_dev {
 	const struct mlx5_accel_ipsec_ops *ipsec_ops;
 #endif
 	struct mlx5_clock        clock;
-	struct mlx5_ib_clock_info  *clock_info;
+	struct mlx5_ib_clock_info  *clock_info; // mlx5_init_clock, 用来同步硬件和linux 时钟的(???)
 	struct mlx5_fw_tracer   *tracer;
 	struct mlx5_rsc_dump    *rsc_dump;
 	u32                      vsc_addr;

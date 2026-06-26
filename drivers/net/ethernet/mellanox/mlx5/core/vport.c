@@ -437,6 +437,7 @@ int mlx5_query_nic_vport_system_image_guid(struct mlx5_core_dev *mdev,
 }
 EXPORT_SYMBOL_GPL(mlx5_query_nic_vport_system_image_guid);
 
+// node guid
 int mlx5_query_nic_vport_node_guid(struct mlx5_core_dev *mdev, u64 *node_guid)
 {
 	u32 *out;
@@ -492,6 +493,7 @@ int mlx5_modify_nic_vport_node_guid(struct mlx5_core_dev *mdev,
 	return err;
 }
 
+// qkey violation counter
 int mlx5_query_nic_vport_qkey_viol_cntr(struct mlx5_core_dev *mdev,
 					u16 *qkey_viol_cntr)
 {
@@ -513,6 +515,7 @@ int mlx5_query_nic_vport_qkey_viol_cntr(struct mlx5_core_dev *mdev,
 }
 EXPORT_SYMBOL_GPL(mlx5_query_nic_vport_qkey_viol_cntr);
 
+// vport gid
 int mlx5_query_hca_vport_gid(struct mlx5_core_dev *dev, u8 other_vport,
 			     u8 port_num, u16  vf_num, u16 gid_index,
 			     union ib_gid *gid)
@@ -579,6 +582,7 @@ out:
 }
 EXPORT_SYMBOL_GPL(mlx5_query_hca_vport_gid);
 
+// pkey
 int mlx5_query_hca_vport_pkey(struct mlx5_core_dev *dev, u8 other_vport,
 			      u8 port_num, u16 vf_num, u16 pkey_index,
 			      u16 *pkey)
@@ -644,6 +648,7 @@ out:
 }
 EXPORT_SYMBOL_GPL(mlx5_query_hca_vport_pkey);
 
+// vport context
 int mlx5_query_hca_vport_context(struct mlx5_core_dev *dev,
 				 u8 other_vport, u8 port_num,
 				 u16 vf_num,
@@ -722,6 +727,7 @@ ex:
 }
 EXPORT_SYMBOL_GPL(mlx5_query_hca_vport_context);
 
+// system image guid
 int mlx5_query_hca_vport_system_image_guid(struct mlx5_core_dev *dev,
 					   u64 *sys_image_guid)
 {
@@ -741,6 +747,7 @@ int mlx5_query_hca_vport_system_image_guid(struct mlx5_core_dev *dev,
 }
 EXPORT_SYMBOL_GPL(mlx5_query_hca_vport_system_image_guid);
 
+// node guid
 int mlx5_query_hca_vport_node_guid(struct mlx5_core_dev *dev,
 				   u64 *node_guid)
 {
@@ -760,6 +767,7 @@ int mlx5_query_hca_vport_node_guid(struct mlx5_core_dev *dev,
 }
 EXPORT_SYMBOL_GPL(mlx5_query_hca_vport_node_guid);
 
+// promisc
 int mlx5_query_nic_vport_promisc(struct mlx5_core_dev *mdev,
 				 u16 vport,
 				 int *promisc_uc,
@@ -791,6 +799,7 @@ out:
 }
 EXPORT_SYMBOL_GPL(mlx5_query_nic_vport_promisc);
 
+// modify promisc
 int mlx5_modify_nic_vport_promisc(struct mlx5_core_dev *mdev,
 				  int promisc_uc,
 				  int promisc_mc,
@@ -827,6 +836,7 @@ enum {
 	MC_LOCAL_LB
 };
 
+// local loopback
 int mlx5_nic_vport_update_local_lb(struct mlx5_core_dev *mdev, bool enable)
 {
 	int inlen = MLX5_ST_SZ_BYTES(modify_nic_vport_context_in);

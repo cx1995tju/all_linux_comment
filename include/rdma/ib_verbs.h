@@ -1038,7 +1038,7 @@ __attribute_const__ int ib_rate_to_mbps(enum ib_rate rate);
  * @IB_MR_TYPE_MEM_REG:       memory region that is used for
  *                            normal registration
  *                            - SG 之间不能有洞, 即 SG[0] SG[1] SG[2] ... 必须拼接为连续的 iova
- *                            - 收到 ib_map_mr_sg() 规则限制
+ *                            - 受到 ib_map_mr_sg() 规则限制
  *                            - 内核态使用这个 flag
  *
  * @IB_MR_TYPE_SG_GAPS:       memory region that is capable to
@@ -2612,6 +2612,7 @@ struct ib_device_ops {
 	int (*post_srq_recv)(struct ib_srq *srq,
 			     const struct ib_recv_wr *recv_wr,
 			     const struct ib_recv_wr **bad_recv_wr);
+	// drivers/infiniband/core/mad.c 里收到 mad 报文后会尝试调用这个接口, 让 driver 有一个优先处理的机会
 	int (*process_mad)(struct ib_device *device, int process_mad_flags,
 			   u8 port_num, const struct ib_wc *in_wc,
 			   const struct ib_grh *in_grh,
@@ -2642,6 +2643,8 @@ struct ib_device_ops {
 	 * in fast paths.
 	 */
 	// Mandatory, 也没有通过 uverbs 暴露出去
+	// 启动的时候一次性采集一些不变的量
+	// mlx5_ib_dev_port_rep_ops, mlx5_ib_dev_port_ops
 	int (*get_port_immutable)(struct ib_device *device, u8 port_num,
 				  struct ib_port_immutable *immutable);
 
@@ -2760,6 +2763,7 @@ struct ib_device_ops {
 	// 分配用于 dma 的 mr
 	struct ib_mr *(*get_dma_mr)(struct ib_pd *pd, int mr_access_flags);
 	// userspace 通过 uvebrs 来分配 mr, 最后走到这里
+	// ref: ib_uverbs_reg_mr
 	struct ib_mr *(*reg_user_mr)(struct ib_pd *pd, u64 start, u64 length,
 				     u64 virt_addr, int mr_access_flags,
 				     struct ib_udata *udata);
@@ -2770,6 +2774,7 @@ struct ib_device_ops {
 	int (*dereg_mr)(struct ib_mr *mr, struct ib_udata *udata);
 
 	// 这个接口仅仅给内核态使用的, 用户态用 reg_user_mr
+	// ref: ib_wr_opcode, FMR 在内核的实现是先用 alloc_mr 分配 MR, 然后 reg_mr
 	struct ib_mr *(*alloc_mr)(struct ib_pd *pd, enum ib_mr_type mr_type,
 				  u32 max_num_sg);
 	struct ib_mr *(*alloc_mr_integrity)(struct ib_pd *pd,
@@ -2784,10 +2789,13 @@ struct ib_device_ops {
 			 unsigned int *sg_offset);
 	int (*check_mr_status)(struct ib_mr *mr, u32 check_mask,
 			       struct ib_mr_status *mr_status);
+	/* mlx5_ib_dev_mw_ops */
 	int (*alloc_mw)(struct ib_mw *mw, struct ib_udata *udata);
 	int (*dealloc_mw)(struct ib_mw *mw);
 	int (*attach_mcast)(struct ib_qp *qp, union ib_gid *gid, u16 lid);
 	int (*detach_mcast)(struct ib_qp *qp, union ib_gid *gid, u16 lid);
+
+	/* mlx5_ib_dev_xrc_ops */
 	int (*alloc_xrcd)(struct ib_xrcd *xrcd, struct ib_udata *udata);
 	int (*dealloc_xrcd)(struct ib_xrcd *xrcd, struct ib_udata *udata);
 	//
@@ -2828,6 +2836,8 @@ struct ib_device_ops {
 				    struct ib_rwq_ind_table_init_attr *init_attr,
 				    struct ib_udata *udata);
 	int (*destroy_rwq_ind_table)(struct ib_rwq_ind_table *wq_ind_table);
+
+	/* mlx5_ib_dev_dm_ops */
 	struct ib_dm *(*alloc_dm)(struct ib_device *device,
 				  struct ib_ucontext *context,
 				  struct ib_dm_alloc_attr *attr,
@@ -2836,6 +2846,7 @@ struct ib_device_ops {
 	struct ib_mr *(*reg_dm_mr)(struct ib_pd *pd, struct ib_dm *dm,
 				   struct ib_dm_mr_attr *attr,
 				   struct uverbs_attr_bundle *attrs);
+	// counters_ops
 	int (*create_counters)(struct ib_counters *counters,
 			       struct uverbs_attr_bundle *attrs);
 	int (*destroy_counters)(struct ib_counters *counters);
@@ -2853,6 +2864,7 @@ struct ib_device_ops {
 	 *   core when the device is removed.  A lifespan of -1 in the return
 	 *   struct tells the core to set a default lifespan.
 	 */
+	// hw_stats_ops
 	struct rdma_hw_stats *(*alloc_hw_stats)(struct ib_device *device,
 						u8 port_num);
 	/**
@@ -2877,6 +2889,7 @@ struct ib_device_ops {
 			 struct kobject *port_sysfs);
 	/**
 	 * Allows rdma drivers to add their own restrack attributes.
+	 * ref: restrack_ops
 	 */
 	int (*fill_res_mr_entry)(struct sk_buff *msg, struct ib_mr *ibmr);
 	int (*fill_res_mr_entry_raw)(struct sk_buff *msg, struct ib_mr *ibmr);

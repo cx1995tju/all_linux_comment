@@ -1940,17 +1940,17 @@ static struct ib_mr *__mlx5_ib_alloc_mr(struct ib_pd *pd,
 	mr->umem = NULL;
 
 	switch (mr_type) {
-	case IB_MR_TYPE_MEM_REG:
+	case IB_MR_TYPE_MEM_REG: // 最普通的, MR 需要 iova 连续
 		err = mlx5_alloc_mem_reg_descs(pd, mr, ndescs, in, inlen);
 		break;
-	case IB_MR_TYPE_SG_GAPS:
+	case IB_MR_TYPE_SG_GAPS: // sg 之间可以有洞
 		err = mlx5_alloc_sg_gaps_descs(pd, mr, ndescs, in, inlen);
 		break;
 	case IB_MR_TYPE_INTEGRITY:
 		err = mlx5_alloc_integrity_descs(pd, mr, max_num_sg,
 						 max_num_meta_sg, in, inlen);
 		break;
-	default:
+	default: // 其他不支持
 		mlx5_ib_warn(dev, "Invalid mr type %d\n", mr_type);
 		err = -EINVAL;
 	}

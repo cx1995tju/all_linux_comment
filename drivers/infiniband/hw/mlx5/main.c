@@ -3,6 +3,10 @@
  * Copyright (c) 2013-2020, Mellanox Technologies inc. All rights reserved.
  *
  *
+ * ib 设备的 port_num 是从 1 开始的, 但是 c 语言实现的时候, 有些结构是从 0
+ * 开始的. 注意做一些转换. ref: rdma_start_port.
+ *
+ *
  * =========================================
  * 模块入口
  * =========================================
@@ -12,15 +16,12 @@
  * =========================================
  * ib 设备管理
  * =========================================
- * - 核心结构: mlx5_ib_dev
  * - 初始化: mlx5_ib_add() -> pf_profile
- *
- *
- * - mlx5_core_dev mdev
- * - mlx5_ib_dev   ibdev
- * - mlx5_roce     roce
- * - net_device    ndev
- *
+ * - 核心结构
+ *   - mlx5_core_dev mdev
+ *   - mlx5_ib_dev   ibdev
+ *   - mlx5_roce     roce
+ *   - net_device    ndev
  * ┌───────────────┬─────────┬──────────────────────────────────────────┐
  * │     结构      │  层级   │                   作用                   │
  * ├───────────────┼─────────┼──────────────────────────────────────────┤
@@ -42,17 +43,18 @@
  * │ mlx5_eswitch  │         │ CX 内部的交换机结构                      │
  * └───────────────┴─────────┴──────────────────────────────────────────┘
  *
- * mlx5_roce 和 net_device 关系的建立:
- * - mlx5_netdev_event: ib 设备先加载, net 设备后加载
+ *  - 核心结构关系:
+ *     - mlx5_roce 和 net_device 关系的建立: mlx5_netdev_event: ib 设备先加载,
+ * net 设备后加载
+ *     - mlx5_get_rep_roce(ibdev, ndev) : 找出 ibdev 上关联到 ndev 的一个 rep
+ * port 的 roce 结构
+ *     - mlx5_ib_get_netdev(ibdev, port_num):  ibdev 的 port_num 这个 port
+ * 对应的 ndev
+ *     - mlx5_ib_get_native_port_mdev(ibdev, ib_port_num): ibdev 的 port_num
+ * 这个 port 对应的 mdev. mlx5_ib_put_native_port_mdev()
  *
  *
- * 各种结构的关系:
- * - mlx5_get_rep_roce(ibdev, ndev) : 找出 ibdev 上关联到 ndev 的一个 rep port
- * 的 roce 结构
- * - mlx5_ib_get_netdev(ibdev, port_num):  ibdev 的 port_num 这个 port 对应的
- * ndev
- * - mlx5_ib_get_native_port_mdev(ibdev, ib_port_num): ibdev 的 port_num 这个
- * port 对应的 mdev
+ * - capability 管理
  *
  * =========================================
  * multiport
@@ -62,6 +64,8 @@
  *
  * ref: mlx5_core_is_mp_master, 需要固件里 enable 了该功能.
  *
+ * - mlx5_ib_bind_slave_port / mlx5_ib_unbind_slave_port
+ *
  *
  * =========================================
  * EVENT 机制
@@ -69,13 +73,13 @@
  * *mlx5_ib_event*
  * global event 处理: mlx5_ib_event
  * 1. mlx 硬件通过 EQ 向 driver 发送事件
- * 2. EQ 中断处理, 将其分发到 mlx5_eq_notifier_register() 注册的 per-event-type
- * handlers, ref:
+ *
+ * 2. EQ 中断处理, 将其分发到 mlx5_eq_notifier_register() 注册的 per-event-type handlers, ref:
  *    - ref: mlx5_events_start() 里注册了很多 handler, 其中最重要的是
- * forward_event()
+ *
  * 3. forward_event() 通过一个 per device 的内核通知链, 将其分发到 mlx5_ib_event
- * 4. 然后进一步分发到 mlx5_ib_event_wq, 但是其仅仅处理很少量的一些 global 事件,
- * mlx5_ib_handle_event
+ *
+ * 4. 然后进一步分发到 mlx5_ib_event_wq, 但是其仅仅处理很少量的一些 global 事件, mlx5_ib_handle_event
  *
  *
  * *mlx5_netdev_event*
@@ -96,58 +100,42 @@
  * - 遍历 ib 设备, 然后通过 callback get_netdev 返回其 netdev.
  * - 和 netdevice 事件传过来的 netdev 进行比较
  *
+ *
  * =========================================
- * ucontext / UAR / BlueFlame
+ * userspace 接口: uverbsx / devx / sysfs
  * =========================================
- * ucontext: 用户态进程打开 rdma 设备的时候有一个该 ctx. ucontext 中的资源:
- * - uar(user access region) / BFREG: ucontext 中有一部分可以让用户态进程直接 mmap
- *   来访问硬件的. 一个 UAR page 分成 4 个 bfreg
- *   - BFREG 0
- *   - BFREG 1
- *   - BFREG 2
- *   - BFREG 3
- * BlueFlame 用来写合并 doorbell 的. WQE 和 doorbell 信息一次性直接写到 BFreg
- * 里, 这样设备不需要 DMA 就可以直接拿到 WQE 了.
+ * open uverbsx 的时候会有一个 ucontext
  *
- * - Transport Domian(TD): 隔离不同进程的网络流量
- *
- * - DEVX UID: 用户态直接访问固件命令的接口
+ * uverbsx的使用:
+ * - mmap 方式mlx5_ib_mmap(uverbsx). 支持的 mmap 命令 enum mlx5_ib_mmap_cmd
+ *   - uar_mmap(). uar 机制.
+ *   - rdma_user_mmap_io().
+ *   - mlx5_ib_mmap_clock_info_page
+ *   - mlx5_ib_mmap_offset
+ * - ioctl 方式: mlx5_ib_defs
  *
  *
- * UAR page 位于 bar 空间, uar page layout
- * +----+----+----+----+----+----+----+----+----+----+----+-----------------------------------------+---------+------+
- * | 31 | 30 | 29 | 28 | 27 | 26 | 25 | 24 | 23 | 22 | 21 | 20 ................................... 0| Offset  | REG  |
- * +----+----+----+----+----+----+----+----+----+----+----+-----------------------------------------+---------+------+
- * |                                                                                                | 00h-1Ch |      |
- * +---------+---------+--------------+----+--------------------------------------------------------+---------+      |
- * |         |  cmdsn  |              |cmd |                       cq_ci                            | 20h     | CQ   |
- * +---------+---------+-------------------+--------------------------------------------------------+---------+      |
- * |                                       |             cq_n                                       | 24h     |      |
- * +---------------------------------------+--------------------------------------------------------+---------+------+
- * |                                                                                                | 28h-3Ch |      |
- * +---------------------------------------+--------------------------------------------------------+---------+      |
- * |    eqn (update CI and Arm)            |             Consumer Index                             | 40h     | EQ   |
- * +---------------------------------------+--------------------------------------------------------+---------+      |
- * |                                                                                                | 44h     |      |
- * +---------------------------------------+--------------------------------------------------------+---------+      |
- * |         eqn (update CI)               |             Consumer Index                             | 48h     |      |
- * +---------------------------------------+--------------------------------------------------------+---------+------+
- * |                                                                                                |04Ch-7FCh|      |
- * +------------------------------------------------------------------------------------------------+---------+------+
- * |                                    DB_BlueFlame_Buffer0_even                                   | 800h-   | Blue |
- * |                                                                                                |  0FCh   | Flame|
- * +------------------------------------------------------------------------------------------------+---------+ Reg0 |
- * |                                    DB_BlueFlame_Buffer0_odd                                    | 900h-   |      |
- * |                                                                                                |  9FCh   |      |
- * +------------------------------------------------------------------------------------------------+---------+------+
- * |                                    DB_BlueFlame_Buffer1_even                                   | A00h-   | Blue |
- * |                                                                                                |  AFCh   | Flame|
- * +------------------------------------------------------------------------------------------------+---------+ Reg1 |
- * |                                    DB_BlueFlame_Buffer1_odd                                    | B00h-   |      |
- * |                                                                                                |  BFCh   |      |
- * +------------------------------------------------------------------------------------------------+---------+------+
+ * devx:mellanox-spec 的接口, 让用户态直接给固件下命令,绕过内核 verbs 层
  *
  *
+ * sysfs: mlx5_attr_group
+ *
+ *
+ * debugfs: mlx5_ib_stage_delay_drop_init
+ *
+ *
+ * =========================================
+ * DM(device memory)
+ * =========================================
+ * - ICM(Interconnect Context Memory). Host 内存, 但是分配给 HCA 管理的
+ * - MEMIC(Memory Mapped to InterConnect ). device internal buffers for sw defined data
+ *
+ * 上述两种内存都通过 alloc_dm 方式来让用户访问.
+ *
+ *
+ * =========================================
+ * MCG(Multicast Group)
+ * =========================================
  *
  *
  * =========================================
@@ -155,17 +143,10 @@
  * =========================================
  *
  *
- * =========================================
- * DEVX
- * =========================================
- * 让用户态直接给固件下命令,绕过内核 verbs 层
- *
- *
- *
  *
  *
  * =========================================
- * DM / PD / MCG
+ * PD
  * =========================================
  *
  *
@@ -178,8 +159,21 @@
  * =========================================
  * LAG
  * =========================================
+ * - mlx5_eth_lag_init / mlx5_eth_lag_cleanup
  *
  *
+ * =========================================
+ * device callback
+ * =========================================
+ * mlx5_ib_dev_ipoib_enhanced_ops
+ * mlx5_ib_dev_sriov_ops
+ * mlx5_ib_dev_mw_ops
+ * mlx5_ib_dev_xrc_ops
+ * mlx5_ib_dev_dm_ops
+ * mlx5_ib_dev_ops
+ * mlx5_ib_dev_port_ops
+ * mlx5_ib_dev_port_rep_ops
+ * mlx5_ib_dev_common_roce_ops
  *
  *
  * =========================================
@@ -305,7 +299,7 @@ mlx5_port_type_cap_to_rdma_ll(int port_type_cap)
 
 // helper
 static enum rdma_link_layer
-mlx5_ib_port_link_layer(struct ib_device *device, u8 port_num)
+mlx4_ib_port_link_layer(struct ib_device *device, u8 port_num)
 {
 	struct mlx5_ib_dev *dev = to_mdev(device);
 	int port_type_cap = MLX5_CAP_GEN(dev->mdev, port_type);
@@ -444,6 +438,7 @@ done:
 	return NOTIFY_DONE;
 }
 
+// helper: ib_device -> net_device
 static struct net_device *mlx5_ib_get_netdev(struct ib_device *device,
 					     u8 port_num)
 {
@@ -455,11 +450,13 @@ static struct net_device *mlx5_ib_get_netdev(struct ib_device *device,
 	if (!mdev)
 		return NULL;
 
+	// 是 lag 设备不走这里
 	ndev = mlx5_lag_get_roce_netdev(mdev);
 	if (ndev)
 		goto out;
 
 	/* Ensure ndev does not disappear before we invoke dev_hold()
+	 * -1 ref: mlx5_ib_roce_init
 	 */
 	read_lock(&ibdev->port[port_num - 1].roce.netdev_lock);
 	ndev = ibdev->port[port_num - 1].roce.netdev;
@@ -472,6 +469,7 @@ out:
 	return ndev;
 }
 
+// helper: ibdev -> mdev, refcnt++
 struct mlx5_core_dev *mlx5_ib_get_native_port_mdev(struct mlx5_ib_dev *ibdev,
 						   u8 ib_port_num,
 						   u8 *native_port_num)
@@ -796,6 +794,7 @@ static int set_roce_addr(struct mlx5_ib_dev *dev, u8 port_num,
 				      port_num);
 }
 
+// 不支持 ib 么? ib 是 QP0 的 mad 报文?
 static int mlx5_ib_add_gid(const struct ib_gid_attr *attr,
 			   __always_unused void **context)
 {
@@ -803,6 +802,7 @@ static int mlx5_ib_add_gid(const struct ib_gid_attr *attr,
 			     attr->index, &attr->gid, attr);
 }
 
+// 不支持 ib 么? ib 是 QP0 的 mad 报文?
 static int mlx5_ib_del_gid(const struct ib_gid_attr *attr,
 			   __always_unused void **context)
 {
@@ -832,12 +832,12 @@ static int mlx5_use_mad_ifc(struct mlx5_ib_dev *dev)
 }
 
 enum {
-	MLX5_VPORT_ACCESS_METHOD_MAD,
-	MLX5_VPORT_ACCESS_METHOD_HCA,
-	MLX5_VPORT_ACCESS_METHOD_NIC,
+	MLX5_VPORT_ACCESS_METHOD_MAD,  // native ib MAD 方式
+	MLX5_VPORT_ACCESS_METHOD_HCA,  // 不走网络协议栈查询, 直接查询硬件, default
+	MLX5_VPORT_ACCESS_METHOD_NIC,  // roce
 };
 
-// 不铜类型的设备用不同的方式获取 vport 嘻嘻
+// 不同类型的设备用不同的方式获取 vport 嘻嘻
 static int mlx5_get_vport_access_method(struct ib_device *ibdev)
 {
 	if (mlx5_use_mad_ifc(to_mdev(ibdev)))
@@ -1622,7 +1622,7 @@ static int mlx5_ib_rep_query_port(struct ib_device *ibdev, u8 port,
 
 // roce 不支持么? ref: 这个接口 roce 不使用的
 // - config_non_roce_gid_cache
-// - __ib_query_portk
+// - __ib_query_port
 static int mlx5_ib_query_gid(struct ib_device *ibdev, u8 port, int index,
 			     union ib_gid *gid)
 {
@@ -1714,6 +1714,7 @@ static int mlx5_ib_modify_device(struct ib_device *ibdev, int mask,
 	return err;
 }
 
+// atomic capability 可以改???
 static int set_port_caps_atomic(struct mlx5_ib_dev *dev, u8 port_num, u32 mask,
 				u32 value)
 {
@@ -1748,7 +1749,8 @@ out:
 	return err;
 }
 
-// 能改的东西也很少
+// 能改的东西也很少, 而且 只有 native ib 设备会走这里做改动
+// atomic capability
 static int mlx5_ib_modify_port(struct ib_device *ibdev, u8 port, int mask,
 			       struct ib_port_modify *props)
 {
@@ -1763,6 +1765,8 @@ static int mlx5_ib_modify_port(struct ib_device *ibdev, u8 port, int mask,
 
 	/* CM layer calls ib_modify_port() regardless of the link layer. For
 	 * Ethernet ports, qkey violation and Port capabilities are meaningless.
+	 *
+	 * 只有 IB 可以改,
 	 */
 	if (!is_ib)
 		return 0;
@@ -1883,6 +1887,8 @@ static void deallocate_uars(struct mlx5_ib_dev *dev,
 			mlx5_cmd_free_uar(dev->mdev, bfregi->sys_pages[i]);
 }
 
+// lb: loopback ?
+// td: transport domain
 int mlx5_ib_enable_lb(struct mlx5_ib_dev *dev, bool td, bool qp)
 {
 	int err = 0;
@@ -1961,6 +1967,8 @@ static void mlx5_ib_dealloc_transport_domain(struct mlx5_ib_dev *dev, u32 tdn,
 	mlx5_ib_disable_lb(dev, true, false);
 }
 
+// for userspace context
+// 从硬件里捞信息, 填充 ucontext
 static int set_ucontext_resp(struct ib_ucontext *uctx,
 			     struct mlx5_ib_alloc_ucontext_resp *resp)
 {
@@ -2186,6 +2194,7 @@ out_ctx:
 	return err;
 }
 
+// 用来来查询一些信息, 那么去硬件里捞出来, 返回给用户
 static int mlx5_ib_query_ucontext(struct ib_ucontext *ibcontext,
 				  struct uverbs_attr_bundle *attrs)
 {
@@ -2226,6 +2235,10 @@ static void mlx5_ib_dealloc_ucontext(struct ib_ucontext *ibcontext)
 	kfree(bfregi->count);
 }
 
+
+// helper
+// dev 上 uar_idx 这个 page 对应的 pfn
+// 就是将 bar0 space 的地址计算下, 返回回去
 static phys_addr_t uar_index2pfn(struct mlx5_ib_dev *dev,
 				 int uar_idx)
 {
@@ -2236,6 +2249,7 @@ static phys_addr_t uar_index2pfn(struct mlx5_ib_dev *dev,
 	return (dev->mdev->bar_addr >> PAGE_SHIFT) + uar_idx / fw_uars_per_page;
 }
 
+// helper:
 static u64 uar_index2paddress(struct mlx5_ib_dev *dev,
 				 int uar_idx)
 {
@@ -2247,6 +2261,7 @@ static u64 uar_index2paddress(struct mlx5_ib_dev *dev,
 	return (dev->mdev->bar_addr + (uar_idx / fw_uars_per_page) * PAGE_SIZE);
 }
 
+// helper: 其 mmap page 是根据 offset 来作为不同命令的
 static int get_command(unsigned long offset)
 {
 	// 每个 command 占据 2*8 = 256Byte
@@ -2254,16 +2269,19 @@ static int get_command(unsigned long offset)
 	return (offset >> MLX5_IB_MMAP_CMD_SHIFT) & MLX5_IB_MMAP_CMD_MASK;
 }
 
+// helper
 static int get_arg(unsigned long offset)
 {
 	return offset & ((1 << MLX5_IB_MMAP_CMD_SHIFT) - 1);
 }
 
+// helper
 static int get_index(unsigned long offset)
 {
 	return get_arg(offset);
 }
 
+// helper
 /* Index resides in an extra byte to enable larger values than 255 */
 static int get_extended_index(unsigned long offset)
 {
@@ -2275,6 +2293,7 @@ static void mlx5_ib_disassociate_ucontext(struct ib_ucontext *ibcontext)
 {
 }
 
+// helper: 支持 mmap
 static inline char *mmap_cmd2str(enum mlx5_ib_mmap_cmd cmd)
 {
 	switch (cmd) {
@@ -2291,6 +2310,7 @@ static inline char *mmap_cmd2str(enum mlx5_ib_mmap_cmd cmd)
 	}
 }
 
+// helper: 支持 mmap
 static int mlx5_ib_mmap_clock_info_page(struct mlx5_ib_dev *dev,
 					struct vm_area_struct *vma,
 					struct mlx5_ib_ucontext *context)
@@ -2299,6 +2319,7 @@ static int mlx5_ib_mmap_clock_info_page(struct mlx5_ib_dev *dev,
 	    !(vma->vm_flags & VM_SHARED))
 		return -EINVAL;
 
+	// 基于 vm offset 来判断对应的命令的
 	if (get_index(vma->vm_pgoff) != MLX5_IB_CLOCK_INFO_V1)
 		return -EOPNOTSUPP;
 
@@ -2343,6 +2364,7 @@ static void mlx5_ib_mmap_free(struct rdma_user_mmap_entry *entry)
 	}
 }
 
+// uar 是在 bar 里的
 static int uar_mmap(struct mlx5_ib_dev *dev, enum mlx5_ib_mmap_cmd cmd,
 		    struct vm_area_struct *vma,
 		    struct mlx5_ib_ucontext *context)
@@ -2450,6 +2472,7 @@ free_bfreg:
 	return err;
 }
 
+// 直接 mmap device memory
 static int add_dm_mmap_entry(struct ib_ucontext *context,
 			     struct mlx5_ib_dm *mdm,
 			     u64 address)
@@ -2486,6 +2509,7 @@ static int mlx5_ib_mmap_offset(struct mlx5_ib_dev *dev,
 	int ret;
 
 	pgoff = mlx5_vma_to_pgoff(vma);
+	// ref: add_dm_mmap_entry 添加的 mmap page
 	entry = rdma_user_mmap_entry_get_pgoff(ucontext, pgoff);
 	if (!entry)
 		return -EINVAL;
@@ -2530,7 +2554,7 @@ static int mlx5_ib_mmap(struct ib_ucontext *ibcontext, struct vm_area_struct *vm
 			return -EPERM;
 		fallthrough;
 	case MLX5_IB_MMAP_NC_PAGE:
-	case MLX5_IB_MMAP_REGULAR_PAGE:
+	case MLX5_IB_MMAP_REGULAR_PAGE: // UAR
 		return uar_mmap(dev, command, vma, context);
 
 	case MLX5_IB_MMAP_GET_CONTIGUOUS_PAGES:
@@ -2551,14 +2575,14 @@ static int mlx5_ib_mmap(struct ib_ucontext *ibcontext, struct vm_area_struct *vm
 		pfn = (dev->mdev->iseg_base +
 		       offsetof(struct mlx5_init_seg, internal_timer_h)) >>
 			PAGE_SHIFT;
-		return rdma_user_mmap_io(&context->ibucontext, vma, pfn,
+		return rdma_user_mmap_io(&context->ibucontext, vma, pfn, // map core clock
 					 PAGE_SIZE,
 					 pgprot_noncached(vma->vm_page_prot),
 					 NULL);
 	case MLX5_IB_MMAP_CLOCK_INFO:
 		return mlx5_ib_mmap_clock_info_page(dev, vma, context);
 
-	default:
+	default: // device memory map
 		return mlx5_ib_mmap_offset(dev, vma, ibcontext);
 	}
 
@@ -2590,6 +2614,8 @@ static inline int check_dm_type_support(struct mlx5_ib_dev *dev,
 	return 0;
 }
 
+
+// Memory Mapped to InterConnect 
 static int handle_alloc_dm_memic(struct ib_ucontext *ctx,
 				 struct mlx5_ib_dm *dm,
 				 struct ib_dm_alloc_attr *attr,
@@ -2844,6 +2870,7 @@ static int mlx5_ib_mcg_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 	return err;
 }
 
+// node_desc + node_guid
 static int init_node_data(struct mlx5_ib_dev *dev)
 {
 	int err;
@@ -3139,6 +3166,7 @@ static int mlx5_ib_event(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
+// bond 场景下给 slave 用的
 static int mlx5_ib_event_slave_port(struct notifier_block *nb,
 				    unsigned long event, void *param)
 {
@@ -3158,6 +3186,7 @@ static int mlx5_ib_event_slave_port(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
+// native ib 才有
 static int set_has_smi_cap(struct mlx5_ib_dev *dev)
 {
 	struct mlx5_hca_vport_context vport_ctx;
@@ -3500,6 +3529,7 @@ static int mlx5_eth_lag_init(struct mlx5_ib_dev *dev)
 	struct mlx5_flow_table *ft;
 	int err;
 
+	// 是 lag 且是 roce 才会进来
 	if (!ns || !mlx5_lag_is_roce(mdev))
 		return 0;
 
@@ -3951,6 +3981,7 @@ static int UVERBS_HANDLER(MLX5_IB_METHOD_VAR_OBJ_ALLOC)(
 	return err;
 }
 
+// uverbs_method_def
 DECLARE_UVERBS_NAMED_METHOD(
 	MLX5_IB_METHOD_VAR_OBJ_ALLOC,
 	UVERBS_ATTR_IDR(MLX5_IB_ATTR_VAR_OBJ_ALLOC_HANDLE,
@@ -3979,6 +4010,7 @@ DECLARE_UVERBS_NAMED_OBJECT(MLX5_IB_OBJECT_VAR,
 			    &UVERBS_METHOD(MLX5_IB_METHOD_VAR_OBJ_ALLOC),
 			    &UVERBS_METHOD(MLX5_IB_METHOD_VAR_OBJ_DESTROY));
 
+// virtio net
 static bool var_is_supported(struct ib_device *device)
 {
 	struct mlx5_ib_dev *dev = to_mdev(device);
@@ -4025,6 +4057,7 @@ end:
 	return ERR_PTR(err);
 }
 
+// uverbsx 的 ioctl 接口定义
 static int UVERBS_HANDLER(MLX5_IB_METHOD_UAR_OBJ_ALLOC)(
 	struct uverbs_attr_bundle *attrs)
 {
@@ -4140,6 +4173,7 @@ ADD_UVERBS_ATTRIBUTES_SIMPLE(
 				   dump_fill_mkey),
 		UA_MANDATORY));
 
+// 核心是搞这么个结构, 然后给 ib core 层注册为 ioctl 的接口
 static const struct uapi_definition mlx5_ib_defs[] = {
 	UAPI_DEF_CHAIN(mlx5_ib_devx_defs),
 	UAPI_DEF_CHAIN(mlx5_ib_flow_defs),
@@ -4250,61 +4284,109 @@ static int mlx5_ib_enable_driver(struct ib_device *dev)
 
 static const struct ib_device_ops mlx5_ib_dev_ops = {
 	.owner = THIS_MODULE,
+
+	/* 用户接口 */
 	.driver_id = RDMA_DRIVER_MLX5,
 	.uverbs_abi_ver	= MLX5_IB_UVERBS_ABI_VERSION,
-
-	.add_gid = mlx5_ib_add_gid,
-	.alloc_mr = mlx5_ib_alloc_mr,
-	.alloc_mr_integrity = mlx5_ib_alloc_mr_integrity,
-	.alloc_pd = mlx5_ib_alloc_pd,
-	.alloc_ucontext = mlx5_ib_alloc_ucontext,
-	.attach_mcast = mlx5_ib_mcg_attach,
-	.check_mr_status = mlx5_ib_check_mr_status,
-	.create_ah = mlx5_ib_create_ah,
-	.create_cq = mlx5_ib_create_cq,
-	.create_qp = mlx5_ib_create_qp,
-	.create_srq = mlx5_ib_create_srq,
-	.dealloc_pd = mlx5_ib_dealloc_pd,
-	.dealloc_ucontext = mlx5_ib_dealloc_ucontext,
-	.del_gid = mlx5_ib_del_gid,
-	.dereg_mr = mlx5_ib_dereg_mr,
-	.destroy_ah = mlx5_ib_destroy_ah,
-	.destroy_cq = mlx5_ib_destroy_cq,
-	.destroy_qp = mlx5_ib_destroy_qp,
-	.destroy_srq = mlx5_ib_destroy_srq,
-	.detach_mcast = mlx5_ib_mcg_detach,
-	.disassociate_ucontext = mlx5_ib_disassociate_ucontext,
-	.drain_rq = mlx5_ib_drain_rq,
-	.drain_sq = mlx5_ib_drain_sq,
 	.enable_driver = mlx5_ib_enable_driver,
 	.get_dev_fw_str = get_dev_fw_str,
-	.get_dma_mr = mlx5_ib_get_dma_mr,
-	.get_link_layer = mlx5_ib_port_link_layer,
-	.map_mr_sg = mlx5_ib_map_mr_sg,
-	.map_mr_sg_pi = mlx5_ib_map_mr_sg_pi,
+
+	.alloc_ucontext = mlx5_ib_alloc_ucontext,
+	.dealloc_ucontext = mlx5_ib_dealloc_ucontext,
+	.disassociate_ucontext = mlx5_ib_disassociate_ucontext,
+	.query_ucontext = mlx5_ib_query_ucontext,
+
 	.mmap = mlx5_ib_mmap,
 	.mmap_free = mlx5_ib_mmap_free,
-	.modify_cq = mlx5_ib_modify_cq,
+
+
+	/* 资源管理: device/port, gid, pkey, pd, mr, macst, ah, cq, qp, srq */
 	.modify_device = mlx5_ib_modify_device,
+	.query_device = mlx5_ib_query_device,
 	.modify_port = mlx5_ib_modify_port,
+
+	.add_gid = mlx5_ib_add_gid,     // ib 不用这个
+	.del_gid = mlx5_ib_del_gid,     // ib 不用这个
+	.query_gid = mlx5_ib_query_gid, // roce 不用这个
+
+	.query_pkey = mlx5_ib_query_pkey, // 去硬件里捞 partition key, mlx5 里也就一个 cat /sys/class/infiniband/mlx5_0/ports/1/pkeys/0. 0xffff
+
+
+	.alloc_pd = mlx5_ib_alloc_pd,
+	.dealloc_pd = mlx5_ib_dealloc_pd,
+
+
+	/* ┌────────────────────┬─────────────────┬───────────────────────────────┬──────────┬──────────────┐ */
+	/* │        接口        │    触发场景     │           创建/销毁           │ 访问模式 │ 是否绑 umem  │ */
+	/* ├────────────────────┼─────────────────┼───────────────────────────────┼──────────┼──────────────┤ */
+	/* │ get_dma_mr         │ 遗留全局 DMA MR │ create_mkey                   │ PA       │ 否           │ */
+	/* ├────────────────────┼─────────────────┼───────────────────────────────┼──────────┼──────────────┤ */
+	/* │ reg_user_mr        │ 用户注册 MR     │ cache 优先/慢路径 create_mkey │ MTT/KLM  │ 是(普通/ODP) │ */
+	/* ├────────────────────┼─────────────────┼───────────────────────────────┼──────────┼──────────────┤ */
+	/* │ rereg_user_mr      │ 用户重注册      │ UMR 或重建 mkey               │ 不变     │ 重建         │ */
+	/* ├────────────────────┼─────────────────┼───────────────────────────────┼──────────┼──────────────┤ */
+	/* │ dereg_mr           │ 注销            │ destroy_mkey / 归 cache       │ —        │ 释放         │ */
+	/* ├────────────────────┼─────────────────┼───────────────────────────────┼──────────┼──────────────┤ */
+	/* │ alloc_mr           │ 内核空壳 MR     │ create_mkey(umr_free)         │ MTT/KLM  │ 否(后续 map) │ */
+	/* ├────────────────────┼─────────────────┼───────────────────────────────┼──────────┼──────────────┤ */
+	/* │ map_mr_sg          │ 填翻译表        │ 无(CPU 填 desc)               │ 按模式   │ 否           │ */
+	/* ├────────────────────┼─────────────────┼───────────────────────────────┼──────────┼──────────────┤ */
+	/* │ alloc_mr_integrity │ T10-PI MR       │ create_mkey + PSV×2           │ MTT/KLM  │ 否           │ */
+	/* ├────────────────────┼─────────────────┼───────────────────────────────┼──────────┼──────────────┤ */
+	/* │ map_mr_sg_pi       │ 填 PI 翻译表    │ PA→MTT→KLM 降级               │ 按子MR   │ 否           │ */
+	/* ├────────────────────┼─────────────────┼───────────────────────────────┼──────────┼──────────────┤ */
+	/* │ check_mr_status    │ 查 PI 错误      │ 无                            │ —        │ —            │ */
+	/* └────────────────────┴─────────────────┴───────────────────────────────┴──────────┴──────────────┘ */
+	.alloc_mr = mlx5_ib_alloc_mr,
+
+	.reg_user_mr = mlx5_ib_reg_user_mr,
+	.rereg_user_mr = mlx5_ib_rereg_user_mr,
+	.dereg_mr = mlx5_ib_dereg_mr,
+
+	.map_mr_sg = mlx5_ib_map_mr_sg, // scatter-gather
+
+	.get_dma_mr = mlx5_ib_get_dma_mr,
+	.check_mr_status = mlx5_ib_check_mr_status,
+	// T10-PI 使用
+	.alloc_mr_integrity = mlx5_ib_alloc_mr_integrity,
+	.map_mr_sg_pi = mlx5_ib_map_mr_sg_pi,
+
+
+	.attach_mcast = mlx5_ib_mcg_attach,
+	.detach_mcast = mlx5_ib_mcg_detach,
+
+	.create_ah = mlx5_ib_create_ah,
+	.destroy_ah = mlx5_ib_destroy_ah,
+	.query_ah = mlx5_ib_query_ah,
+
+	.create_qp = mlx5_ib_create_qp,
+	.destroy_qp = mlx5_ib_destroy_qp,
 	.modify_qp = mlx5_ib_modify_qp,
+	.query_qp = mlx5_ib_query_qp,
+
+	.create_cq = mlx5_ib_create_cq,
+	.destroy_cq = mlx5_ib_destroy_cq,
+	.modify_cq = mlx5_ib_modify_cq,
+	.resize_cq = mlx5_ib_resize_cq,
+
+
+	.create_srq = mlx5_ib_create_srq,
+	.destroy_srq = mlx5_ib_destroy_srq,
 	.modify_srq = mlx5_ib_modify_srq,
+	.query_srq = mlx5_ib_query_srq,
+
+
+	/* 数据面 */
+	.drain_rq = mlx5_ib_drain_rq,
+	.drain_sq = mlx5_ib_drain_sq,
+
 	.poll_cq = mlx5_ib_poll_cq,
 	.post_recv = mlx5_ib_post_recv_nodrain,
 	.post_send = mlx5_ib_post_send_nodrain,
 	.post_srq_recv = mlx5_ib_post_srq_recv,
-	.process_mad = mlx5_ib_process_mad,
-	.query_ah = mlx5_ib_query_ah,
-	.query_device = mlx5_ib_query_device,
-	.query_gid = mlx5_ib_query_gid,
-	.query_pkey = mlx5_ib_query_pkey,
-	.query_qp = mlx5_ib_query_qp,
-	.query_srq = mlx5_ib_query_srq,
-	.query_ucontext = mlx5_ib_query_ucontext,
-	.reg_user_mr = mlx5_ib_reg_user_mr,
 	.req_notify_cq = mlx5_ib_arm_cq,
-	.rereg_user_mr = mlx5_ib_rereg_user_mr,
-	.resize_cq = mlx5_ib_resize_cq,
+
+	.process_mad = mlx5_ib_process_mad,
 
 	INIT_RDMA_OBJ_SIZE(ib_ah, mlx5_ib_ah, ibah),
 	INIT_RDMA_OBJ_SIZE(ib_counters, mlx5_ib_mcounters, ibcntrs),
@@ -4547,7 +4629,7 @@ static int mlx5_ib_roce_init(struct mlx5_ib_dev *dev)
 			(1ull << IB_USER_VERBS_EX_CMD_DESTROY_RWQ_IND_TBL);
 		ib_set_device_ops(&dev->ib_dev, &mlx5_ib_dev_common_roce_ops);
 
-		// 减1 是因为 ib 里 port 编号都是从 1 开始的,  ref: alloc_port_data()
+		// 减1 是因为 ib 里 port 编号都是从 1 开始的,  ref: alloc_port_data(), rdma_start_port()
 		// 而 c 语言里的数组是 从 0 开始的
 		port_num = mlx5_core_native_port_num(dev->mdev) - 1;
 

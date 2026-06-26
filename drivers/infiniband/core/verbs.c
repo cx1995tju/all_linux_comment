@@ -2272,7 +2272,7 @@ EXPORT_SYMBOL(ib_dereg_mr_user);
  * For mr_type IB_MR_TYPE_MEM_REG, the total length cannot exceed
  * max_num_sg * used_page_size.
  *
- * 分配后可以用于 fast reg, ref IB_WR_REG_MR
+ * NOTE: 分配后可以用于 fast reg, ref IB_WR_REG_MR
  */
 struct ib_mr *ib_alloc_mr(struct ib_pd *pd, enum ib_mr_type mr_type,
 			  u32 max_num_sg)

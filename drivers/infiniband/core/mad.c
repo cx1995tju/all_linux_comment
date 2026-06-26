@@ -159,7 +159,7 @@
  *   ├── DMA unmap
  *   ├── validate_mad()                ← 校验 MAD 头合法性
  *   ├── 如果是 Directed Route SMP → handle_smi() → 可能转发给 switch
- *   ├── 调用 driver 的 process_mad()  ← 驱动优先处理 (右先拒绝权)
+ *   ├── 调用 driver 的 process_mad()  ← 驱动优先处理 (优先拒绝权)
  *   │   └── 可能直接回复 (IB_MAD_RESULT_REPLY) 或消费掉 (IB_MAD_RESULT_CONSUMED)
  *   ├── find_mad_agent()              ← 根据 class+method 查注册表找到匹配 agent
  *   └── ib_mad_complete_recv()        ← 分发给 agent:

@@ -632,6 +632,7 @@ void mlx5_lag_remove(struct mlx5_core_dev *dev)
 	}
 }
 
+// 是 lag 且是 roce
 bool mlx5_lag_is_roce(struct mlx5_core_dev *dev)
 {
 	struct mlx5_lag *ldev;
