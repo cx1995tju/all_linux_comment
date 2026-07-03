@@ -137,6 +137,11 @@ EXPORT_SYMBOL(ib_umem_find_best_pgsz);
  * @addr: userspace virtual address to start at
  * @size: length of region to pin
  * @access: IB_ACCESS_xxx flags for memory being pinned
+ *
+ *
+ * 用户态内存: [addr, addr+size)
+ *
+ * 为其分配内存, 并 pin 住, 然后封装为一个 ib_umem 结构
  */
 struct ib_umem *ib_umem_get(struct ib_device *device, unsigned long addr,
 			    size_t size, int access)
@@ -177,17 +182,19 @@ struct ib_umem *ib_umem_get(struct ib_device *device, unsigned long addr,
 	 * Drivers should call ib_umem_find_best_pgsz() to set the iova
 	 * correctly.
 	 */
-	umem->iova = addr;
+	umem->iova = addr; // so, 后续这里还要 fix
 	umem->writable   = ib_access_writable(access);
 	umem->owning_mm = mm = current->mm;
 	mmgrab(mm);
 
+	// 搞一块 page 来做 page_list 使用
 	page_list = (struct page **) __get_free_page(GFP_KERNEL);
 	if (!page_list) {
 		ret = -ENOMEM;
 		goto umem_kfree;
 	}
 
+	// 计算 umem 需要的 page 数量
 	npages = ib_umem_num_pages(umem);
 	if (npages == 0 || npages > UINT_MAX) {
 		ret = -EINVAL;
@@ -209,7 +216,7 @@ struct ib_umem *ib_umem_get(struct ib_device *device, unsigned long addr,
 		gup_flags |= FOLL_FORCE;
 
 	while (npages) {
-		cond_resched();
+		cond_resched(); // 允许调度, 避免这个循环时间太久了
 		ret = pin_user_pages_fast(cur_base,
 					  min_t(unsigned long, npages,
 						PAGE_SIZE /
@@ -289,6 +296,8 @@ EXPORT_SYMBOL(ib_umem_release);
  * length - buffer length
  *
  * Returns 0 on success, or an error code.
+ *
+ * umem 里的数据[offset, offset + length) -> dst 里
  */
 int ib_umem_copy_from(void *dst, struct ib_umem *umem, size_t offset,
 		      size_t length)

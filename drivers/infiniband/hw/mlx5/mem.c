@@ -43,6 +43,13 @@
  * @shift: page shift for the compound pages found in the region
  * @ncont: number of compund pages
  * @order: log2 of the number of compound pages
+ *
+ * 聚合 umem 里的 page, 知道一个最大的 order, 在这个 order 下, umem 中所有的
+ * page 都被聚合为该 order 的 大一点的 page 了. 节省 MTT 条目
+ *
+ * 示例: 10 个 4K page
+ * 3, 3, 4 个连续. 那么会被聚合为, 5 个 8K 的 page
+ *
  */
 void mlx5_ib_cont_pages(struct ib_umem *umem, u64 addr,
 			unsigned long max_page_shift,
@@ -172,6 +179,7 @@ void mlx5_ib_populate_pas(struct mlx5_ib_dev *dev, struct ib_umem *umem,
 				      ib_umem_num_dma_blocks(umem, PAGE_SIZE),
 				      pas, access_flags);
 }
+// ref: mlx5_frag_buf_ctrl
 int mlx5_ib_get_buf_offset(u64 addr, int page_shift, u32 *offset)
 {
 	u64 page_size;

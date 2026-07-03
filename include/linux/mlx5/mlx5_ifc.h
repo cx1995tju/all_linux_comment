@@ -3470,13 +3470,20 @@ struct mlx5_ifc_nic_vport_context_bits {
 	u8         current_uc_mac_address[][0x40];
 };
 
+
 enum {
-	MLX5_MKC_ACCESS_MODE_PA    = 0x0,
-	MLX5_MKC_ACCESS_MODE_MTT   = 0x1,
-	MLX5_MKC_ACCESS_MODE_KLMS  = 0x2,
-	MLX5_MKC_ACCESS_MODE_KSM   = 0x3,
-	MLX5_MKC_ACCESS_MODE_SW_ICM = 0x4,
-	MLX5_MKC_ACCESS_MODE_MEMIC = 0x5,
+	MLX5_MKC_ACCESS_MODE_PA    = 0x0, /* VA=PA */
+	MLX5_MKC_ACCESS_MODE_MTT   = 0x1, /* 最普通的 direct mode, 每个 entry 对应的空间是固定大小的 page size */
+
+	MLX5_MKC_ACCESS_MODE_KLMS  = 0x2, /* indirect mtt mode*/ // 每个条目的 bcount 不一样, 所以硬件必须从头加起来找到 VA 对应的条目
+
+
+	// KLMS with fixed buffer size(???), 那么翻译的时候就不需要遍历了, 直接计算出 PA.
+	MLX5_MKC_ACCESS_MODE_KSM   = 0x3, // ODP implicit MR 使用, 也是 indirect mtt access. 每个条目对应的空间大小是固定为 1GB 的. populate_klm
+
+					 
+	MLX5_MKC_ACCESS_MODE_SW_ICM = 0x4, /* Host 内存让设备来管理 */
+	MLX5_MKC_ACCESS_MODE_MEMIC = 0x5,  /* Device 内部 buffer 存储软件定义的数据. */ 
 };
 
 struct mlx5_ifc_mkc_bits {

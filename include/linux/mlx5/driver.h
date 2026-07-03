@@ -315,11 +315,13 @@ struct mlx5_cmd_mailbox {
 	struct mlx5_cmd_mailbox *next;
 };
 
+// 一个 frag, 物理连续的
 struct mlx5_buf_list {
-	void		       *buf;
+	void		       *buf; // 
 	dma_addr_t		map;
 };
 
+// 多个 frag 组成的 buffer
 struct mlx5_frag_buf {
 	struct mlx5_buf_list	*frags;
 	int			npages;
@@ -327,15 +329,38 @@ struct mlx5_frag_buf {
 	u8			page_shift;
 };
 
+/* frag_buf_ctrl: 记录 WQ 的 layout 信息,  mlx5_init_fbc_offset
+ *
+ * WQ layout: frag_buf_ctrl 将多个不连续的 PAGE_SIZE 大小的page 抽象为逻辑连续的
+ * stride 数组
+ *
+ * ref: mlx5_frag_buf_get_wqe
+ * 
+ *  逻辑 stride 空间 — 连续环形序列 (ix = 0 .. sz_m1, 回绕)
+ * 
+ *            0     1                           ·····                    sz-1
+ *            │     │                                                     │
+ *            ▼     ▼                                                     ▼
+ *  ┌────────────────────────────────┐   ┌───────────────┐   ┌───────────────┐
+ *  │░░░░░░░│ 0   1   2   3  ···  63 │   │ 64 65 ··· 127 │   │ 128 ··· 191   │
+ *  │░░░░░░░│                        │   │               │   │               │
+ *  └────────────────────────────────┘   └───────────────┘   └───────────────┘
+ *  └───┬───┘
+ * strides_offset     frags[0]    ✕      frags[1]    ✕      frags[2]
+ * (WQ 起点前的偏移)                ←─── 物理上分散, 不连续 ───→
+ *
+ * */
 struct mlx5_frag_buf_ctrl {
 	struct mlx5_buf_list   *frags;
-	u32			sz_m1;
-	u16			frag_sz_m1;
-	u16			strides_offset;
-	u8			log_sz;
-	u8			log_stride;
-	u8			log_frag_strides;
+	u32			sz_m1;            // mask: 2^log_sz - 1
+	u16			frag_sz_m1;       // mask: 2^log_frag_strides - 1
+						  //
+	u16			strides_offset;   // wq 起始位置在第一个 frag 里的偏移, 单位是 entry
+	u8			log_sz;           // 2^log_sz:           entry 的数量
+	u8			log_stride;       // 2^log_stride:       单个 entry 大小
+	u8			log_frag_strides; // 2^log_frag_strides: 每个 frag 可以放置的 entry 数量
 };
+
 
 struct mlx5_core_psv {
 	u32	psv_idx;
@@ -849,6 +874,9 @@ static inline void mlx5_init_fbc_offset(struct mlx5_buf_list *frags,
 					u16 strides_offset,
 					struct mlx5_frag_buf_ctrl *fbc)
 {
+	/* wq size in Bytes is 2^(log_sz + log_stride)
+	 *
+	 * */
 	fbc->frags      = frags;
 	fbc->log_stride = log_stride;
 	fbc->log_sz     = log_sz;
@@ -858,6 +886,11 @@ static inline void mlx5_init_fbc_offset(struct mlx5_buf_list *frags,
 	fbc->strides_offset = strides_offset;
 }
 
+/* frags: 分散的物理内存空间
+ * log_stride: 元素大小
+ * log_sz: 元素数量
+ * fbc: 利用分散的物理内存空间, 来表达一个抽象连续的数组
+ * */
 static inline void mlx5_init_fbc(struct mlx5_buf_list *frags,
 				 u8 log_stride, u8 log_sz,
 				 struct mlx5_frag_buf_ctrl *fbc)
@@ -865,14 +898,16 @@ static inline void mlx5_init_fbc(struct mlx5_buf_list *frags,
 	mlx5_init_fbc_offset(frags, log_stride, log_sz, 0, fbc);
 }
 
+/* fbc 表示了一个抽象连续的数组, 获取其中 ix 这个位置的元素 */
 static inline void *mlx5_frag_buf_get_wqe(struct mlx5_frag_buf_ctrl *fbc,
 					  u32 ix)
 {
 	unsigned int frag;
 
 	ix  += fbc->strides_offset;
-	frag = ix >> fbc->log_frag_strides;
+	frag = ix >> fbc->log_frag_strides; // 计算出这个 wqe 在哪一个 frag 里
 
+	// fbc->frag_sz_m1 & ix 这个 frag 里的第几个
 	return fbc->frags[frag].buf + ((fbc->frag_sz_m1 & ix) << fbc->log_stride);
 }
 
@@ -1054,8 +1089,8 @@ enum {
 
 enum {
 	MR_CACHE_LAST_STD_ENTRY = 20,
-	MLX5_IMR_MTT_CACHE_ENTRY,
-	MLX5_IMR_KSM_CACHE_ENTRY,
+	MLX5_IMR_MTT_CACHE_ENTRY, // ref: implicit_get_child_mr() 这两个 entry 特别留给 odp 使用的
+	MLX5_IMR_KSM_CACHE_ENTRY, // ref: mlx5_ib_alloc_implicit_mr()
 	MAX_MR_CACHE_ENTRIES
 };
 

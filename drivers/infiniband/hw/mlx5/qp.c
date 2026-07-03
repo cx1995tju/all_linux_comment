@@ -28,6 +28,76 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
+ *
+ *  mlx5_ib_create_qp
+ *  mlx5_ib_destroy_qp
+ *  mlx5_ib_modify_qp
+ *  mlx5_ib_query_qp
+ *  mlx5_ib_qp_set_counter
+ *
+ *  mlx5_ib_create_rwq_ind_table
+ *  mlx5_ib_destroy_rwq_ind_table
+ *
+ *  mlx5_ib_create_wq
+ *  mlx5_ib_destroy_wq
+ *  mlx5_ib_modify_wq
+ *
+ *  mlx5_ib_drain_rq
+ *  mlx5_ib_drain_sq
+ *  mlx5_ib_read_wqe_rq
+ *  mlx5_ib_read_wqe_sq
+ *  mlx5_ib_read_wqe_srq
+ *
+ *  mlx5_ib_alloc_xrcd
+ *  mlx5_ib_dealloc_xrcd
+ *
+ *  bfregn_to_uar_index
+ *  mlx5_ib_free_bfreg
+ *
+ * =========================================
+ * 核心 数据结构/变量
+ * =========================================
+ * - ~struct mlx5_ib_qp~
+ * - QPC
+ * - opt_mask
+ *
+ * =========================================
+ * qp verbs implementation
+ * =========================================
+ * - create
+ * - destroy
+ * - modify
+ * - query
+ * - drain
+ *
+ *
+ * # wqe helper:  基本都是一些 layout 的处理
+ *   - 读取
+ *   - wqe 大小计算
+ *
+ * # bfreg 管理
+ *
+ * =========================================
+ * qp event mechanism
+ * =========================================
+ * - mlx5_ib_qp_event -> 简单的投递到上层的 ib_core 里了
+ *
+ * =========================================
+ * BFREG subsystem
+ * =========================================
+ *
+ *
+ * =========================================
+ * WQ/RQ 并行 API
+ * =========================================
+ *
+ *
+ * =========================================
+ * Counter
+ * =========================================
+ *
+ *
  */
 
 #include <linux/module.h>
@@ -102,6 +172,16 @@ static int is_sqp(enum ib_qp_type qp_type)
  * Does not gurantee to copy the entire WQE.
  *
  * Return: zero on success, or an error code.
+ *
+ * ib_umem 表达的内存应该是一个 wq , 将 wq 的
+ * [wqe_index, end) 范围里的 wqe 复制到 buffer
+ * 里复制的总长度不超过 MIN(bcnt, buflen)
+ *
+ * 其他辅助参数:
+ * - wq_offset: wq 在 ib_umem 里的起始位置
+ * - wq_wqe_shift: 表达了单个 wqe 的大小
+ * - wq_wqe_cnt: wq 里 wqe 的数量
+ *
  */
 static int mlx5_ib_read_user_wqe_common(struct ib_umem *umem, void *buffer,
 					size_t buflen, int wqe_index,
@@ -109,8 +189,9 @@ static int mlx5_ib_read_user_wqe_common(struct ib_umem *umem, void *buffer,
 					int wq_wqe_shift, int bcnt,
 					size_t *bytes_copied)
 {
-	size_t offset = wq_offset + ((wqe_index % wq_wqe_cnt) << wq_wqe_shift);
-	size_t wq_end = wq_offset + (wq_wqe_cnt << wq_wqe_shift);
+	// wq 的 起始位置不一定是 0, 是有一个 offset 的
+	size_t offset = wq_offset + ((wqe_index % wq_wqe_cnt) << wq_wqe_shift); // wqe_index 这个 wqe 的 offset
+	size_t wq_end = wq_offset + (wq_wqe_cnt << wq_wqe_shift); // wq 的结束位置
 	size_t copy_length;
 	int ret;
 
@@ -120,6 +201,8 @@ static int mlx5_ib_read_user_wqe_common(struct ib_umem *umem, void *buffer,
 	copy_length = min_t(u32, buflen, wq_end - offset);
 	copy_length = min_t(u32, copy_length, bcnt);
 
+	// iumem 是抽象 va 连续的, 在 copy_from 里面去处理 sg 的问题
+	// 不支持回绕, ref: mlx5_ib_read_user_wqe_sq
 	ret = ib_umem_copy_from(buffer, umem, offset, copy_length);
 	if (ret)
 		return ret;
@@ -130,6 +213,8 @@ static int mlx5_ib_read_user_wqe_common(struct ib_umem *umem, void *buffer,
 	return 0;
 }
 
+// 将 qp.sq 的 wqe_index 这个 wqe 复制到 buffer 里
+// 对于 sq, 这里的 wqe_index 准确的说是 wqebb 的 index
 static int mlx5_ib_read_kernel_wqe_sq(struct mlx5_ib_qp *qp, int wqe_index,
 				      void *buffer, size_t buflen, size_t *bc)
 {
@@ -144,7 +229,7 @@ static int mlx5_ib_read_kernel_wqe_sq(struct mlx5_ib_qp *qp, int wqe_index,
 	/* read the control segment first */
 	p = mlx5_frag_buf_get_wqe(&qp->sq.fbc, wqe_index);
 	ctrl = p;
-	ds = be32_to_cpu(ctrl->qpn_ds) & MLX5_WQE_CTRL_DS_MASK;
+	ds = be32_to_cpu(ctrl->qpn_ds) & MLX5_WQE_CTRL_DS_MASK; // sq wqe 是可变的, 获取 wqe 的总大小
 	wqe_length = ds * MLX5_WQE_DS_UNITS;
 
 	/* read rest of WQE if it spreads over more than one stride */
@@ -165,6 +250,7 @@ static int mlx5_ib_read_kernel_wqe_sq(struct mlx5_ib_qp *qp, int wqe_index,
 	return 0;
 }
 
+// 同上, 但是是从用户态内存里读一个 wqe 的
 static int mlx5_ib_read_user_wqe_sq(struct mlx5_ib_qp *qp, int wqe_index,
 				    void *buffer, size_t buflen, size_t *bc)
 {
@@ -192,7 +278,7 @@ static int mlx5_ib_read_user_wqe_sq(struct mlx5_ib_qp *qp, int wqe_index,
 
 	ctrl = buffer;
 	ds = be32_to_cpu(ctrl->qpn_ds) & MLX5_WQE_CTRL_DS_MASK;
-	wqe_length = ds * MLX5_WQE_DS_UNITS;
+	wqe_length = ds * MLX5_WQE_DS_UNITS; // 这个 WQE 的大小
 
 	/* if we copied enough then we are done */
 	if (bytes_copied >= wqe_length) {
@@ -252,6 +338,7 @@ static int mlx5_ib_read_user_wqe_rq(struct mlx5_ib_qp *qp, int wqe_index,
 	return 0;
 }
 
+// rq 必须是从 umem 里读取(???)
 int mlx5_ib_read_wqe_rq(struct mlx5_ib_qp *qp, int wqe_index, void *buffer,
 			size_t buflen, size_t *bc)
 {
@@ -344,10 +431,11 @@ static void mlx5_ib_qp_event(struct mlx5_core_qp *qp, int type)
 			return;
 		}
 
-		ibqp->event_handler(&event, ibqp->qp_context);
+		ibqp->event_handler(&event, ibqp->qp_context); // ib_uverbs_qp_event_handler
 	}
 }
 
+// 初始化 qp ?
 static int set_rq_size(struct mlx5_ib_dev *dev, struct ib_qp_cap *cap,
 		       int has_rq, struct mlx5_ib_qp *qp, struct mlx5_ib_create_qp *ucmd)
 {
@@ -367,7 +455,7 @@ static int set_rq_size(struct mlx5_ib_dev *dev, struct ib_qp_cap *cap,
 	} else {
 		int wq_sig = !!(qp->flags_en & MLX5_QP_FLAG_SIGNATURE);
 
-		if (ucmd) {
+		if (ucmd) { // 来自用户态的请求
 			qp->rq.wqe_cnt = ucmd->rq_wqe_count;
 			if (ucmd->rq_wqe_shift > BITS_PER_BYTE * sizeof(ucmd->rq_wqe_shift))
 				return -EINVAL;
@@ -381,7 +469,7 @@ static int set_rq_size(struct mlx5_ib_dev *dev, struct ib_qp_cap *cap,
 					sizeof(struct mlx5_wqe_data_seg) -
 				wq_sig;
 			qp->rq.max_post = qp->rq.wqe_cnt;
-		} else {
+		} else { // 来自内核的请求
 			wqe_size =
 				wq_sig ? sizeof(struct mlx5_wqe_signature_seg) :
 					 0;
@@ -409,6 +497,7 @@ static int set_rq_size(struct mlx5_ib_dev *dev, struct ib_qp_cap *cap,
 	return 0;
 }
 
+// 计算 sq wqe 控制结构需要的固定开销
 static int sq_overhead(struct ib_qp_init_attr *attr)
 {
 	int size = 0;
@@ -418,12 +507,12 @@ static int sq_overhead(struct ib_qp_init_attr *attr)
 		size += sizeof(struct mlx5_wqe_xrc_seg);
 		fallthrough;
 	case IB_QPT_RC:
-		size += sizeof(struct mlx5_wqe_ctrl_seg) +
+		size += sizeof(struct mlx5_wqe_ctrl_seg) + 
 			max(sizeof(struct mlx5_wqe_atomic_seg) +
-			    sizeof(struct mlx5_wqe_raddr_seg),
-			    sizeof(struct mlx5_wqe_umr_ctrl_seg) +
-			    sizeof(struct mlx5_mkey_seg) +
-			    MLX5_IB_SQ_UMR_INLINE_THRESHOLD /
+			    sizeof(struct mlx5_wqe_raddr_seg), /* atomic + rdma 操作 */
+			    sizeof(struct mlx5_wqe_umr_ctrl_seg) + /* umr segment */
+			    sizeof(struct mlx5_mkey_seg) + /* mkey segment, reg mr */
+			    MLX5_IB_SQ_UMR_INLINE_THRESHOLD / /* inine */
 			    MLX5_IB_UMR_OCTOWORD);
 		break;
 
@@ -461,6 +550,7 @@ static int sq_overhead(struct ib_qp_init_attr *attr)
 	return size;
 }
 
+// 当个 sq wqe 的大小 ???
 static int calc_send_wqe(struct ib_qp_init_attr *attr)
 {
 	int inl_size = 0;
@@ -483,6 +573,7 @@ static int calc_send_wqe(struct ib_qp_init_attr *attr)
 		return ALIGN(max_t(int, inl_size, size), MLX5_SEND_WQE_BB);
 }
 
+// 刨除控制segmnet 后, 可以放多少 data segment
 static int get_send_sge(struct ib_qp_init_attr *attr, int wqe_size)
 {
 	int max_sge;
@@ -551,6 +642,8 @@ static int calc_sq_size(struct mlx5_ib_dev *dev, struct ib_qp_init_attr *attr,
 	return wq_size;
 }
 
+// 在对应的参数下, user 为 qp 需要分配的 buffer 大小 
+// rq + sq. ref: mlx5_ib_wq
 static int set_user_buf_size(struct mlx5_ib_dev *dev,
 			    struct mlx5_ib_qp *qp,
 			    struct mlx5_ib_create_qp *ucmd,
@@ -559,6 +652,7 @@ static int set_user_buf_size(struct mlx5_ib_dev *dev,
 {
 	int desc_sz = 1 << qp->sq.wqe_shift;
 
+	// 用户请求的 sq 的 wqe size 要比, 我们支持的最大的要小的
 	if (desc_sz > MLX5_CAP_GEN(dev->mdev, max_wqe_sz_sq)) {
 		mlx5_ib_warn(dev, "desc_sz %d, max_sq_desc_sz %d\n",
 			     desc_sz, MLX5_CAP_GEN(dev->mdev, max_wqe_sz_sq));
@@ -584,14 +678,15 @@ static int set_user_buf_size(struct mlx5_ib_dev *dev,
 	    qp->flags & IB_QP_CREATE_SOURCE_QPN) {
 		base->ubuffer.buf_size = qp->rq.wqe_cnt << qp->rq.wqe_shift;
 		qp->raw_packet_qp.sq.ubuffer.buf_size = qp->sq.wqe_cnt << 6;
-	} else {
+	} else { // HERE
 		base->ubuffer.buf_size = (qp->rq.wqe_cnt << qp->rq.wqe_shift) +
-					 (qp->sq.wqe_cnt << 6);
+					 (qp->sq.wqe_cnt << 6); // 固定的 64B 大小, 单个 BB
 	}
 
 	return 0;
 }
 
+// qp 可以没有 rq, 比如有了 srq 可以没有 rq 了
 static int qp_has_rq(struct ib_qp_init_attr *attr)
 {
 	if (attr->qp_type == IB_QPT_XRC_INI ||
@@ -785,6 +880,7 @@ static int mlx5_ib_umem_get(struct mlx5_ib_dev *dev, struct ib_udata *udata,
 {
 	int err;
 
+	// 为 [addr, addr + size) 分配 page 并 pin 住, 同时将其组织为 umem 结构
 	*umem = ib_umem_get(&dev->ib_dev, addr, size, 0);
 	if (IS_ERR(*umem)) {
 		mlx5_ib_dbg(dev, "umem_get failed\n");
@@ -793,6 +889,7 @@ static int mlx5_ib_umem_get(struct mlx5_ib_dev *dev, struct ib_udata *udata,
 
 	mlx5_ib_cont_pages(*umem, addr, 0, npages, page_shift, ncont, NULL);
 
+	// 计算 first page 内偏移. 返回的 *offset 是 wqe_bb index, ref: mlx5_frag_buf_ctrl
 	err = mlx5_ib_get_buf_offset(addr, *page_shift, offset);
 	if (err) {
 		mlx5_ib_warn(dev, "bad offset\n");
@@ -867,6 +964,7 @@ static int create_user_rq(struct mlx5_ib_dev *dev, struct ib_pd *pd,
 		    (unsigned long long)ucmd->buf_addr, rwq->buf_size,
 		    npages, page_shift, ncont, offset);
 
+	// UAR doorbell map 到 userspace
 	err = mlx5_ib_db_map_user(ucontext, udata, ucmd->db_addr, &rwq->db);
 	if (err) {
 		mlx5_ib_dbg(dev, "map failed\n");

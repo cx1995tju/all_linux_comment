@@ -300,6 +300,7 @@ struct mlx5_base_av {
 	};
 };
 
+// address vector
 struct mlx5_av {
 	union {
 		struct {

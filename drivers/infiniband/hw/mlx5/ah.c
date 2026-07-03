@@ -40,16 +40,17 @@ static __be16 mlx5_ah_get_udp_sport(const struct mlx5_ib_dev *dev,
 
 	if ((gid_type == IB_GID_TYPE_ROCE_UDP_ENCAP) &&
 	    (rdma_ah_get_ah_flags(ah_attr) & IB_AH_GRH) &&
-	    (ah_attr->grh.flow_label & IB_GRH_FLOWLABEL_MASK))
+	    (ah_attr->grh.flow_label & IB_GRH_FLOWLABEL_MASK))// 这条路径 sport 用来做 flow_label
 		sport = cpu_to_be16(
 			rdma_flow_label_to_udp_sport(ah_attr->grh.flow_label));
-	else
+	else // 这条路径大家都用一样的 udp sport
 		sport = mlx5_get_roce_udp_sport_min(dev,
 						    ah_attr->grh.sgid_attr);
 
 	return sport;
 }
 
+	// 分配并根据 init_attr 的信息来初始化 ah
 static void create_ib_ah(struct mlx5_ib_dev *dev, struct mlx5_ib_ah *ah,
 			 struct rdma_ah_init_attr *init_attr)
 {
@@ -69,7 +70,7 @@ static void create_ib_ah(struct mlx5_ib_dev *dev, struct mlx5_ib_ah *ah,
 
 	ah->av.stat_rate_sl = (rdma_ah_get_static_rate(ah_attr) << 4);
 
-	if (ah_attr->type == RDMA_AH_ATTR_TYPE_ROCE) {
+	if (ah_attr->type == RDMA_AH_ATTR_TYPE_ROCE) { // ROCE 走这里
 		if (init_attr->xmit_slave)
 			ah->xmit_port =
 				mlx5_lag_get_slave_port(dev->mdev,
@@ -80,7 +81,7 @@ static void create_ib_ah(struct mlx5_ib_dev *dev, struct mlx5_ib_ah *ah,
 		       sizeof(ah_attr->roce.dmac));
 		ah->av.udp_sport = mlx5_ah_get_udp_sport(dev, ah_attr);
 		ah->av.stat_rate_sl |= (rdma_ah_get_sl(ah_attr) & 0x7) << 1;
-		if (gid_type == IB_GID_TYPE_ROCE_UDP_ENCAP)
+		if (gid_type == IB_GID_TYPE_ROCE_UDP_ENCAP) // ROCE v2 走这里
 #define MLX5_ECN_ENABLED BIT(1)
 			ah->av.tclass |= MLX5_ECN_ENABLED;
 	} else {
@@ -100,7 +101,7 @@ int mlx5_ib_create_ah(struct ib_ah *ibah, struct rdma_ah_init_attr *init_attr,
 	enum rdma_ah_attr_type ah_type = ah_attr->type;
 
 	if ((ah_type == RDMA_AH_ATTR_TYPE_ROCE) &&
-	    !(rdma_ah_get_ah_flags(ah_attr) & IB_AH_GRH))
+	    !(rdma_ah_get_ah_flags(ah_attr) & IB_AH_GRH)) // ROCE 走以太网, 必须有 GRH 层
 		return -EINVAL;
 
 	if (ah_type == RDMA_AH_ATTR_TYPE_ROCE && udata) {

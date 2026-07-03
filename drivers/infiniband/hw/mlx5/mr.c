@@ -28,6 +28,85 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
+ *
+ * MKC: MKey Context ~struct mlx5_ifc_mkc_bits~
+ * XLT: translation table(??)
+ *
+ * =========================================
+ * MR Cache infra
+ * 预先创建一堆不同 order 的 MKey pool, 避免每次都和硬件交互
+ * 核心: root structure: mlx5_mr_cache
+ * =========================================
+ * mlx5_mr_cache_alloc
+ * mlx5_mr_cache_cleanup
+ * mlx5_mr_cache_free
+ * mlx5_mr_cache_init
+ * mlx5_mr_cache_invalidate
+ *
+ * struct mlx5_cache_ent
+ *
+ * ┌───────────────────────────────────────────────┬─────────────────────────────────────────────────────────┐
+ * │                     函数                      │                          作用                           │
+ * ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────┤
+ * │ alloc_cache_mr / create_cache_mr              │ 创建并初始化一个缓存 MR                                 │
+ * ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────┤
+ * │ add_keys                                      │ 异步批量预生成 MKey 填充缓存项                          │
+ * ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────┤
+ * │ remove_cache_mr_locked / clean_keys           │ 回收多余的 MKey                                         │
+ * ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────┤
+ * │ resize_available_mrs                          │ 调整缓存项的目标容量                                    │
+ * ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────┤
+ * │ __cache_work_func / queue_adjust_cache_locked │ 工作队列,根据水位线动态补充/收缩缓存                    │
+ * ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────┤
+ * │ mlx5_mr_cache_alloc / get_cache_mr            │ 对外分配:按 order 匹配最合适的缓存项                    │
+ * ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────┤
+ * │ mlx5_mr_cache_free                            │ 归还 MKey 到缓存(引用计数驱动)                          │
+ * ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────┤
+ * │ mlx5_mr_cache_init / mlx5_mr_cache_cleanup    │ 子系统初始化/销毁                                       │
+ * ├───────────────────────────────────────────────┼─────────────────────────────────────────────────────────┤
+ * │ size_fops / limit_fops + debugfs              │ 通过 debugfs 暴露每档缓存项的 size/limit,支持运行时调参 │
+ * └───────────────────────────────────────────────┴─────────────────────────────────────────────────────────┘
+ *
+ *
+ * =========================================
+ * IB ops implementation
+ * =========================================
+ * mlx5_ib_advise_mr
+ * mlx5_ib_alloc_mr
+ * mlx5_ib_alloc_mr_integrity
+ *
+ * mlx5_ib_reg_dm_mr
+ * mlx5_ib_reg_user_mr
+ * mlx5_ib_rereg_user_mr
+ *
+ * mlx5_ib_dereg_mr
+ *
+ * mlx5_ib_get_dma_mr
+ *
+ * mlx5_ib_alloc_mw
+ * mlx5_ib_dealloc_mw
+ *
+ * mlx5_ib_check_mr_status
+ *
+ * mlx5_ib_update_xlt
+ *
+ *
+ *
+ * =========================================
+ * SG->MTT mapping
+ * =========================================
+ * mlx5_ib_map_mr_sg
+ * mlx5_ib_map_mr_sg_pi
+ *
+ *
+ *
+ * =========================================
+ * helper
+ * =========================================
+ *
+ *
+ *
  */
 
 
@@ -50,6 +129,8 @@ enum {
 static void
 create_mkey_callback(int status, struct mlx5_async_work *context);
 
+// helper: 一个 u32 存储 mkey 的各种属性
+// 这些信息是存在 pa 的低位(???)
 static void set_mkc_access_pd_addr_fields(void *mkc, int acc, u64 start_addr,
 					  struct ib_pd *pd)
 {
@@ -73,6 +154,7 @@ static void set_mkc_access_pd_addr_fields(void *mkc, int acc, u64 start_addr,
 	MLX5_SET64(mkc, mkc, start_addr, start_addr);
 }
 
+// helper: 高 24b 是 index; 低 8b 可以变化的, 可以用来做 version 字段
 static void
 assign_mkey_variant(struct mlx5_ib_dev *dev, struct mlx5_core_mkey *mkey,
 		    u32 *in)
@@ -85,14 +167,17 @@ assign_mkey_variant(struct mlx5_ib_dev *dev, struct mlx5_core_mkey *mkey,
 	mkey->key = key;
 }
 
+// generic create mkey for various mr reg ops
 static int
 mlx5_ib_create_mkey(struct mlx5_ib_dev *dev, struct mlx5_core_mkey *mkey,
 		    u32 *in, int inlen)
 {
 	assign_mkey_variant(dev, mkey, in);
+	// 给硬件发命令创建 MR 咯
 	return mlx5_core_create_mkey(dev->mdev, mkey, in, inlen);
 }
 
+// 异步方式
 static int
 mlx5_ib_create_mkey_cb(struct mlx5_ib_dev *dev,
 		       struct mlx5_core_mkey *mkey,
@@ -111,11 +196,13 @@ static void dereg_mr(struct mlx5_ib_dev *dev, struct mlx5_ib_mr *mr);
 static int mr_cache_max_order(struct mlx5_ib_dev *dev);
 static void queue_adjust_cache_locked(struct mlx5_cache_ent *ent);
 
+// 硬件里捞配置信息咯
 static bool umr_can_use_indirect_mkey(struct mlx5_ib_dev *dev)
 {
 	return !MLX5_CAP_GEN(dev->mdev, umr_indirect_mkey_disabled);
 }
 
+// wrapper: 发命令给硬件咯
 static int destroy_mkey(struct mlx5_ib_dev *dev, struct mlx5_ib_mr *mr)
 {
 	WARN_ON(xa_load(&dev->odp_mkeys, mlx5_base_mkey(mr->mmkey.key)));
@@ -123,13 +210,17 @@ static int destroy_mkey(struct mlx5_ib_dev *dev, struct mlx5_ib_mr *mr)
 	return mlx5_core_destroy_mkey(dev->mdev, &mr->mmkey);
 }
 
+// 一段地址空间能不能放到 mr 里
 static inline bool mlx5_ib_pas_fits_in_mr(struct mlx5_ib_mr *mr, u64 start,
 					  u64 length)
 {
+	// 这个 start + lenght 能不能放到 mr 里
+	// start 的低位 offset in mr. ref: assign_mkey_variant
 	return ((u64)1 << mr->order) * MLX5_ADAPTER_PAGE_SIZE >=
 		length + (start & (MLX5_ADAPTER_PAGE_SIZE - 1));
 }
 
+// 硬件搞定了, 软件将其缓存到内存里
 static void create_mkey_callback(int status, struct mlx5_async_work *context)
 {
 	struct mlx5_ib_mr *mr =
@@ -150,6 +241,7 @@ static void create_mkey_callback(int status, struct mlx5_async_work *context)
 	}
 
 	mr->mmkey.type = MLX5_MKEY_MR;
+	// key 里的低位已经存储了信息
 	mr->mmkey.key |= mlx5_idx_to_mkey(
 		MLX5_GET(create_mkey_out, mr->out, mkey_index));
 
@@ -165,6 +257,8 @@ static void create_mkey_callback(int status, struct mlx5_async_work *context)
 	spin_unlock_irqrestore(&ent->lock, flags);
 }
 
+// 分配一个 mr, 并初始化下 mkc
+// mkc: 发送给硬件的 CREATE_MKEY command 里的一个信息
 static struct mlx5_ib_mr *alloc_cache_mr(struct mlx5_cache_ent *ent, void *mkc)
 {
 	struct mlx5_ib_mr *mr;
@@ -188,6 +282,7 @@ static struct mlx5_ib_mr *alloc_cache_mr(struct mlx5_cache_ent *ent, void *mkc)
 }
 
 /* Asynchronously schedule new MRs to be populated in the cache. */
+// 这是异步路径: delayed_cache_work_func() -> __cache_work_func() -> 
 static int add_keys(struct mlx5_cache_ent *ent, unsigned int num)
 {
 	size_t inlen = MLX5_ST_SZ_BYTES(create_mkey_in);
@@ -203,7 +298,7 @@ static int add_keys(struct mlx5_cache_ent *ent, unsigned int num)
 
 	mkc = MLX5_ADDR_OF(create_mkey_in, in, memory_key_mkey_entry);
 	for (i = 0; i < num; i++) {
-		mr = alloc_cache_mr(ent, mkc);
+		mr = alloc_cache_mr(ent, mkc); // 从桶里取信息
 		if (!mr) {
 			err = -ENOMEM;
 			break;
@@ -217,6 +312,7 @@ static int add_keys(struct mlx5_cache_ent *ent, unsigned int num)
 		}
 		ent->pending++;
 		spin_unlock_irq(&ent->lock);
+		// 发异步命令给硬件
 		err = mlx5_ib_create_mkey_cb(ent->dev, &mr->mmkey,
 					     &ent->dev->async_ctx, in, inlen,
 					     mr->out, sizeof(mr->out),
@@ -236,6 +332,9 @@ static int add_keys(struct mlx5_cache_ent *ent, unsigned int num)
 }
 
 /* Synchronously create a MR in the cache */
+// 同步路径
+// - mlx5_mr_cache_alloc() ->
+// - alloc_mr_from_cache() -> 
 static struct mlx5_ib_mr *create_cache_mr(struct mlx5_cache_ent *ent)
 {
 	size_t inlen = MLX5_ST_SZ_BYTES(create_mkey_in);
@@ -255,6 +354,7 @@ static struct mlx5_ib_mr *create_cache_mr(struct mlx5_cache_ent *ent)
 		goto free_in;
 	}
 
+	// 发同步命令给硬件
 	err = mlx5_core_create_mkey(ent->dev->mdev, &mr->mmkey, in, inlen);
 	if (err)
 		goto free_mr;
@@ -447,6 +547,7 @@ static bool someone_adding(struct mlx5_mr_cache *cache)
  * update. The cache refill has hysteresis, once the low water mark is hit it is
  * refilled up to the high mark.
  */
+// 检查对应桶里的 mr 是否需要补充或者放回
 static void queue_adjust_cache_locked(struct mlx5_cache_ent *ent)
 {
 	lockdep_assert_held(&ent->lock);
@@ -557,6 +658,7 @@ static void cache_work_func(struct work_struct *work)
 }
 
 /* Allocate a special entry from the cache */
+// odp 用这个接口
 struct mlx5_ib_mr *mlx5_mr_cache_alloc(struct mlx5_ib_dev *dev,
 				       unsigned int entry, int access_flags)
 {
@@ -591,6 +693,7 @@ struct mlx5_ib_mr *mlx5_mr_cache_alloc(struct mlx5_ib_dev *dev,
 }
 
 /* Return a MR already available in the cache */
+// 从 cache 的一个桶里捞一个 mr 出来用
 static struct mlx5_ib_mr *get_cache_mr(struct mlx5_cache_ent *req_ent)
 {
 	struct mlx5_ib_dev *dev = req_ent->dev;
@@ -608,7 +711,7 @@ static struct mlx5_ib_mr *get_cache_mr(struct mlx5_cache_ent *req_ent)
 					      list);
 			list_del(&mr->list);
 			ent->available_mrs--;
-			queue_adjust_cache_locked(ent);
+			queue_adjust_cache_locked(ent); // 这里检查是否需要补充桶里的 mr
 			spin_unlock_irq(&ent->lock);
 			break;
 		}
@@ -622,6 +725,7 @@ static struct mlx5_ib_mr *get_cache_mr(struct mlx5_cache_ent *req_ent)
 	return mr;
 }
 
+// 从搞一个 cache 里彻底 detach 掉
 static void detach_mr_from_cache(struct mlx5_ib_mr *mr)
 {
 	struct mlx5_cache_ent *ent = mr->cache_ent;
@@ -646,9 +750,10 @@ void mlx5_mr_cache_free(struct mlx5_ib_dev *dev, struct mlx5_ib_mr *mr)
 	}
 
 	spin_lock_irq(&ent->lock);
+	// 放回桶里
 	list_add_tail(&mr->list, &ent->head);
 	ent->available_mrs++;
-	queue_adjust_cache_locked(ent);
+	queue_adjust_cache_locked(ent); // 如果超过高水位, 延迟回收
 	spin_unlock_irq(&ent->lock);
 }
 
@@ -672,6 +777,7 @@ static void clean_keys(struct mlx5_ib_dev *dev, int c)
 		ent->available_mrs--;
 		ent->total_mrs--;
 		spin_unlock_irq(&ent->lock);
+		// cache 里的 mkey 都清理掉
 		mlx5_core_destroy_mkey(dev->mdev, &mr->mmkey);
 	}
 
@@ -720,6 +826,8 @@ static void delay_time_func(struct timer_list *t)
 	WRITE_ONCE(dev->fill_delay, 0);
 }
 
+
+// 一个设备添加的时候, 为这个设备创建存储 mr cache 的结构
 int mlx5_mr_cache_init(struct mlx5_ib_dev *dev)
 {
 	struct mlx5_mr_cache *cache = &dev->cache;
@@ -755,6 +863,9 @@ int mlx5_mr_cache_init(struct mlx5_ib_dev *dev)
 			continue;
 
 		ent->page = PAGE_SHIFT;
+		// 每个MR 1 << ent->order 个 MTT 条目
+		// 每个 MTT 条目大小是 sizeof(struct mlx5_mtt)
+		// 然后将 Byte 换成硬件里的单位 MLX5_IB_UMR_OCTOWORD
 		ent->xlt = (1 << ent->order) * sizeof(struct mlx5_mtt) /
 			   MLX5_IB_UMR_OCTOWORD;
 		ent->access_mode = MLX5_MKC_ACCESS_MODE_MTT;
@@ -774,6 +885,7 @@ int mlx5_mr_cache_init(struct mlx5_ib_dev *dev)
 	return 0;
 }
 
+// 设备卸载的时候调用
 int mlx5_mr_cache_cleanup(struct mlx5_ib_dev *dev)
 {
 	unsigned int i;
@@ -824,6 +936,7 @@ struct ib_mr *mlx5_ib_get_dma_mr(struct ib_pd *pd, int acc)
 
 	mkc = MLX5_ADDR_OF(create_mkey_in, in, memory_key_mkey_entry);
 
+	// PA = VA 的类型
 	MLX5_SET(mkc, mkc, access_mode_1_0, MLX5_MKC_ACCESS_MODE_PA);
 	MLX5_SET(mkc, mkc, length64, 1);
 	set_mkc_access_pd_addr_fields(mkc, acc, 0, pd);
@@ -857,6 +970,7 @@ static int get_octo_len(u64 addr, u64 len, int page_shift)
 
 	offset = addr & (page_size - 1);
 	npages = ALIGN(len + offset, page_size) >> page_shift;
+	// 一个 octo单位 存储两个 page 信息, ref: mlx5_mr_cache_init
 	return (npages + 1) / 2;
 }
 
@@ -867,6 +981,12 @@ static int mr_cache_max_order(struct mlx5_ib_dev *dev)
 	return MLX5_MAX_UMR_SHIFT;
 }
 
+// 一段 userspace va [start, start + length) 转换为内核管理的 ib_umem 对象
+// 然后计算出一些相关参数:
+// - page_shift: 实际使用的 page shift
+// - ncont: MTT entries 数目, 按 page shift 计算的
+// - npages: 系统的 4KB page 总数
+// - order ilog2(roundup_pos_of_two(ncont)): 选择 cache bucket 的
 static int mr_umem_get(struct mlx5_ib_dev *dev, u64 start, u64 length,
 		       int access_flags, struct ib_umem **umem, int *npages,
 		       int *page_shift, int *ncont, int *order)
@@ -875,9 +995,11 @@ static int mr_umem_get(struct mlx5_ib_dev *dev, u64 start, u64 length,
 
 	*umem = NULL;
 
-	if (access_flags & IB_ACCESS_ON_DEMAND) {
+	if (access_flags & IB_ACCESS_ON_DEMAND) { // ODP 路径
 		struct ib_umem_odp *odp;
 
+		/* 按需分配, 不 pin 物理 page.
+		 * 注册一个 mmu_inernal_notifier, 当用户态内存映射变化的时候, 更新对应的 MTT 条目 */
 		odp = ib_umem_odp_get(&dev->ib_dev, start, length, access_flags,
 				      &mlx5_mn_ops);
 		if (IS_ERR(odp)) {
@@ -893,7 +1015,8 @@ static int mr_umem_get(struct mlx5_ib_dev *dev, u64 start, u64 length,
 		*npages = *ncont << (*page_shift - PAGE_SHIFT);
 		if (order)
 			*order = ilog2(roundup_pow_of_two(*ncont));
-	} else {
+	} else { // 普通路径: 需要 pin 住 物理 page 的
+		 // 这里会分配(if needed)并 pin 住物理内存. 后面将 va->pa 的关系写到 MTT 里
 		u = ib_umem_get(&dev->ib_dev, start, length, access_flags);
 		if (IS_ERR(u)) {
 			mlx5_ib_dbg(dev, "umem get failed (%ld)\n", PTR_ERR(u));
@@ -934,6 +1057,7 @@ static inline void mlx5_ib_init_umr_context(struct mlx5_ib_umr_context *context)
 	init_completion(&context->done);
 }
 
+// post umr work request
 static int mlx5_ib_post_send_wait(struct mlx5_ib_dev *dev,
 				  struct mlx5_umr_wr *umrwr)
 {
@@ -949,8 +1073,8 @@ static int mlx5_ib_post_send_wait(struct mlx5_ib_dev *dev,
 	err = ib_post_send(umrc->qp, &umrwr->wr, &bad);
 	if (err) {
 		mlx5_ib_warn(dev, "UMR post send failed, err %d\n", err);
-	} else {
-		wait_for_completion(&umr_context.done);
+	} else { // 同步等待完成的
+		wait_for_completion(&umr_context.done); // ref: mlx5_ib_umr_done
 		if (umr_context.status != IB_WC_SUCCESS) {
 			mlx5_ib_warn(dev, "reg umr failed (%u)\n",
 				     umr_context.status);
@@ -961,6 +1085,7 @@ static int mlx5_ib_post_send_wait(struct mlx5_ib_dev *dev,
 	return err;
 }
 
+// 根据order 选一个 cache bucket 出来
 static struct mlx5_cache_ent *mr_cache_ent_from_order(struct mlx5_ib_dev *dev,
 						      unsigned int order)
 {
@@ -990,6 +1115,7 @@ alloc_mr_from_cache(struct ib_pd *pd, struct ib_umem *umem, u64 virt_addr,
 	if (!mlx5_ib_can_reconfig_with_umr(dev, 0, access_flags))
 		return ERR_PTR(-EOPNOTSUPP);
 
+	// 简单的分配一个 mr 并初始化咯
 	mr = get_cache_mr(ent);
 	if (!mr) {
 		mr = create_cache_mr(ent);
@@ -1012,14 +1138,32 @@ alloc_mr_from_cache(struct ib_pd *pd, struct ib_umem *umem, u64 virt_addr,
 			    MLX5_UMR_MTT_ALIGNMENT)
 #define MLX5_SPARE_UMR_CHUNK 0x10000
 
+// 通过 UMR 来更新一个 MKey 的翻译表的指定区间(MTT/KLM)
+//
+// mr: 需要更新的 mr/MKey
+// idx: MTT table 中的起始地址下标
+// npages: 徐阿哟更新的 entry 数目
+// page_shift: page offset, UMR WR 里游泳
+// flags: 控制更新什么东西, %MLX5_IB_UPD_XLT_ZAP
+//   - ZAP: 清空 entry, 用于 invalidate
+//   - ENABLE: 更新完成后, 将 MKey 从 free -> enabled
+//   - ATOMIC: 用 GFP_ATOMIC flag, 如果是 odp fault 路径来的, 是不能睡眠的
+//   - ADDR: 同时更新翻译(start_addr/len)
+//   - PD: 同时更新 PD
+//   - ACCESS: 同时更新访问权限
+//   - INDIRECT: entry 是 KLM (16B), 而不是普通的 MTT(8B)
+//
+//
+// mlx5_ib_update_xlt 是针对 user MR/ ODP场景的, 数据来源是 umem
+// mlx5_ib_map_mr_sg 是 FRMR 使用, 数据来源是内核的 scatterlist, 是普通的 MR 场景, 这里仅仅是把 SG 翻译后填充到 MR 的 dsc 里
 int mlx5_ib_update_xlt(struct mlx5_ib_mr *mr, u64 idx, int npages,
 		       int page_shift, int flags)
 {
 	struct mlx5_ib_dev *dev = mr->dev;
 	struct device *ddev = dev->ib_dev.dev.parent;
 	int size;
-	void *xlt;
-	dma_addr_t dma;
+	void *xlt; // 这里存储翻译表的内容, CPU 将计算后的翻译表填到这里后, 下发给硬件
+	dma_addr_t dma; // xlt 对应的 iova 地址
 	struct mlx5_umr_wr wr;
 	struct ib_sge sg;
 	int err = 0;
@@ -1087,8 +1231,8 @@ int mlx5_ib_update_xlt(struct mlx5_ib_mr *mr, u64 idx, int npages,
 		}
 	}
 
-	sg.addr = dma;
-	sg.lkey = dev->umrc.pd->local_dma_lkey;
+	sg.addr = dma; // xlt 所在位置的 iova 地址
+	sg.lkey = dev->umrc.pd->local_dma_lkey; // reserve local lkey, 让设备可以读取 xlt 所在内存
 
 	memset(&wr, 0, sizeof(wr));
 	wr.wr.send_flags = MLX5_IB_SEND_UMR_UPDATE_XLT;
@@ -1099,7 +1243,7 @@ int mlx5_ib_update_xlt(struct mlx5_ib_mr *mr, u64 idx, int npages,
 	wr.wr.opcode = MLX5_IB_WR_UMR;
 
 	wr.pd = mr->ibmr.pd;
-	wr.mkey = mr->mmkey.key;
+	wr.mkey = mr->mmkey.key; // 被修改的目标 mkey
 	wr.length = mr->mmkey.size;
 	wr.virt_addr = mr->mmkey.iova;
 	wr.access_flags = mr->access_flags;
@@ -1160,6 +1304,8 @@ free_xlt:
 /*
  * If ibmr is NULL it will be allocated by reg_create.
  * Else, the given ibmr will be used.
+ *
+ * MR 注册的慢速路径. 根据 populate 来判断是否要填充
  */
 static struct mlx5_ib_mr *reg_create(struct ib_mr *ibmr, struct ib_pd *pd,
 				     u64 virt_addr, u64 length,
@@ -1257,6 +1403,7 @@ static void set_mr_fields(struct mlx5_ib_dev *dev, struct mlx5_ib_mr *mr,
 	mr->access_flags = access_flags;
 }
 
+// device memory 类型的 mr
 static struct ib_mr *mlx5_ib_get_dm_mr(struct ib_pd *pd, u64 start_addr,
 				       u64 length, int acc, int mode)
 {
@@ -1320,6 +1467,7 @@ int mlx5_ib_advise_mr(struct ib_pd *pd,
 					 sg_list, num_sge);
 }
 
+// mlx5_ib_get_dm_mr 的简单封装
 struct ib_mr *mlx5_ib_reg_dm_mr(struct ib_pd *pd, struct ib_dm *dm,
 				struct ib_dm_mr_attr *attr,
 				struct uverbs_attr_bundle *attrs)
@@ -1404,7 +1552,7 @@ struct ib_mr *mlx5_ib_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 			mr = NULL;
 	}
 
-	if (!mr) {
+	if (!mr) { // 快速路径没有分配出来, 那么走慢速路径
 		mutex_lock(&dev->slow_path_mutex);
 		mr = reg_create(NULL, pd, virt_addr, length, umem, ncont,
 				page_shift, access_flags, !xlt_with_umr);
@@ -1429,6 +1577,7 @@ struct ib_mr *mlx5_ib_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 		 */
 		int update_xlt_flags = MLX5_IB_UPD_XLT_ENABLE;
 
+		// 填充翻译表
 		err = mlx5_ib_update_xlt(mr, 0, ncont, page_shift,
 					 update_xlt_flags);
 		if (err) {
@@ -1469,6 +1618,9 @@ error:
  * Upon return the NIC will not be doing any DMA to the pages under the MR,
  * and any DMA inprogress will be completed. Failure of this function
  * indicates the HW has failed catastrophically.
+ *
+ *
+ * invalidate UMR 映射, 通过 post send wr 实现
  */
 int mlx5_mr_cache_invalidate(struct mlx5_ib_mr *mr)
 {
@@ -1487,6 +1639,7 @@ int mlx5_mr_cache_invalidate(struct mlx5_ib_mr *mr)
 	return mlx5_ib_post_send_wait(mr->dev, &umrwr);
 }
 
+// post umr wr 咯
 static int rereg_umr(struct ib_pd *pd, struct mlx5_ib_mr *mr,
 		     int access_flags, int flags)
 {
@@ -2403,6 +2556,8 @@ out:
 	return 0;
 }
 
+// mlx5_ib_update_xlt 是针对 user MR/ ODP场景的, 数据来源是 umem
+// mlx5_ib_map_mr_sg 是 FRMR 使用, 数据来源是内核的 scatterlist, 是普通的 MR 场景, 这里仅仅是把 SG 翻译后填充到 MR 的 dsc 里
 int mlx5_ib_map_mr_sg(struct ib_mr *ibmr, struct scatterlist *sg, int sg_nents,
 		      unsigned int *sg_offset)
 {

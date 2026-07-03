@@ -1016,6 +1016,7 @@ EXPORT_SYMBOL(sg_pcopy_from_buffer);
  *
  * Returns the number of copied bytes.
  *
+ * sgl 里的 nents 个 entries copy 到 buf 里. copy 的时候要先跳过 skip Byte
  **/
 size_t sg_pcopy_to_buffer(struct scatterlist *sgl, unsigned int nents,
 			  void *buf, size_t buflen, off_t skip)

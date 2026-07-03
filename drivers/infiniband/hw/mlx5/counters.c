@@ -672,6 +672,7 @@ void mlx5_ib_counters_clear_description(struct ib_counters *counters)
 	mutex_unlock(&mcounters->mcntrs_mutex);
 }
 
+// 用于 hw-spec 的 counters
 static const struct ib_device_ops hw_stats_ops = {
 	.alloc_hw_stats = mlx5_ib_alloc_hw_stats,
 	.get_hw_stats = mlx5_ib_get_hw_stats,
@@ -682,6 +683,7 @@ static const struct ib_device_ops hw_stats_ops = {
 	.counter_update_stats = mlx5_ib_counter_update_stats,
 };
 
+// 提供接口给用户态使用的
 static const struct ib_device_ops counters_ops = {
 	.create_counters = mlx5_ib_create_counters,
 	.destroy_counters = mlx5_ib_destroy_counters,

@@ -2090,7 +2090,7 @@ struct ib_dm {
 struct ib_mr {
 	struct ib_device  *device;
 	struct ib_pd	  *pd;
-	u32		   lkey;	// 关键
+	u32		   lkey;	// 关键, ref: mlx5_ib_get_dma_mr. lkey rkey 是一样的
 	u32		   rkey;
 	u64		   iova;
 	u64		   length;

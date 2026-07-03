@@ -14,21 +14,25 @@
 struct ib_ucontext;
 struct ib_umem_odp;
 
+// 表示一段用户态内存
+// ref: ib_umem_get
 struct ib_umem {
 	struct ib_device       *ibdev;
 	struct mm_struct       *owning_mm;
 	u64 iova;
 	size_t			length;
-	unsigned long		address;
+	unsigned long		address; // va
 	u32 writable : 1;
 	u32 is_odp : 1;
-	struct work_struct	work;
+	struct work_struct	work; // for delay release ???
 	struct sg_table sg_head;
 	int             nmap;
 	unsigned int    sg_nents;
 };
 
-/* Returns the offset of the umem start relative to the first page. */
+/* Returns the offset of the umem start relative to the first page.
+ * page 内偏移
+ * */
 static inline int ib_umem_offset(struct ib_umem *umem)
 {
 	return umem->address & ~PAGE_MASK;

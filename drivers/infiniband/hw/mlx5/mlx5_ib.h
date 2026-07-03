@@ -262,27 +262,48 @@ enum mlx5_ib_rq_flags {
 	MLX5_IB_RQ_PCI_WRITE_END_PADDING	= 1 << 1,
 };
 
+/* ref: set_rq_size(), calc_sq_size()
+ * 
+ * ┌────────────────────┬─────────────────────────────┬─────────────────────────────────────┐
+ * │                    │      RQ (set_rq_size)       │          SQ (calc_sq_size)          │
+ * ├────────────────────┼─────────────────────────────┼─────────────────────────────────────┤
+ * │ WQE 大小           │ 固定,2 的幂                 │ 可变,对齐到 64B 整数倍              │
+ * ├────────────────────┼─────────────────────────────┼─────────────────────────────────────┤
+ * │ 寻址单元           │ = WQE                       │ = BB(64B),一条 WR 占多 BB           │
+ * ├────────────────────┼─────────────────────────────┼─────────────────────────────────────┤
+ * │ wqe_shift          │ ilog2(wqe_size)(每 QP 不同) │ 固定 6(=ilog2(MLX5_SEND_WQE_BB))    │
+ * ├────────────────────┼─────────────────────────────┼─────────────────────────────────────┤
+ * │ wqe_cnt            │ WQE 数                      │ BB 数(逻辑环以 BB 计)               │
+ * ├────────────────────┼─────────────────────────────┼─────────────────────────────────────┤
+ * │ max_post           │ == wqe_cnt                  │ wq_size / wqe_size ≠ wqe_cnt        │
+ * ├────────────────────┼─────────────────────────────┼─────────────────────────────────────┤
+ * │ FBC log_stride     │ rq.wqe_shift(变量)          │ 6(常量,见 qp.c:1088)                │
+ * ├────────────────────┼─────────────────────────────┼─────────────────────────────────────┤
+ * │ FBC strides_offset │ 0(RQ 在缓冲开头)            │ sq.offset 在页内折算(SQ 排在 RQ 后) │
+ * └────────────────────┴─────────────────────────────┴─────────────────────────────────────┘
+ * */
 struct mlx5_ib_wq {
-	struct mlx5_frag_buf_ctrl fbc;
-	u64		       *wrid;
-	u32		       *wr_data;
-	struct wr_list	       *w_list;
-	unsigned	       *wqe_head;
-	u16		        unsig_count;
+	struct mlx5_frag_buf_ctrl fbc;            // wq 的物理内存区域
+	u64		       *wrid;            // wrid[wqe+idx], post 的时候有一个 wr_id, CQE 完成时会返回
+	u32		       *wr_data;         // per-WQE data
+	struct wr_list	       *w_list;          // WR 序列信息
+	unsigned	       *wqe_head;        // 某个 WQE 所属 WR 的起始 WQE, SQ 一个 WR 有多个 WQEBB
+	u16		        unsig_count;     // 距离上次 signaled WR 的计数
 
 	/* serialize post to the work queue
 	 */
 	spinlock_t		lock;
-	int			wqe_cnt;
-	int			max_post;
-	int			max_gs;
-	int			offset;
-	int			wqe_shift;
-	unsigned		head;
-	unsigned		tail;
-	u16			cur_post;
-	u16			last_poll;
-	void			*cur_edge;
+	int			wqe_cnt; // 如果是 rq 的话, 就是 wqe 数量; sq 是 wqe_bb 数量
+	int			max_post; // 最多可以 post 的 wr 数量
+	int			max_gs; // 每个 wqe 最多的 sge 数量, 即刨除控制开销后可以存放的 data 段
+	int			offset; // 本队列在 QP buffer 里的偏移,  SQ 放在 RQ 之后的
+	int			wqe_shift; // RQ: log(实际 WQE 大小), SQ: ilog2(MLX5_SEND_WQE_BB) = 6(64B)
+					   //
+	unsigned		head; // consumer index, CQ poll 推进
+	unsigned		tail; // producer index,  post_send 推进
+	u16			cur_post; // 已 post 未完成的数量
+	u16			last_poll; // 上次 poll 得治
+	void			*cur_edge; // 当前 frag 的连续边界地址, 跨 frag 的 wqe 要特殊处理
 };
 
 enum mlx5_ib_wq_flags {
@@ -586,6 +607,7 @@ struct mlx5_ib_dm {
 #define mlx5_update_odp_stats(mr, counter_name, value)		\
 	atomic64_add(value, &((mr)->odp_stats.counter_name))
 
+// ref: alloc_mr_from_cache(), set_mr_fields()
 struct mlx5_ib_mr {
 	struct ib_mr		ibmr;
 	void			*descs;
@@ -601,7 +623,7 @@ struct mlx5_ib_mr {
 	struct ib_umem	       *umem;
 	struct mlx5_shared_mr_info	*smr_info;
 	struct list_head	list;
-	unsigned int		order;
+	unsigned int		order; // ref: mlx5_ib_pas_fits_in_mr, 单位是 MLX5_ADAPTER_PAGE_SIZE
 	struct mlx5_cache_ent  *cache_ent;
 	int			npages;
 	struct mlx5_ib_dev     *dev;
@@ -665,18 +687,30 @@ struct umr_common {
 	struct semaphore	sem;
 };
 
+// 用来组织某个 order 的 MKey(???)
+/* mlx5_ib_dev */
+/*   └── mlx5_mr_cache                 ← 全局缓存(每设备一个) */
+/*         ├── wq            workqueue_struct *   有序工作队列 "mkey_cache" */
+/*         ├── root          dentry *             debugfs 根目录 */
+/*         ├── last_add      unsigned long        最近一次添加 MR 的时间戳 */
+/*         └── ent[MAX_MR_CACHE_ENTRIES]          ← 分桶数组(23 个桶) */
+/*               └── mlx5_cache_ent               ← 每个 bucket */
+/* 两条分配路径: */
+/* - 异步路径: add_keys */
+/* - 同步路径: create_cache_mr */
 struct mlx5_cache_ent {
 	struct list_head	head;
 	/* sync access to the cahce entry
 	 */
-	spinlock_t		lock;
+	spinlock_t		lock; // 保护这个桶
 
 
+	// 跌到低水位的时候, 一口气补到高水位; 超过高水位则延迟回收
 	char                    name[4];
-	u32                     order;
-	u32			xlt;
-	u32			access_mode;
-	u32			page;
+	u32                     order;       // ref: mlx5_ib_pas_fits_in_mr, 单位是 MLX5_ADAPTER_PAGE_SIZE
+	u32			xlt;         // mtt 条目数量 (1<<order) * 8/16, 一个 entry 对应一个 page
+	u32			access_mode; // MLX5_MKC_ACCESS_MODE_MTT, 这个桶的 access mode 必须一样
+	u32			page;        // page offset, PAGE_SHIFT
 
 	u8 disabled:1;
 	u8 fill_to_high_water:1;
@@ -690,19 +724,20 @@ struct mlx5_cache_ent {
 	 *   upper water mark.
 	 * - pending is the number of MRs currently being created
 	 */
-	u32 total_mrs;
+	u32 total_mrs; // avail + 正在用的 + 可回收的
 	u32 available_mrs;
-	u32 limit;
-	u32 pending;
+	u32 limit; // 低水位
+	u32 pending; // 正在异步创建的数量
 
 	/* Statistics */
-	u32                     miss;
+	u32                     miss; // 统计: 未命中次数
 
 	struct mlx5_ib_dev     *dev;
 	struct work_struct	work;
 	struct delayed_work	dwork;
 };
 
+// ref: mlx5_mr_cache_init
 struct mlx5_mr_cache {
 	struct workqueue_struct *wq;
 	struct mlx5_cache_ent	ent[MAX_MR_CACHE_ENTRIES];
