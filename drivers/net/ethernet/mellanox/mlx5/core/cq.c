@@ -111,7 +111,7 @@ int mlx5_core_create_cq(struct mlx5_core_dev *dev, struct mlx5_core_cq *cq,
 	cq->uid = MLX5_GET(create_cq_in, in, uid);
 	refcount_set(&cq->refcount, 1);
 	init_completion(&cq->free);
-	if (!cq->comp)
+	if (!cq->comp)  // 如果没有 cq->comp 就使用 tasklet 路径
 		cq->comp = mlx5_add_cq_to_tasklet;
 	/* assuming CQ will be deleted before the EQ */
 	cq->tasklet_ctx.priv = &eq->tasklet_ctx;

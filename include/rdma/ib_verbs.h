@@ -1760,6 +1760,7 @@ struct ib_rdmacg_object {
 };
 
 // userspace open(uverbsX) 的时候分配一个
+// per-process * per-device
 struct ib_ucontext {
 	struct ib_device       *device;
 	struct ib_uverbs_file  *ufile;
@@ -1774,12 +1775,13 @@ struct ib_ucontext {
 	struct xarray mmap_xa;
 };
 
+// 一个 verbs 对象, pd, cq, qp, srq, mr, ah, MW, Flow, ....
 struct ib_uobject {
 	u64			user_handle;	/* handle given to us by userspace */
 	/* ufile & ucontext owning this object */
 	struct ib_uverbs_file  *ufile;
 	/* FIXME, save memory: ufile->context == context */
-	struct ib_ucontext     *context;	/* associated user context */
+	struct ib_ucontext     *context;	/* associated user context */ // 这里很关键, 需要 driver spec 的 ucontext 的.
 	void		       *object;		/* containing object */
 	struct list_head	list;		/* link to context's list */
 	struct ib_rdmacg_object	cg_obj;		/* rdmacg object */
@@ -1792,7 +1794,9 @@ struct ib_uobject {
 };
 
 
-// udata 是 userspace 和底层 drive 直接通信的信息
+// udata 是 userspace 和底层 drive 直接通信的信息, 绕过 uverbs 框架的
+// ib_udata 不是直接使用的, 是嵌入到 uverbs_attr_bundle 里传递给 handler 的
+// ref: ib_uverbs_run_method
 struct ib_udata {
 	const void __user *inbuf;
 	void __user *outbuf;
@@ -1848,7 +1852,7 @@ enum ib_poll_context {
 struct ib_cq {
 	struct ib_device       *device;
 	struct ib_ucq_object   *uobject;
-	ib_comp_handler   	comp_handler; // ib_uverbs_comp_handler, rds_ib_cq_comp_handler_send
+	ib_comp_handler   	comp_handler; // ib_uverbs_comp_handler, rds_ib_cq_comp_handler_send, ib_cq_completion_softirq
 	void                  (*event_handler)(struct ib_event *, void *); // ib_uverbs_cq_event_handler, rds_ib_cq_event_handler
 	void                   *cq_context;
 	int               	cqe;
@@ -1885,7 +1889,7 @@ struct ib_srq {
 	struct ib_device       *device;
 	struct ib_pd	       *pd;
 	struct ib_usrq_object  *uobject;
-	void		      (*event_handler)(struct ib_event *, void *);
+	void		      (*event_handler)(struct ib_event *, void *); // ib_uverbs_srq_event_handler
 	void		       *srq_context;
 	enum ib_srq_type	srq_type;
 	atomic_t		usecnt;

@@ -97,6 +97,7 @@ static int uapi_create_write(struct uverbs_api *uapi,
 	return 0;
 }
 
+// 编译期 一份份的 uverbs_method_def 合并到运行时的 radix tree 里
 static int uapi_merge_method(struct uverbs_api *uapi,
 			     struct uverbs_api_object *obj_elm, u32 obj_key,
 			     const struct uverbs_method_def *method,

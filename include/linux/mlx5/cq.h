@@ -36,6 +36,7 @@
 #include <linux/mlx5/driver.h>
 #include <linux/refcount.h>
 
+// ref: mlx5_ib_create_cq
 struct mlx5_core_cq {
 	u32			cqn;
 	int			cqe_sz;
@@ -46,8 +47,9 @@ struct mlx5_core_cq {
 	struct completion	free;
 	unsigned		vector;
 	unsigned int		irqn;
-	void (*comp)(struct mlx5_core_cq *cq, struct mlx5_eqe *eqe);
-	void (*event)		(struct mlx5_core_cq *, enum mlx5_event);
+	// ref: mlx5_ib_create_cq
+	void (*comp)(struct mlx5_core_cq *cq, struct mlx5_eqe *eqe); // mlx5_ib_cq_comp
+	void (*event)		(struct mlx5_core_cq *, enum mlx5_event); // mlx5_ib_cq_event
 	u32			cons_index;
 	unsigned		arm_sn;
 	struct mlx5_rsc_debug	*dbg;

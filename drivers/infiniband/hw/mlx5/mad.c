@@ -28,6 +28,23 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
+ * connection management mad 报文结构
+ * +--------------------------------------------------------------------------------+
+ * | BTH | DETH | MAD Base Format | cm message | CM REQ Message Private Data Format |
+ * +--------------------------------------------------------------------------------+
+ *
+ *
+ * =========================================
+ * MAD 代理
+ * =========================================
+ * # mlx5_ib_process_mad
+ *   其他模块收到 mad 报文后, 调用这里做处理. ref: ib_mad_recv_done
+ *
+ *
+ * Connection Management 不会走到这里的, 在 mad 公共模块就处理了. 这里主要负责一些 hw-spec 的 mad 报文的处理.
+ * 一般是 QP0 的 smi 报文.
+ *
  */
 
 #include <linux/mlx5/vport.h>
@@ -45,6 +62,7 @@ enum {
 static bool can_do_mad_ifc(struct mlx5_ib_dev *dev, u8 port_num,
 			   struct ib_mad *in_mad)
 {
+	// yucca CMU400 我们通通不支持, 仅仅支持 CM
 	if (in_mad->mad_hdr.mgmt_class != IB_MGMT_CLASS_SUBN_LID_ROUTED &&
 	    in_mad->mad_hdr.mgmt_class != IB_MGMT_CLASS_SUBN_DIRECTED_ROUTE)
 		return true;

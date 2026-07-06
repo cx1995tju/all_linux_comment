@@ -120,7 +120,7 @@ struct mlx5_bfreg_info {
 };
 
 struct mlx5_ib_ucontext {
-	struct ib_ucontext	ibucontext;
+	struct ib_ucontext	ibucontext; // first-member inherit
 	struct list_head	db_page_list;
 
 	/* protect doorbell record alloc/free
@@ -230,7 +230,7 @@ struct mlx5_ib_flow_db {
  */
 #define MLX5_IB_QPT_HW_GSI	IB_QPT_RESERVED2
 #define MLX5_IB_QPT_DCI		IB_QPT_RESERVED3
-#define MLX5_IB_QPT_DCT		IB_QPT_RESERVED4
+#define MLX5_IB_QPT_DCT		IB_QPT_RESERVED4 // mlx 特有的 QP
 #define MLX5_IB_WR_UMR		IB_WR_RESERVED1
 
 #define MLX5_IB_UMR_OCTOWORD	       16
@@ -406,7 +406,7 @@ struct mlx5_ib_dct {
 };
 
 struct mlx5_ib_gsi_qp {
-	struct ib_qp *rx_qp;
+	struct ib_qp *rx_qp; // 一个 MLX5_IB_QPT_HW_GSI 类型的 qp, 仅仅用来接收 MAD
 	u8 port_num;
 	struct ib_qp_cap cap;
 	struct ib_cq *cq;
@@ -418,7 +418,11 @@ struct mlx5_ib_gsi_qp {
 	 * outstanding_wrs array and indices.
 	 */
 	spinlock_t lock;
-	struct ib_qp **tx_qps;
+	// ref: mlx5_ib_deth_sqpn_cap(), mlx5_ib_create_gsi()
+	// rocev2 non-lag 场景不用这个, 直接用 rx_qp 来发送的, ref: get_tx_qp
+	struct ib_qp * *tx_qps; // 一堆 UD QP 用来发送 MAD. 根据 spec 的精神, 不同的 agent 应该用不同的 SQPN 的, 每个 pkey 分配一个
+	             // (???) mlx 硬件限制导致同一个 UD QP 只能用固定的 SQPN, 而
+	             // QP1 的 SQPN 是可以变化的.
 };
 
 struct mlx5_ib_qp {
@@ -518,7 +522,7 @@ struct mlx5_ib_cq {
 
 	/* serialize access to the CQ
 	 */
-	spinlock_t		lock;
+	spinlock_t		lock; // ref: mlx5_ib_lock_cqs()
 
 	/* protect resize cq
 	 */

@@ -11,6 +11,15 @@
 #include "mlx5_ib.h"
 #include "srq.h"
 
+/* srq verbs api 的实现. 简单的收集一些信息, 然后发命令给硬件咯
+ * 
+ * mlx5_ib_create_srq
+ * mlx5_ib_destroy_srq
+ * mlx5_ib_free_srq_wqe
+ * mlx5_ib_modify_srq
+ * mlx5_ib_post_srq_recv
+ * mlx5_ib_query_srq
+ * */
 static void *get_wqe(struct mlx5_ib_srq *srq, int n)
 {
 	return mlx5_frag_buf_get_wqe(&srq->fbc, n);
@@ -80,6 +89,7 @@ static int create_srq_user(struct ib_pd *pd, struct mlx5_ib_srq *srq,
 
 	srq->wq_sig = !!(ucmd.flags & MLX5_SRQ_FLAG_SIGNATURE);
 
+	// 搞一块物理内存并组织好
 	srq->umem = ib_umem_get(pd->device, ucmd.buf_addr, buf_size, 0);
 	if (IS_ERR(srq->umem)) {
 		mlx5_ib_dbg(dev, "failed umem get, size %d\n", buf_size);
@@ -87,6 +97,7 @@ static int create_srq_user(struct ib_pd *pd, struct mlx5_ib_srq *srq,
 		return err;
 	}
 
+	// 聚合小的 page, 为其选择合适的 MTT size
 	mlx5_ib_cont_pages(srq->umem, ucmd.buf_addr, 0, &npages,
 			   &page_shift, &ncont, NULL);
 	err = mlx5_ib_get_buf_offset(ucmd.buf_addr, page_shift,
@@ -298,6 +309,8 @@ int mlx5_ib_create_srq(struct ib_srq *ib_srq,
 
 	in.pd = to_mpd(ib_srq->pd)->pdn;
 	in.db_record = srq->db.dma;
+
+	// 发命令给硬件咯
 	err = mlx5_cmd_create_srq(dev, &srq->msrq, &in);
 	kvfree(in.pas);
 	if (err) {

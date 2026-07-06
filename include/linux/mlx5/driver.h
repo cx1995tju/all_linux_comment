@@ -86,6 +86,7 @@ enum {
 	MLX5_MAX_PORTS	= 2,
 };
 
+// ref: atomic_size_to_mode
 enum {
 	MLX5_ATOMIC_MODE_OFFSET = 16,
 	MLX5_ATOMIC_MODE_IB_COMP = 1,
@@ -321,7 +322,8 @@ struct mlx5_buf_list {
 	dma_addr_t		map;
 };
 
-// 多个 frag 组成的 buffer
+// 多个 frag/page 组成的 buffer
+/* frag_buf_ctrl 将多个不连续的 PAGE_SIZE 大小的page 抽象为逻辑连续的 stride 数组 */
 struct mlx5_frag_buf {
 	struct mlx5_buf_list	*frags;
 	int			npages;
@@ -746,10 +748,10 @@ struct mlx5_core_dev {
 };
 
 struct mlx5_db {
-	__be32			*db;
+	__be32			*db; // doorbell record: wqe_cnt / wqebb_cnt
 	union {
 		struct mlx5_db_pgdir		*pgdir;
-		struct mlx5_ib_user_db_page	*user_page;
+		struct mlx5_ib_user_db_page	*user_page; // uar
 	}			u;
 	dma_addr_t		dma;
 	int			index;

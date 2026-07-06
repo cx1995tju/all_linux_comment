@@ -2,7 +2,49 @@
 /*
  * Copyright (c) 2020, Mellanox Technologies inc. All rights reserved.
  */
-
+/*
+ * ======================================
+ * WQ ring buffer 处理
+ * ======================================
+ *
+ *
+ *
+ * ======================================
+ * WQE segment builder
+ * ======================================
+ * - set_raddr_seg
+ * - set_eth_seg
+ * - set_datagram_seg
+ * - set_data_ptr_seg
+ * - set_reg_umr_seg
+ * - set_linv_umr_seg
+ * - set_reg_umr_segment
+ * - set_reg_mkey_seg
+ * - set_linv_mkey_seg
+ * - set_reg_mkey_segment
+ * - set_reg_data_seg
+ * - set_data_inl_seg
+ * - set_sig_data_segment
+ * - set_sig_mkey_segment
+ * - set_sig_umr_segment
+ * - begin_wqe
+ * - finish_wqe
+ *
+ * ======================================
+ * WR builder
+ * ======================================
+ * - set_pi_umr_wr
+ * - set_psv_wr
+ * - set_reg_wr
+ * - set_linv_wr
+ *
+ * ======================================
+ * verbs API
+ * ======================================
+ * - post_send -> handle_qpt_rc/handle_qpt_hw_gsi/handle_qpt_ud
+ * - post_recv
+ *
+ * */
 #include <linux/gfp.h>
 #include <linux/mlx5/qp.h>
 #include <linux/mlx5/driver.h>
@@ -31,18 +73,23 @@ static const u32 mlx5_ib_opcode[] = {
  * @seg: Current WQE position (16B aligned).
  * @wqe_sz: Total current WQE size [16B].
  * @cur_edge: Updated current edge.
+ *
+ * SQ 的 WQE 是 wqebb 组成的, 但是单个 WQEBB 不能跨 page 边界.
  */
 static inline void handle_post_send_edge(struct mlx5_ib_wq *sq, void **seg,
 					 u32 wqe_sz, void **cur_edge)
 {
 	u32 idx;
 
-	if (likely(*seg != *cur_edge))
+	if (likely(*seg != *cur_edge)) // 快路径
 		return;
 
+	// >> 2 从 DS 换算为 WQEBB
+	// 当前 wqe 的 index
 	idx = (sq->cur_post + (wqe_sz >> 2)) & (sq->wqe_cnt - 1);
 	*cur_edge = get_sq_edge(sq, idx);
 
+	// 这里会自动处理 frag 边界跨越的问题
 	*seg = mlx5_frag_buf_get_wqe(&sq->fbc, idx);
 }
 
@@ -54,6 +101,8 @@ static inline void handle_post_send_edge(struct mlx5_ib_wq *sq, void **seg,
  * @wqe_sz: Total current WQE size [16B].
  * @src: Pointer to copy from.
  * @n: Number of bytes to copy.
+ *
+ * 从 src 里 copy n 个 wqe 到 sq 里. 自动处理跨 frag 边界的情况
  */
 static inline void memcpy_send_wqe(struct mlx5_ib_wq *sq, void **cur_edge,
 				   void **seg, u32 *wqe_sz, const void *src,
@@ -82,17 +131,18 @@ static int mlx5_wq_overflow(struct mlx5_ib_wq *wq, int nreq,
 	unsigned int cur;
 
 	cur = wq->head - wq->tail;
-	if (likely(cur + nreq < wq->max_post))
+	if (likely(cur + nreq < wq->max_post)) // 这里是 <, 不是那么精确的. 此时 cq 可能正在推进 wq 的
 		return 0;
 
 	cq = to_mcq(ib_cq);
-	spin_lock(&cq->lock);
+	spin_lock(&cq->lock); // cq 上锁重新读, wq 的消费者是 cq
 	cur = wq->head - wq->tail;
 	spin_unlock(&cq->lock);
 
 	return cur + nreq >= wq->max_post;
 }
 
+// raddr seg builder
 static __always_inline void set_raddr_seg(struct mlx5_wqe_raddr_seg *rseg,
 					  u64 remote_addr, u32 rkey)
 {
@@ -165,6 +215,8 @@ static void set_data_ptr_seg(struct mlx5_wqe_data_seg *dseg, struct ib_sge *sg)
 	dseg->addr       = cpu_to_be64(sg->addr);
 }
 
+// xlt: translation
+// 翻译表单个 entry 是 16B, 存 2 个 entry
 static u64 get_xlt_octo(u64 bytes)
 {
 	return ALIGN(bytes, MLX5_IB_UMR_XLT_ALIGNMENT) /
@@ -964,6 +1016,7 @@ static int __begin_wqe(struct mlx5_ib_qp *qp, void **seg,
 	return 0;
 }
 
+// ctrl wqe 的填充
 static int begin_wqe(struct mlx5_ib_qp *qp, void **seg,
 		     struct mlx5_wqe_ctrl_seg **ctrl,
 		     const struct ib_send_wr *wr, unsigned int *idx, int *size,
@@ -974,6 +1027,7 @@ static int begin_wqe(struct mlx5_ib_qp *qp, void **seg,
 			   wr->send_flags & IB_SEND_SOLICITED);
 }
 
+// 也是填充 ctrl wqe, 但是有些字段要等到后面的 segment 填充完了才来填充. 比如: 整个 wqe 的大小 DS 字段
 static void finish_wqe(struct mlx5_ib_qp *qp,
 		       struct mlx5_wqe_ctrl_seg *ctrl,
 		       void *seg, u8 size, void *cur_edge,

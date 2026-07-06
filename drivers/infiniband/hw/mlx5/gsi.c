@@ -28,6 +28,32 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
+ *
+ *
+ * =========================================
+ * 核心结构: mlx5_ib_gsi_qp
+ * =========================================
+ * - 表示 QP1
+ *
+ *
+ *
+ *
+ *
+ * =========================================
+ * 核心函数
+ * =========================================
+ * - mlx5_ib_create_gsi
+ * - setup_qp
+ * - mlx5_ib_gsi_post_recv
+ * - mlx5_ib_gsi_post_send
+ *
+ *
+ * verbs 接口还是要对接到上层 qp 的verbs 接口的, 根据 qp type 分流到这里. 并不会直接暴露出去.
+ *
+ *
+ *
+ *
  */
 
 #include "mlx5_ib.h"
@@ -38,6 +64,7 @@ struct mlx5_ib_gsi_wr {
 	bool completed:1;
 };
 
+/* 老的 mlx 硬件有限制, 某个 UD QP 的 SQPN 不能变化(???) */
 static bool mlx5_ib_deth_sqpn_cap(struct mlx5_ib_dev *dev)
 {
 	return MLX5_CAP_GEN(dev->mdev, set_deth_sqpn);
@@ -51,11 +78,12 @@ static void generate_completions(struct mlx5_ib_qp *mqp)
 	struct mlx5_ib_gsi_wr *wr;
 	u32 index;
 
+	// 尝试为所有的 outstanding_wrs 生成 completion
 	for (index = gsi->outstanding_ci; index != gsi->outstanding_pi;
 	     index++) {
 		wr = &gsi->outstanding_wrs[index % gsi->cap.max_send_wr];
 
-		if (!wr->completed)
+		if (!wr->completed) // 说明是有 order 的
 			break;
 
 		WARN_ON_ONCE(mlx5_ib_generate_wc(gsi_cq, &wr->wc));
@@ -65,6 +93,7 @@ static void generate_completions(struct mlx5_ib_qp *mqp)
 	gsi->outstanding_ci = index;
 }
 
+// gsi 的 cq
 static void handle_single_completion(struct ib_cq *cq, struct ib_wc *wc)
 {
 	struct mlx5_ib_gsi_qp *gsi = cq->cq_context;
@@ -95,7 +124,7 @@ int mlx5_ib_create_gsi(struct ib_pd *pd, struct mlx5_ib_qp *mqp,
 	int num_qps = 0;
 	int ret;
 
-	if (mlx5_ib_deth_sqpn_cap(dev)) {
+	if (mlx5_ib_deth_sqpn_cap(dev)) { // 新的硬件会走到这里来的, 另外 roce 也不 care 这里的事情
 		if (MLX5_CAP_GEN(dev->mdev,
 				 port_type) == MLX5_CAP_PORT_TYPE_IB)
 			num_qps = pd->device->attrs.max_pkeys;
@@ -105,7 +134,7 @@ int mlx5_ib_create_gsi(struct ib_pd *pd, struct mlx5_ib_qp *mqp,
 
 	gsi = &mqp->gsi;
 	gsi->tx_qps = kcalloc(num_qps, sizeof(*gsi->tx_qps), GFP_KERNEL);
-	if (!gsi->tx_qps)
+	if (!gsi->tx_qps) // num_qps 为 0 的时候, 返回值是 ZERO_SIZE_PTR
 		return -ENOMEM;
 
 	gsi->outstanding_wrs =
@@ -346,7 +375,7 @@ static void setup_qps(struct mlx5_ib_gsi_qp *gsi)
 
 	mutex_lock(&dev->devr.mutex);
 	for (qp_index = 0; qp_index < gsi->num_qps; ++qp_index)
-		setup_qp(gsi, qp_index);
+		setup_qp(gsi, qp_index); // roce non-lag 场景, 不走这里
 	mutex_unlock(&dev->devr.mutex);
 }
 
@@ -405,7 +434,7 @@ static int mlx5_ib_add_outstanding_wr(struct mlx5_ib_qp *mqp,
 		memset(&gsi_wr->wc, 0, sizeof(gsi_wr->wc));
 		gsi_wr->wc.pkey_index = wr->pkey_index;
 		gsi_wr->wc.wr_id = wr->wr.wr_id;
-	} else {
+	} else { // ref: mlx5_ib_gsi_silent_drop
 		gsi_wr->wc = *wc;
 		gsi_wr->completed = true;
 	}
@@ -421,7 +450,7 @@ static int mlx5_ib_gsi_silent_drop(struct mlx5_ib_qp *mqp, struct ib_ud_wr *wr)
 {
 	struct ib_wc wc = {
 		{ .wr_id = wr->wr.wr_id },
-		.status = IB_WC_SUCCESS,
+		.status = IB_WC_SUCCESS, // wc 直接标记为完成了
 		.opcode = IB_WC_SEND,
 		.qp = &mqp->ibqp,
 	};
@@ -444,7 +473,7 @@ static struct ib_qp *get_tx_qp(struct mlx5_ib_gsi_qp *gsi, struct ib_ud_wr *wr)
 	int qp_index = wr->pkey_index;
 
 	if (!gsi->num_qps)
-		return gsi->rx_qp;
+		return gsi->rx_qp; // here: roce non-lag 场景, 直接用 rx_qp 来发送的
 
 	if (dev->lag_active && ah->xmit_port)
 		qp_index = ah->xmit_port - 1;

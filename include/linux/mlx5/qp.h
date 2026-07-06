@@ -122,6 +122,7 @@ enum {
 	MLX5_QP_PM_REARM			= 0x1
 };
 
+// ref: get_rx_type()
 enum {
 	MLX5_NON_ZERO_RQ	= 0x0,
 	MLX5_SRQ_RQ		= 0x1,

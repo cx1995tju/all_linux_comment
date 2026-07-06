@@ -43,6 +43,8 @@ struct mlx5_ib_user_db_page {
 	int			refcnt;
 };
 
+
+// 将一个 userspace 提供的 va, 转换为硬件可以识别的物理地址
 int mlx5_ib_db_map_user(struct mlx5_ib_ucontext *context,
 			struct ib_udata *udata, unsigned long virt,
 			struct mlx5_db *db)
@@ -52,6 +54,7 @@ int mlx5_ib_db_map_user(struct mlx5_ib_ucontext *context,
 
 	mutex_lock(&context->db_page_mutex);
 
+	// 多个 doorbell 在同一个 page 的话, 这里直接找到就不需要去 pin 了
 	list_for_each_entry(page, &context->db_page_list, list)
 		if (page->user_virt == (virt & PAGE_MASK))
 			goto found;
@@ -62,10 +65,10 @@ int mlx5_ib_db_map_user(struct mlx5_ib_ucontext *context,
 		goto out;
 	}
 
-	page->user_virt = (virt & PAGE_MASK);
+	page->user_virt = (virt & PAGE_MASK); // va
 	page->refcnt    = 0;
 	page->umem = ib_umem_get(context->ibucontext.device, virt & PAGE_MASK,
-				 PAGE_SIZE, 0);
+				 PAGE_SIZE, 0); // 对应的内存, umem 里保存了 page
 	if (IS_ERR(page->umem)) {
 		err = PTR_ERR(page->umem);
 		kfree(page);

@@ -139,9 +139,12 @@ EXPORT_SYMBOL(ib_umem_find_best_pgsz);
  * @access: IB_ACCESS_xxx flags for memory being pinned
  *
  *
+ * 搞一块物理内存并映射, 组织好
+
  * 用户态内存: [addr, addr+size)
  *
  * 为其分配内存, 并 pin 住, 然后封装为一个 ib_umem 结构
+ *
  */
 struct ib_umem *ib_umem_get(struct ib_device *device, unsigned long addr,
 			    size_t size, int access)

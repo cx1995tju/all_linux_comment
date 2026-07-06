@@ -20,19 +20,24 @@
 
 enum uverbs_attr_type {
 	UVERBS_ATTR_TYPE_NA,
-	UVERBS_ATTR_TYPE_PTR_IN,
-	UVERBS_ATTR_TYPE_PTR_OUT,
-	UVERBS_ATTR_TYPE_IDR,
-	UVERBS_ATTR_TYPE_FD,
-	UVERBS_ATTR_TYPE_ENUM_IN,
-	UVERBS_ATTR_TYPE_IDRS_ARRAY,
+	UVERBS_ATTR_TYPE_PTR_IN,  // user   -> kernel pointer
+	UVERBS_ATTR_TYPE_PTR_OUT, // kernel -> user   pointer
+	UVERBS_ATTR_TYPE_IDR,     // 引用一个 uverbs 对象 (通过 IDR)
+	UVERBS_ATTR_TYPE_FD,      // 引用一个 uverbs 对象 (通过 FD)
+	UVERBS_ATTR_TYPE_ENUM_IN, // 由用户选择一个属性 ID. uverbs_attr_spec.u2.enum_def.ids 用户提供一个 enum 值. method 自己根据情况去选择.
+	UVERBS_ATTR_TYPE_IDRS_ARRAY, // uverbs 对象数组 (???)
 };
 
+/* 对于 IDR/FD/IDRS_ARR 类型的属性, 需要访问别的 uverbs 对象, handler
+ * 会如何使用该对象.
+ *
+ * 引用对象的时候用的是:  uverbs_attr_spec.u.obj
+ * */
 enum uverbs_obj_access {
-	UVERBS_ACCESS_READ,
-	UVERBS_ACCESS_WRITE,
-	UVERBS_ACCESS_NEW,
-	UVERBS_ACCESS_DESTROY
+	UVERBS_ACCESS_READ,   // read-only, handler 结束后自动放回
+	UVERBS_ACCESS_WRITE,  // 独占借用
+	UVERBS_ACCESS_NEW,    // 创建并插入对象表
+	UVERBS_ACCESS_DESTROY // 取出并销毁
 };
 
 /* Specification of a single attribute inside the ioctl message */
@@ -291,25 +296,27 @@ static inline __attribute_const__ u32 uapi_bkey_to_key_attr(u32 attr_bkey)
  * =======================================
  */
 
+/* % UVERBS_ATTR_IDR */
 struct uverbs_attr_def {
 	u16                           id;
 	struct uverbs_attr_spec       attr;
 };
 
+// 单个 method, 对应一个 ioctl 命令
 struct uverbs_method_def {
-	u16                                  id;
+	u16                                  id; // parent object id + method id 来索引
 	/* Combination of bits from enum UVERBS_ACTION_FLAG_XXXX */
 	u32				     flags;
 	size_t				     num_attrs;
-	const struct uverbs_attr_def * const (*attrs)[];
+	const struct uverbs_attr_def * const (*attrs)[]; // 整个框架会根据 attrs 的定义来处理输入, 然后将其组织为 uversb_attr_bundle 后调用 handler (???)
 	int (*handler)(struct uverbs_attr_bundle *attrs);
 };
 
 struct uverbs_object_def {
 	u16					 id;
-	const struct uverbs_obj_type	        *type_attrs;
-	size_t				         num_methods;
-	const struct uverbs_method_def * const (*methods)[];
+	const struct uverbs_obj_type	        *type_attrs;  // 对象属性
+	size_t				         num_methods; 
+	const struct uverbs_method_def * const (*methods)[];  // 对象方法
 };
 
 enum uapi_definition_kind {
@@ -624,7 +631,8 @@ struct uverbs_attr_bundle {
 	struct ib_udata driver_udata;
 	struct ib_udata ucore;
 	struct ib_uverbs_file *ufile;
-	struct ib_ucontext *context;
+	// ib_uverbs_cmd_verbs -> alloc_uboj -> rdma_lookup_get_uobject 赋值的
+	struct ib_ucontext *context; // 这里很关键, 可以所用到 ucontext 的, ref: rdma_udata_to_drv_context
 	struct ib_uobject *uobject;
 	DECLARE_BITMAP(attr_present, UVERBS_API_ATTR_BKEY_LEN);
 	struct uverbs_attr attrs[];
@@ -646,6 +654,15 @@ static inline bool uverbs_attr_is_valid(const struct uverbs_attr_bundle *attrs_b
  * 'udata' to determine if the driver call is in user or kernel mode, not
  * 'ucontext'.
  *
+ *
+ * 底层 driver 拿到的参数是 struct ib_udata *udata. 将其转换为 per-process *
+ * per-device 的 driver-spec ucontext 结构. (e.g mlx5_ib_ucontext)
+ *
+ * - udata 嵌入 uverbs_attr_bundle 结构, uverbs ioctl 框架实现的
+ * - uverbs_attr_bundle 中有成员指向 ib_ucontext context 成员, 这也是 uverbs
+ *   ioctl 框架实现的
+ * - ib_ucontext context 是底层driver 分配的 driver spec 的 ucontext, 不过 first
+ *   member 是 ib_ucontext. ref: mlx5_ib_ucontext
  */
 #define rdma_udata_to_drv_context(udata, drv_dev_struct, member)               \
 	(udata ? container_of(container_of(udata, struct uverbs_attr_bundle,   \

@@ -78,11 +78,16 @@
  *
  * # bfreg 管理
  *
+ * # 基本都是组织一些参数, 然后下发命令给硬件
+ *
+ * # 路由相关
+ *   - mlx5_set_path -> mlx5_set_path_udp_sport
+ *
  * =========================================
  * qp event mechanism
  * =========================================
  * - mlx5_ib_qp_event -> 简单的投递到上层的 ib_core 里了
- *
+ * - mlx5_ib_wq_event
  * =========================================
  * BFREG subsystem
  * =========================================
@@ -1006,6 +1011,7 @@ static int _create_user_qp(struct mlx5_ib_dev *dev, struct ib_pd *pd,
 	u16 uid;
 	u32 uar_flags;
 
+	// mlx5 的 driver 和用户态交互的数据是 mlx5_ib_ucontext 结构, 这里转换一下
 	context = rdma_udata_to_drv_context(udata, struct mlx5_ib_ucontext,
 					    ibucontext);
 	uar_flags = qp->flags_en &
@@ -1038,6 +1044,7 @@ static int _create_user_qp(struct mlx5_ib_dev *dev, struct ib_pd *pd,
 		uar_index = bfregn_to_uar_index(dev, &context->bfregi, bfregn,
 						false);
 
+	// 收集一些信息罢了
 	qp->rq.offset = 0;
 	qp->sq.wqe_shift = ilog2(MLX5_SEND_WQE_BB);
 	qp->sq.offset = qp->rq.wqe_cnt << qp->rq.wqe_shift;
@@ -1083,6 +1090,7 @@ static int _create_user_qp(struct mlx5_ib_dev *dev, struct ib_pd *pd,
 		resp->bfreg_index = MLX5_IB_INVALID_BFREG;
 	qp->bfregn = bfregn;
 
+	// 将一个 userspace 提供的 va, 转换为硬件可以识别的物理地址
 	err = mlx5_ib_db_map_user(context, udata, ucmd->db_addr, &qp->db);
 	if (err) {
 		mlx5_ib_dbg(dev, "map failed\n");
@@ -1866,6 +1874,8 @@ err:
 	return err;
 }
 
+// scatter cqe, 将小数据直接放到 CQE 里
+// requester 端的 scatter cqe 以前有个限制, 必须开启 sg_sig_all
 static void configure_requester_scat_cqe(struct mlx5_ib_dev *dev,
 					 struct mlx5_ib_qp *qp,
 					 struct ib_qp_init_attr *init_attr,
@@ -2171,7 +2181,7 @@ static int create_user_qp(struct mlx5_ib_dev *dev, struct ib_pd *pd,
 		raw_packet_qp_copy_info(qp, &qp->raw_packet_qp);
 		err = create_raw_packet_qp(dev, qp, in, inlen, pd, udata,
 					   &params->resp);
-	} else
+	} else // 给硬件发命令了
 		err = mlx5_qpc_create_qp(dev, &base->mqp, in, inlen, out);
 
 	kvfree(in);
@@ -3283,12 +3293,17 @@ static void mlx5_set_path_udp_sport(void *path, const struct rdma_ah_attr *ah,
 {
 	u32 fl = ah->grh.flow_label;
 
-	if (!fl)
+	if (!fl) // lqpn + rqpn => flow label
 		fl = rdma_calc_flow_label(lqpn, rqpn);
 
+	// 信息要存到 path 里咯
+	// flow label => udp sport
 	MLX5_SET(ads, path, udp_sport, rdma_flow_label_to_udp_sport(fl));
 }
 
+/* 将标准的 rdma_ah_attr 按照 IB/RoCE 翻译为特定的 address descriptor  segement
+ * 二进制段(存在 path 里), 供硬件消费. 
+ * */
 static int mlx5_set_path(struct mlx5_ib_dev *dev, struct mlx5_ib_qp *qp,
 			 const struct rdma_ah_attr *ah, void *path, u8 port,
 			 int attr_mask, u32 path_flags,
@@ -3300,6 +3315,7 @@ static int mlx5_set_path(struct mlx5_ib_dev *dev, struct mlx5_ib_qp *qp,
 	u8 ah_flags = rdma_ah_get_ah_flags(ah);
 	u8 sl = rdma_ah_get_sl(ah);
 
+	/* 1. pkey */
 	if (attr_mask & IB_QP_PKEY_INDEX)
 		MLX5_SET(ads, path, pkey_index,
 			 alt ? attr->alt_pkey_index : attr->pkey_index);
@@ -3329,6 +3345,7 @@ static int mlx5_set_path(struct mlx5_ib_dev *dev, struct mlx5_ib_qp *qp,
 			mlx5_set_path_udp_sport(path, ah,
 						qp->ibqp.qp_num,
 						attr->dest_qp_num);
+		/* 2. ether pcp, service level */
 		MLX5_SET(ads, path, eth_prio, sl & 0x7);
 		gid_type = ah->grh.sgid_attr->gid_type;
 		if (gid_type == IB_GID_TYPE_ROCE_UDP_ENCAP)
@@ -3343,7 +3360,8 @@ static int mlx5_set_path(struct mlx5_ib_dev *dev, struct mlx5_ib_qp *qp,
 		MLX5_SET(ads, path, sl, sl);
 	}
 
-	if (ah_flags & IB_AH_GRH) {
+	if (ah_flags & IB_AH_GRH) { 
+		/* 3. ip related */
 		MLX5_SET(ads, path, src_addr_index, grh->sgid_index);
 		MLX5_SET(ads, path, hop_limit, grh->hop_limit);
 		MLX5_SET(ads, path, tclass, grh->traffic_class);
@@ -3352,12 +3370,14 @@ static int mlx5_set_path(struct mlx5_ib_dev *dev, struct mlx5_ib_qp *qp,
 		       sizeof(grh->dgid.raw));
 	}
 
+	/* 4. rate */
 	err = ib_rate_to_mlx5(dev, rdma_ah_get_static_rate(ah));
 	if (err < 0)
 		return err;
 	MLX5_SET(ads, path, stat_rate, err);
 	MLX5_SET(ads, path, vhca_port_num, port);
 
+	/* 4. timeout */
 	if (attr_mask & IB_QP_TIMEOUT)
 		MLX5_SET(ads, path, ack_timeout,
 			 alt ? attr->alt_timeout : attr->timeout);
@@ -3370,6 +3390,8 @@ static int mlx5_set_path(struct mlx5_ib_dev *dev, struct mlx5_ib_qp *qp,
 	return 0;
 }
 
+// for modify_qp
+// state machine, 记录某个状态到某个状态可以修改的 属性
 static enum mlx5_qp_optpar opt_mask[MLX5_QP_NUM_STATE][MLX5_QP_NUM_STATE][MLX5_QP_ST_MAX] = {
 	[MLX5_QP_STATE_INIT] = {
 		[MLX5_QP_STATE_INIT] = {
@@ -3772,6 +3794,7 @@ static bool qp_supports_affinity(struct mlx5_ib_qp *qp)
 	return false;
 }
 
+// for lag(???)
 static unsigned int get_tx_affinity(struct ib_qp *qp,
 				    const struct ib_qp_attr *attr,
 				    int attr_mask, u8 init,
@@ -3835,6 +3858,32 @@ static int __mlx5_ib_qp_set_counter(struct ib_qp *qp,
 	return mlx5_cmd_exec_in(dev->mdev, rts2rts_qp, in);
 }
 
+/* 核心: 修改 QP 的各种属性, 通过 qpc qp context 来修改
+ * - type
+ * - lag_tx_port_affinity
+ * - path_mtu / log_msg_max
+ * - dst qpn
+ * - pkey
+ * - port number
+ * - address vector
+ * - ack timeout
+ * - pd
+ * - recv cq / send cq
+ * - log_ack_req_freq
+ * - rnr retry
+ * - rnr cnt
+ * - max rd atomic
+ * - send queue psn
+ * - dest max rd atomic
+ * - attr mask
+ * - min rnr timer
+ * - recv queue psn
+ * - qkey
+ * - doorbell addr
+ * - counter set id
+ * - reserver lkey
+ * - qp1 dest qp always 1
+ * */
 static int __mlx5_ib_modify_qp(struct ib_qp *ibqp,
 			       const struct ib_qp_attr *attr, int attr_mask,
 			       enum ib_qp_state cur_state,
@@ -3930,7 +3979,7 @@ static int __mlx5_ib_modify_qp(struct ib_qp *ibqp,
 	    MLX5_CAP_GEN(dev->mdev, init2_lag_tx_port_affinity))
 		optpar |= MLX5_QP_OPTPAR_LAG_TX_AFF;
 
-	if (is_sqp(ibqp->qp_type)) {
+	if (is_sqp(ibqp->qp_type)) { // special qp
 		MLX5_SET(qpc, qpc, mtu, IB_MTU_256);
 		MLX5_SET(qpc, qpc, log_msg_max, 8);
 	} else if ((ibqp->qp_type == IB_QPT_UD &&
@@ -4484,6 +4533,8 @@ static inline enum ib_mig_state to_ib_mig_state(int mlx5_mig_state)
 	}
 }
 
+// path 里提取信息来填充 rdma_ah_attr 结构
+// %mlx5_set_path
 static void to_rdma_ah_attr(struct mlx5_ib_dev *ibdev,
 			    struct rdma_ah_attr *ah_attr, void *path)
 {
@@ -4629,6 +4680,7 @@ static int query_raw_packet_qp_state(struct mlx5_ib_dev *dev,
 				      raw_packet_qp_state);
 }
 
+// 从 qpc 里捞配置信息
 static int query_qp_attr(struct mlx5_ib_dev *dev, struct mlx5_ib_qp *qp,
 			 struct ib_qp_attr *qp_attr)
 {
@@ -5114,6 +5166,9 @@ static int prepare_user_rq(struct ib_pd *pd,
 	return 0;
 }
 
+// 更底层的单边接收队列, 用于:
+// - Raw Packet 编程模型
+// - Indirect Table (RQT): 多个 WQ 组织为一个表, 用来做 rss. 目前仅仅支持 IB_WQE_RQ 类型的纯接收队列
 struct ib_wq *mlx5_ib_create_wq(struct ib_pd *pd,
 				struct ib_wq_init_attr *init_attr,
 				struct ib_udata *udata)
@@ -5385,13 +5440,13 @@ static void handle_drain_completion(struct ib_cq *cq,
 {
 	struct mlx5_core_dev *mdev = dev->mdev;
 
-	if (cq->poll_ctx == IB_POLL_DIRECT) {
+	if (cq->poll_ctx == IB_POLL_DIRECT) { // 那就自己来 polling 了
 		while (wait_for_completion_timeout(&sdrain->done, HZ / 10) <= 0)
 			ib_process_cq_direct(cq, -1);
 		return;
 	}
 
-	if (mdev->state == MLX5_DEVICE_STATE_INTERNAL_ERROR) {
+	if (mdev->state == MLX5_DEVICE_STATE_INTERNAL_ERROR) { // 设备内部错误, 需要一个特殊的 softirq 或者 workqueue 来 drain 了
 		struct mlx5_ib_cq *mcq = to_mcq(cq);
 		bool triggered = false;
 		unsigned long flags;
@@ -5406,10 +5461,11 @@ static void handle_drain_completion(struct ib_cq *cq,
 
 		if (triggered) {
 			/* Wait for any scheduled/running task to be ended */
+			// 已经出问题了, 等待正在调度的工作完成
 			switch (cq->poll_ctx) {
-			case IB_POLL_SOFTIRQ:
-				irq_poll_disable(&cq->iop);
-				irq_poll_enable(&cq->iop);
+			case IB_POLL_SOFTIRQ: // ib_poll_handler
+				irq_poll_disable(&cq->iop); // 等待正在运行的 poll callback 结束, 阻止后续的 irq_poll_sched
+				irq_poll_enable(&cq->iop); // 清除 disable 标签, 恢复正常调度
 				break;
 			case IB_POLL_WORKQUEUE:
 				cancel_work_sync(&cq->work);
@@ -5421,10 +5477,13 @@ static void handle_drain_completion(struct ib_cq *cq,
 
 		/* Run the CQ handler - this makes sure that the drain WR will
 		 * be processed if wasn't processed yet.
+		 *
+		 * 这里来 drain, mlx5_ib_cq_comp
 		 */
 		mcq->mcq.comp(&mcq->mcq, NULL);
 	}
 
+	// 一切还正常, 等待硬件 drain 即可
 	wait_for_completion(&sdrain->done);
 }
 
@@ -5454,12 +5513,15 @@ void mlx5_ib_drain_sq(struct ib_qp *qp)
 	sdrain.cqe.done = mlx5_ib_drain_qp_done;
 	init_completion(&sdrain.done);
 
+	// 等待一个特别的 wr 完成咯
+	// 即: mlx5_ib_drain_qp_done 被调用
 	ret = mlx5_ib_post_send_drain(qp, &swr.wr, &bad_swr);
 	if (ret) {
 		WARN_ONCE(ret, "failed to drain send queue: %d\n", ret);
 		return;
 	}
 
+	// 这里卡住
 	handle_drain_completion(cq, &sdrain, dev);
 }
 
@@ -5490,6 +5552,8 @@ void mlx5_ib_drain_rq(struct ib_qp *qp)
 		return;
 	}
 
+	// 卡在这里, 等待 completion, 等待一个特别的 wr 完成咯
+	// 即: mlx5_ib_drain_qp_done 被调用
 	handle_drain_completion(cq, &rdrain, dev);
 }
 

@@ -29,6 +29,8 @@ struct mlx5_wqe_eth_pad {
  *
  * Return:
  *	The new edge.
+ *
+ * 当前 sq 的最后一个 连续 stride 的末尾 + 1WQEBB
  */
 static inline void *get_sq_edge(struct mlx5_ib_wq *sq, u32 idx)
 {

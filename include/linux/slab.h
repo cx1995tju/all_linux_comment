@@ -597,6 +597,8 @@ static inline void *kmalloc_array(size_t n, size_t size, gfp_t flags)
  * @n: number of elements.
  * @size: element size.
  * @flags: the type of memory to allocate (see kmalloc).
+ *
+ * n 如果是 0 的话, 返回值是 ZERO_SIZE_PTR
  */
 static inline void *kcalloc(size_t n, size_t size, gfp_t flags)
 {

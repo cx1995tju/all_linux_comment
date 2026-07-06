@@ -28,6 +28,76 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
+ * =========================================
+ * 核心 数据结构/变量, cqe
+ * =========================================
+ *
+ *
+ *
+ * =========================================
+ * cq event 机制
+ * =========================================
+ * *mlx5_ib_cq_comp*
+ * 内核态: softirq 里处理
+ *   硬中断 → eq.c:154: cq->comp(cq, eqe)
+ *          = mlx5_ib_cq_comp(cq, eqe)         ★ 直接在硬中断上下文调
+ *            → ibcq->comp_handler(ibcq, ctx)
+ *              = ib_cq_completion_softirq
+ *                → irq_poll_sched(&cq->iop)    ← 极轻量，IRQ 上下文安全
+ *
+ *
+ * 用户态: tasklet 处理, 操作更复杂, softirq 里处理不太方便安全.
+ * cq->mcq.tasklet_ctx.comp = mlx5_ib_cq_comp; 没有设置 cq->mcq.comp.
+ * mlx5_core_create_cq 发现 cq->comp == NULL，设成 mlx5_add_cq_to_tasklet。
+ *
+ *   EQ 中断路径：
+ *   硬中断 → eq.c:154: cq->comp(cq, eqe)
+ *          = mlx5_add_cq_to_tasklet(cq, eqe)      ★ 不是 mlx5_ib_cq_comp！
+ *            → 只把 cq 挂到 tasklet_ctx->list 上（core/cq.c:82-84）
+ *            → 立刻返回，硬中断结束
+ *
+ *   后续tasklet 调度 → mlx5_cq_tasklet_cb (core/cq.c:49)
+ *      → 遍历 list:
+ *          mcq->tasklet_ctx.comp(mcq, NULL)
+ *          = mlx5_ib_cq_comp(mcq, NULL)           ★ 在 tasklet(软中断)上下文调
+ *            → ibcq->comp_handler(ibcq, ctx)
+ *              → 用户态事件投递（async event file / completion channel）
+ *
+ *
+ * *mlx5_ib_cq_event*. 上报异步错误事件
+ *
+ *
+ * *notify_soft_wc_handler*: gsi 专属的. 
+ *
+ * =========================================
+ * cq polling 机制: producer / consumer
+ * =========================================
+ * - mlx5_poll_one
+ * - mlx5_ib_poll_sw_comp
+ *
+ * # cqe 的处理: 将 cqe 转换为 work completion
+ * - handle_good_req
+ * - handle_responder
+ * - mlx5_handle_error_cqe
+ * - handle_atomics
+ *
+ *
+ * =========================================
+ * cq api
+ * =========================================
+ * __mlx5_ib_cq_clean(struct mlx5_ib_cq * cq,u32 rsn,struct mlx5_ib_srq * srq)
+ * mlx5_ib_arm_cq(struct ib_cq * ibcq,enum ib_cq_notify_flags flags)
+ * mlx5_ib_cq_clean(struct mlx5_ib_cq * cq,u32 qpn,struct mlx5_ib_srq * srq)
+ * mlx5_ib_create_cq(struct ib_cq * ibcq,const struct ib_cq_init_attr * attr,struct ib_udata * udata)
+ * mlx5_ib_destroy_cq(struct ib_cq * cq,struct ib_udata * udata)
+ * mlx5_ib_generate_wc(struct ib_cq * ibcq,struct ib_wc * wc)
+ * mlx5_ib_get_cqe_size(struct ib_cq * ibcq)
+ * mlx5_ib_modify_cq(struct ib_cq * cq,u16 cq_count,u16 cq_period)
+ * mlx5_ib_poll_cq(struct ib_cq * ibcq,int num_entries,struct ib_wc * wc)
+ * mlx5_ib_resize_cq(struct ib_cq * ibcq,int entries,struct ib_udata * udata)
+ *
+ *
  */
 
 #include <linux/kref.h>
@@ -42,6 +112,7 @@ static void mlx5_ib_cq_comp(struct mlx5_core_cq *cq, struct mlx5_eqe *eqe)
 {
 	struct ib_cq *ibcq = &to_mibcq(cq)->ibcq;
 
+	// ib_cq_completion_softirq
 	ibcq->comp_handler(ibcq, ibcq->cq_context);
 }
 
@@ -62,7 +133,7 @@ static void mlx5_ib_cq_event(struct mlx5_core_cq *mcq, enum mlx5_event type)
 		event.device     = &dev->ib_dev;
 		event.event      = IB_EVENT_CQ_ERR;
 		event.element.cq = ibcq;
-		ibcq->event_handler(&event, ibcq->cq_context);
+		ibcq->event_handler(&event, ibcq->cq_context); // 走到 uverbs 层
 	}
 }
 
@@ -96,6 +167,7 @@ static void *next_cqe_sw(struct mlx5_ib_cq *cq)
 	return get_sw_cqe(cq, cq->mcq.cons_index);
 }
 
+// UMR 比较特殊
 static enum ib_wc_opcode get_umr_comp(struct mlx5_ib_wq *wq, int idx)
 {
 	switch (wq->wr_data[idx]) {
@@ -114,6 +186,7 @@ static enum ib_wc_opcode get_umr_comp(struct mlx5_ib_wq *wq, int idx)
 	}
 }
 
+// requester 侧: 根据 cqe 来填充 work completion 咯
 static void handle_good_req(struct ib_wc *wc, struct mlx5_cqe64 *cqe,
 			    struct mlx5_ib_wq *wq, int idx)
 {
@@ -163,6 +236,7 @@ enum {
 	MLX5_GRH_IN_CQE	   = 2,
 };
 
+// responder 侧: 用 cqe 信息来填充 wc 咯
 static void handle_responder(struct ib_wc *wc, struct mlx5_cqe64 *cqe,
 			     struct mlx5_ib_qp *qp)
 {
@@ -175,7 +249,7 @@ static void handle_responder(struct ib_wc *wc, struct mlx5_cqe64 *cqe,
 	bool vlan_present;
 	u8 g;
 
-	if (qp->ibqp.srq || qp->ibqp.xrcd) {
+	if (qp->ibqp.srq || qp->ibqp.xrcd) { // srq 走这里
 		struct mlx5_core_srq *msrq = NULL;
 
 		if (qp->ibqp.xrcd) {
@@ -418,6 +492,7 @@ static void sw_comp(struct mlx5_ib_qp *qp, int num_entries, struct ib_wc *wc,
 	*npolled = np;
 }
 
+// 出错的话, 走这条路径 poll
 static void mlx5_ib_poll_sw_comp(struct mlx5_ib_cq *cq, int num_entries,
 				 struct ib_wc *wc, int *npolled)
 {
@@ -631,6 +706,7 @@ out:
 	return soft_polled + npolled;
 }
 
+// cq 触发通知后, 要重新 arm, 才能再次触发
 int mlx5_ib_arm_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags)
 {
 	struct mlx5_core_dev *mdev = to_mdev(ibcq->device)->mdev;
@@ -994,11 +1070,12 @@ int mlx5_ib_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
 
 	mlx5_ib_dbg(dev, "cqn 0x%x\n", cq->mcq.cqn);
 	cq->mcq.irqn = irqn;
-	if (udata)
-		cq->mcq.tasklet_ctx.comp = mlx5_ib_cq_comp;
-	else
-		cq->mcq.comp  = mlx5_ib_cq_comp;
-	cq->mcq.event = mlx5_ib_cq_event;
+	if (udata) // 说明来自用户态
+		cq->mcq.tasklet_ctx.comp = mlx5_ib_cq_comp; // 用户态走 tasklet
+	else // 这里是内核态, 走正常的 comp 路径
+	     // eq 中断 -> 
+		cq->mcq.comp  = mlx5_ib_cq_comp; // ref: mlx5_core_create_cq, 如果没有 cq->comp 就使用 tasklet 路径
+	cq->mcq.event = mlx5_ib_cq_event; // 用来分发 cq 上的事件的
 
 	INIT_LIST_HEAD(&cq->wc_list);
 
