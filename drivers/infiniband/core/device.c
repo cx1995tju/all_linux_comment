@@ -1,48 +1,3 @@
-/* 重要概念:
- * - ib_client: ulp(upper layer protocol) 注册一个 client 监听 ib device 的 add/remove 事件
- *	- ib_register_client()
- *	- ib 中的概念, 上层使用 ib 功能的时候抽象一个 client 概念出来. 所有
- *	client 被组织在 static DEFINE_XARRAY_FLAGS(clients, XA_FLAGS_ALLOC); 同
- *	时每个设备创建的时候, 所有 client 都会注册到该设备 ref:
- *	   - enable_device_and_get() -> add_client_context
- *	   - ib_registr_client() -> add_client_cotext
- *
- * - ib_device
- * - ib_device v.s. ib_port_data
- *   - ib_device 理解为一张硬件网卡. 其上的硬件资源是共享的
- *   - ib_port_data, 表示一个 ib_port, 依附于 ib_device 设备. 网络是隔离的. 但是硬件资源是共享的.
- *
- * 重要常量
- * - rdma_driver_id, 记录了当前系统中支持的 rdma 设备的 driver 类型
- *
- * 1. sys/class/infiniband/* 机制: ib_class
- * 2. ib_device 设备的增删查, register
- * 3. pernet 机制
- *
- *
- *
- *
- * port_data 机制. 一个 ib device 可以有多个 port, 在 rocev2 里 device 和 port 是 1:1 么?
- *
- *
- * ib_device_set_netdev // 重要, 通过 ib_device.port_data 来建立 ib_device 和 netdev 的关系. roce 设备需要底层的 netdevice.
- *
- *
- * compat_dev 机制, 提供一个在其他 namespace 访问 ib 设备 sysfs 的机制. 通过创建 ib_core_device 结构
- * RDMA/core: Implement compat device/sysfs tree in net namespace
- * 
- * Implement compatibility layer sysfs entries of ib_core so that non
- * init_net net namespaces can also discover rdma devices.
- * 
- * Each non init_net net namespace has ib_core_device created in it.
- * Such ib_core_device sysfs tree resembles rdma devices found in
- * init_net namespace.
- * 
- * This allows discovering rdma devices in multiple non init_net net
- * namespaces via sysfs entries and helpful to rdma-core userspace.
- *
- * */
-
 /*
  * Copyright (c) 2004 Topspin Communications.  All rights reserved.
  * Copyright (c) 2005 Sun Microsystems, Inc. All rights reserved.
@@ -74,6 +29,140 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
+ * =========================================
+ * API
+ * =========================================
+ * _ib_alloc_device
+ * ib_dealloc_device
+ * ib_device_get_by_index
+ * ib_device_get_by_name
+ * ib_device_get_by_netdev
+ * ib_device_get_netdev
+ * ib_device_put
+ * ib_device_rename
+ * ib_device_set_dim
+ * ib_device_set_netdev
+ * ib_device_set_netns_put
+ * ib_register_device
+ * ib_set_device_ops
+ * ib_unregister_device
+ * ib_unregister_device_and_put
+ * ib_unregister_device_queued
+ * ib_modify_device
+ * ib_get_device_fw_str
+ * ib_enum_all_devs
+ * ib_enum_all_roce_netdevs
+ * ib_enum_roce_netdev
+ * ib_get_net_dev_by_params
+ * rdma_dev_access_netns
+ * rdma_compatdev_set
+ *
+ * ib_modify_port
+ * ib_query_port
+ *
+ * ib_register_client
+ * ib_unregister_client
+ * ib_dispatch_event_clients
+ * ib_get_client_nl_info
+ * ib_set_client_data
+ *
+ *
+ * ib_unregister_driver
+ *
+ * ib_register_event_handler
+ * ib_unregister_event_handler
+ *
+ * ib_find_gid
+ * ib_find_pkey
+ * ib_query_pkey
+ *
+ * ibdev_printk
+ *
+ *
+ * 核心:
+ * - 向上: 对 ib device 感兴趣的模块, 注册一个 client  ~ib_register_client()~ 进来. 就可以收到 ib device 的 add/remove/rename 等事件了.
+ * - 向下: 对于 ib driver, 调用 ~ib_register_device()~ 将自己的事件纳入到 ib core 的 device 管理系统里
+ *
+ *
+ * =========================================
+ * 核心数据结构/变量
+ * =========================================
+ * # 全局工作队列
+ *   ┌────────────────────┬──────────────────────────────────────┐
+ *   │        变量        │                 用途                 │
+ *   ├────────────────────┼──────────────────────────────────────┤
+ *   │ ib_comp_wq         │ 绑核的 completion 工作队列           │
+ *   ├────────────────────┼──────────────────────────────────────┤
+ *   │ ib_comp_unbound_wq │ 不绑核的 completion 工作队列         │
+ *   ├────────────────────┼──────────────────────────────────────┤
+ *   │ ib_wq              │ 通用 IB 工作队列 (EXPORT_SYMBOL_GPL) │
+ *   └────────────────────┴──────────────────────────────────────┘
+ * 
+ * # 核心 XArray 与锁 (92-125行)
+ *   ┌───────────┬─────────────────┬───────────────────┬──────────────────────────┐
+ *   │  XArray   │      rwsem      │      MARK 位      │           说明           │
+ *   ├───────────┼─────────────────┼───────────────────┼──────────────────────────┤
+ *   │ devices   │ devices_rwsem   │ DEVICE_REGISTERED │ 已分配名称的 IB 设备集合 │
+ *   ├───────────┼─────────────────┼───────────────────┼──────────────────────────┤
+ *   │ clients   │ clients_rwsem   │ CLIENT_REGISTERED │ 已注册的 IB 客户端集合   │
+ *   ├───────────┼─────────────────┼───────────────────┼──────────────────────────┤
+ *   │ rdma_nets │ rdma_nets_rwsem │ —                 │ RDMA 网络命名空间        │
+ *   └───────────┴─────────────────┴───────────────────┴──────────────────────────┘
+ *
+ *
+ * =========================================
+ * device 管理
+ * =========================================
+ * - query
+ * - 分配释放: _ib_alloc_device() + ib_dealloc_device()
+ * - sysfs 机制: ib_class
+ * - client context: 每个 ib_client 注册后, 在每个 device 上创建一个 ib_client_data 结构存放 client 信息
+ * - compat device: compat_dev 机制, 提供一个在其他 namespace 访问 ib 设备 sysfs 的机制. 通过创建 ib_core_device 结构
+ *   - ib_device.compat_devs(XArray, netns id 作为 key)
+ *
+ * - roce netdevice 关联机制 ib_device_set_netdev
+ * - port 管理
+ * - 设备注册/注销
+ *
+ *
+ * =========================================
+ * client 管理
+ * =========================================
+ * # client 注册/注销
+ *
+ * # client 和 ib_client_data 关系. ref: ib_client_put
+ *
+ *
+ * - ib_client: ulp(upper layer protocol) 注册一个 client 监听 ib device 的 add/remove 事件
+ *	- ib_register_client()
+ *	- ib 中的概念, 上层使用 ib 功能的时候抽象一个 client 概念出来. 所有
+ *	client 被组织在 static DEFINE_XARRAY_FLAGS(clients, XA_FLAGS_ALLOC); 同
+ *	时每个设备创建的时候, 所有 client 都会注册到该设备 ref:
+ *	   - enable_device_and_get() -> add_client_context
+ *	   - ib_registr_client() -> add_client_cotext
+ *
+ *
+ * =========================================
+ * event 机制
+ * =========================================
+ *
+ *
+ * =========================================
+ * netlink 机制
+ * =========================================
+ * ibnl_ls_cb_table()
+ *
+ *
+ * =========================================
+ * FAQ
+ * =========================================
+ * Q1: ib_device 和 netdevice 的关联.
+ * A:  ref: ib_device_set_netdev() 
+ *
+ *
+ * Q2: ib_device 和 ib_client 的关联.
+ * A:  ref: ib_set_client_data(). 每个 client 在每个 device 上都有一个 client context 结构的.
  */
 
 #include <linux/module.h>
@@ -134,8 +223,7 @@ EXPORT_SYMBOL_GPL(ib_wq);
  * registered, and keep it registered, for the required duration.
  *
  */
-// 存储 ib device 的
-// - ib_device_get_by_index()
+// 存储 ib device 的. ib_device_get_by_index()
 static DEFINE_XARRAY_FLAGS(devices, XA_FLAGS_ALLOC);
 static DECLARE_RWSEM(devices_rwsem);	// 锁保护 devices
 #define DEVICE_REGISTERED XA_MARK_1
@@ -146,6 +234,7 @@ static u32 highest_client_id;
 static DEFINE_XARRAY_FLAGS(clients, XA_FLAGS_ALLOC);
 static DECLARE_RWSEM(clients_rwsem);
 
+// ib_client_data 需要引用 client 的, 所以在 ib_unregister_client() 要 wait 这里的 uses_zero
 static void ib_client_put(struct ib_client *client)
 {
 	if (refcount_dec_and_test(&client->uses))
@@ -187,6 +276,7 @@ MODULE_PARM_DESC(netns_mode,
  */
 bool rdma_dev_access_netns(const struct ib_device *dev, const struct net *net)
 {
+	// 要么支持 share, 要么就必须在对应的 net device 里
 	return (ib_devices_shared_netns ||
 		net_eq(read_pnet(&dev->coredev.rdma_net), net));
 }
@@ -357,6 +447,8 @@ static void ib_device_check_mandatory(struct ib_device *device)
 /*
  * Caller must perform ib_device_put() to return the device reference count
  * when ib_device_get_by_index() returns valid device pointer.
+ *
+ * index -> ib_device
  */
 struct ib_device *ib_device_get_by_index(const struct net *net, u32 index)
 {
@@ -384,6 +476,12 @@ out:
  *
  * ib_device_put() releases reference to the IB device to allow it to be
  * unregistered and eventually free.
+ *
+ * disable_device 的时候会等待这里 complete 的
+ *
+ * 比如一个 client attach 到 device 的时候会添加一个 client_context, 就会 refcount++
+ *
+ * ref: add_client_context() / remove_client_context()
  */
 void ib_device_put(struct ib_device *device)
 {
@@ -591,6 +689,8 @@ static const void *net_namespace(struct device *d)
 	return read_pnet(&coredev->rdma_net);
 }
 
+// 用户通过 sysfs 注册/注销 设备的时候, 可以向用户态发送 uevent 事件, 通过
+// netlink socket
 static struct class ib_class = {
 	.name    = "infiniband",
 	.dev_release = ib_device_release,
@@ -723,6 +823,10 @@ EXPORT_SYMBOL(ib_dealloc_device);
  *
  * The routines need to be a fence, any caller must not return until the add
  * or remove is fully completed.
+ *
+ * client 要监听 device 设备, 需要创建一个 client_context 挂上去
+ *
+ * 主要是调用 client 的 add callback
  */
 static int add_client_context(struct ib_device *device,
 			      struct ib_client *client)
@@ -1815,6 +1919,8 @@ static void remove_client_id(struct ib_client *client)
  *
  * ib driver 的 Upper level users 注册一些 callback 到对应的 ib device 上, 比如:
  * - rdma_cm 模块在 ib driver 上建立了一套 socket-like 抽象, 需要关注设备的插拔
+ *
+ * 关心 ib device 的角色, 都应该通过这个函数注册一个 client 进来. 这样可以知道设备的 add/remove/rename 事件
  */
 int ib_register_client(struct ib_client *client)
 {
@@ -2178,6 +2284,8 @@ static void add_ndev_hash(struct ib_port_data *pdata)
  * unregistering, and that either the ib_device is unregistered or
  * ib_device_set_netdev() is called with NULL when the ndev sends a
  * NETDEV_UNREGISTER event.
+ *
+ * XXX 通过 ib_device.port_data 来建立 ib_device 和 netdev 的关系. roce 设备需要底层的 netdevice.
  */
 int ib_device_set_netdev(struct ib_device *ib_dev, struct net_device *ndev,
 			 unsigned int port)

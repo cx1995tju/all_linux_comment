@@ -33,27 +33,19 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  *
- *
- * 
- * 向下: ib_register_client() 接入到 ib_core 的设备层
- * 向上: 提供 ib_register_mad_agent() 接口让其他模块使用 mad 模块的能力
- *
- *
- *
- *
- *
  * EXPORT_SYMBOL(ib_register_mad_agent);
  * EXPORT_SYMBOL(ib_unregister_mad_agent);
- * 
- * EXPORT_SYMBOL(ib_response_mad);
+ *
  *
  * EXPORT_SYMBOL(ib_create_send_mad);
  * EXPORT_SYMBOL(ib_free_send_mad);
  * EXPORT_SYMBOL(ib_post_send_mad);
+ *
  * EXPORT_SYMBOL(ib_free_recv_mad);
  *
  * EXPORT_SYMBOL(ib_modify_mad);
  * EXPORT_SYMBOL(ib_cancel_mad);
+ *
  *
  * @rmpp
  * EXPORT_SYMBOL(ib_is_mad_class_rmpp);
@@ -62,153 +54,111 @@
  *
  * @helper
  * EXPORT_SYMBOL(ib_get_mad_data_offset);
+ * EXPORT_SYMBOL(ib_response_mad);
  *
  *
- * FAQ: QP1 上 sq/rq/cq 的 post, polling 是谁进行的? ref: ib_mad_port_open()
- * - ib_mad_port_open() enable 了 port 上 mad 的处理, 创建了 QP, CQ 资源.
- *
- * rq:
- * - post: ib_mad_post_receive_mads().
- *   - 设备初始化的时候
- *   - 后续消耗的时候再补充
- *
- * sq:
- * - ib_post_send_mad() 发包的时候提供
- *
- * cq:
- * - 创建的是 IB_POLL_UNBOUND_WORKQUEUE 类型 cq, 会有 ib_cq_poll_work 帮忙 polling 的
+ * =========================================
+ * 模块接口
+ * =========================================
+ * 向下: ib_register_client() 接入到 ib_core 的设备层
+ * 向上: 提供 ib_register_mad_agent() 接口让其他模块使用 mad 模块的能力
  *
  *
+ * =========================================
+ * 模块初始化
+ * =========================================
+ * ib_mad_init() -> ib_mad_init_device() -> ib_mad_port_open()
  *
  *
- * drivers/infiniband/core/mad.c — InfiniBand MAD 子系统核心
- * 这是 InfiniBand 子系统中 MAD (Management Datagram) 的核心框架，负责管理 QP0 (SMI) 和 QP1 (GSI) 上的管理报文的收发、路由、分发和超时重传。
- * 
- * 整体架构
- *   ib_mad_init()   ──── 注册 ib_client "mad"
- *        │
- *        ▼
- *   ib_mad_init_device()  ──── 对每个支持 IB MAD 的端口调用:
- *        │                     ib_mad_port_open()   ← 创建底层资源
- *        │                     ib_agent_port_open() ← 注册 agent 处理响应
- *        ▼
- *   ib_mad_port_open()  ──── 每个 port 的核心初始化:
- *        │  创建 PD
- *        │  创建 CQ (IB_POLL_UNBOUND_WORKQUEUE → workqueue 自动 polling)
- *        │  创建 QP0 (IB_QPT_SMI, 如果支持) + QP1 (IB_QPT_GSI)
- *        │  创建 ordered workqueue
- *        │  调用 ib_mad_port_start() → QP 状态机 RESET→INIT→RTR→RTS,
- *        │                              并 ib_mad_post_receive_mads() 投递 recv WR
- *        ▼
- *   [运行中] 通过 QP0/QP1 进行 MAD 报文交换
- *
+ * =========================================
  * 核心数据结构
- * ┌──────────────────────────────────┬──────────────────────────────────────────────┐
- * │             全局结构             │                     用途                     │
- * ├──────────────────────────────────┼──────────────────────────────────────────────┤
- * │ ib_mad_clients (xarray)          │ 所有已注册的 mad_agent 的 ID 分配表          │
- * ├──────────────────────────────────┼──────────────────────────────────────────────┤
- * │ ib_mad_port_list (list)          │ 全局 port_priv 链表，用于按 device+port 查找 │
- * ├──────────────────────────────────┼──────────────────────────────────────────────┤
- * │ ib_mad_port_list_lock (spinlock) │ 保护上述链表                                 │
- * └──────────────────────────────────┴──────────────────────────────────────────────┘
- *
- * ┌─────────────────────┬─────────────────────────────────────────────────────────────────┐
- * │    Per-Port 结构    │                              用途                               │
- * ├─────────────────────┼─────────────────────────────────────────────────────────────────┤
- * │ ib_mad_port_private │ 一个端口的所有 MAD 相关资源：PD、CQ、QP0/QP1、workqueue、注册表 │
- * ├─────────────────────┼─────────────────────────────────────────────────────────────────┤
- * │ ib_mad_qp_info[0/1] │ QP0 和 QP1 各自的 send_queue / recv_queue / overflow_list       │
- * ├─────────────────────┼─────────────────────────────────────────────────────────────────┤
- * │ ib_mad_queue        │ 一个队列（发送或接收），含 count、max_active、链表、spinlock    │
- * └─────────────────────┴─────────────────────────────────────────────────────────────────┘
- *
- * ┌─────────────────────────────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────────┐
- * │                       Per-Agent 结构                        │                                             用途                                             │
- * ├─────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
- * │ ib_mad_agent_private                                        │ 一个 MAD 客户端（使用者）的上下文，包含注册信息、回调、send/wait/done/local 列表、超时定时器 │
- * ├─────────────────────────────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────┤
- * │ ib_mad_mgmt_class_table / method_table / vendor_class_table │ 按 class → method 的注册分发表，决定收到的 MAD 路由给哪个 agent                              │
- * └─────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────┘
- *
- * 核心流程
- * 1. Agent 注册 (ib_register_mad_agent, L273). 子系统/用户通过此接口注册 MAD 处理 agent：
- * - 指定 device、port、QP 类型 (SMI/GSI)
- * - 指定要处理的 mgmt_class + method_mask
- * - 提供 send_handler / recv_handler 回调
- * - 框架将 (class, method) → agent 的映射注册到 port_priv 的分发表中
- * - 返回 ib_mad_agent 给调用者后续使用
+ * =========================================
+ * +---------------------------------------------------------------------------------+
+ * |             全局结构             |                     用途                     |
+ * +----------------------------------+----------------------------------------------+
+ * | ib_mad_clients (xarray)          | 所有已注册的 mad_agent 的 ID 分配表          |
+ * +----------------------------------+----------------------------------------------+
+ * | ib_mad_port_list (list)          | 全局 port_priv 链表，用于按 device+port 查找 |
+ * +----------------------------------+----------------------------------------------+
+ * | ib_mad_port_list_lock (spinlock) | 保护上述链表                                 |
+ * +----------------------------------+----------------------------------------------+
  *
  *
- *
- * 2. 发送 MAD (ib_post_send_mad, L1126)
- * ib_post_send_mad(send_buf)
- *   ├── 如果是 Directed Route SMP → handle_outgoing_dr_smp() (可能被本地消费)
- *   ├── 设置 tid、timeout、retries、refcount
- *   ├── 加入 agent 的 send_list
- *   ├── 如果支持 RMPP → ib_send_rmpp_mad()
- *   └── ib_send_mad() → DMA map → ib_post_send(qp, wr)  投递到硬件
- * 关键点：
- * - 发送队列有 max_active 限制，超出时进入 overflow_list
- * - ib_mad_send_done() 完成后会将 overflow 中的请求发出 (L2376-2403)
- *
- *
- * 3. 接收 MAD (ib_mad_recv_done, L2085)
- * CQ polling 回调路径：
- * ib_mad_recv_done(cq, wc)           ← CQ workqueue polling 触发
- *   ├── DMA unmap
- *   ├── validate_mad()                ← 校验 MAD 头合法性
- *   ├── 如果是 Directed Route SMP → handle_smi() → 可能转发给 switch
- *   ├── 调用 driver 的 process_mad()  ← 驱动优先处理 (优先拒绝权)
- *   │   └── 可能直接回复 (IB_MAD_RESULT_REPLY) 或消费掉 (IB_MAD_RESULT_CONSUMED)
- *   ├── find_mad_agent()              ← 根据 class+method 查注册表找到匹配 agent
- *   └── ib_mad_complete_recv()        ← 分发给 agent:
- *       ├── 如果是 response MAD → 找到匹配的 send_wr，标记完成
- *       │   → 先回调 recv_handler(带 send_buf)，再回调 send_handler
- *       └── 如果是 request MAD → 直接回调 recv_handler
- *   最后：ib_mad_post_receive_mads()   ← 补充 recv WR
+ * =========================================
+ * 设备/QP/port 管理
+ * =========================================
+ * +---------------------+-----------------------------------------------------------------+
+ * |    Per-Port 结构    |                              用途                               |
+ * +---------------------+-----------------------------------------------------------------+
+ * | ib_mad_port_private | 一个端口的所有 MAD 相关资源：PD、CQ、QP0/QP1、workqueue、注册表 |
+ * +---------------------+-----------------------------------------------------------------+
+ * | ib_mad_qp_info[0/1] | QP0 和 QP1 各自的 send_queue / recv_queue / overflow_list       |
+ * +---------------------+-----------------------------------------------------------------+
+ * | ib_mad_queue        | 一个队列（发送或接收），含 count、max_active、链表、spinlock    |
+ * +---------------------+-----------------------------------------------------------------+
+ * - ib_mad_port_open()
+ * - ib_mad_port_close()
+ * - ib_mad_init_device() 
+ * - ib_mad_remove_device() 
+ * - ib_mad_port_strt()
+ * - init_mad_queue() / init_mad_qp()
+ * - create_mad_qp()
+ * - destroy_mad_qp()
  *
  *
- * 4. 发送完成 (ib_mad_send_done, L2336)
- * ib_mad_send_done(cq, wc)
- *   ├── DMA unmap
- *   ├── 从 send_queue 中移除，overflow 中的下一个晋升
- *   ├── ib_mad_complete_send_wr()
- *   │   ├── RMPP 处理
- *   │   ├── 如果还在等待 response (refcount > 1) → 进入 wait_list + 启动定时器
- *   │   └── refcount == 0 → 回调 send_handler 通知完成
- *   └── 如果有 overflow WR → ib_post_send() 发出
+ * =========================================
+ * agent 管理
+ * =========================================
+ * +-------------------------------------------------------------+----------------------------------------------------------------------------------------------+
+ * |                       Per-Agent 结构                        | 用途                                                                                         |
+ * +-------------------------------------------------------------+----------------------------------------------------------------------------------------------+
+ * | ib_mad_agent_private                                        | 一个 MAD 客户端（使用者）的上下文，包含注册信息、回调、send/wait/done/local 列表、超时定时器 |
+ * +-------------------------------------------------------------+----------------------------------------------------------------------------------------------+
+ * | ib_mad_mgmt_class_table / method_table / vendor_class_table | 按 class → method 的注册分发表，决定收到的 MAD 路由给哪个 agent                              |
+ * +-------------------------------------------------------------+----------------------------------------------------------------------------------------------+
+ *
+ * # agent 注册: ib_register_mad_agent()
  *
  *
- * 5. 超时与重传 (timeout_sends, L2692)
- * delayed_work (timed_work) → timeout_sends()
- *   遍历 agent 的 wait_list，对超时的 send_wr:
- *   ├── 如果 retries_left > 0 → retry_send() → 重新 ib_send_mad()
- *   └── 否则 → 以 IB_WC_RETRY_EXC_ERR 回调 send_handler
+ * =========================================
+ * 报文收发流程
+ * =========================================
+ * 并不直接收发报文, 而是提供接口给其他模块调用.
+ *
+ * - MAD 报文发送:             ib_post_send_mad()
+ * - MAD 报文接收:             ib_mad_recv_done(), ib_mad_post_receive_mads
+ * - MAD 报文 send completion: ib_mad_send_done()
+ * - MAD 报文超时与重传:       timeout_sends()
+ * - Local Completions:        local_completions(). per-agent delayed_work.
  *
  *
- * 6. SMP (Subnet Management) 特殊处理 (RoCEv2 不需要)
- * SMP 走 QP0，有特殊的 Directed Route 处理逻辑：
- * - handle_ib_smi() / handle_opa_smi() 处理 DR SMP 的接收端路由
- * - handle_outgoing_dr_smp() (L651) 处理发送端 DR SMP 的本地回环
- * 对 switch 设备，DR SMP 可能需要转发到其他端口，由 smi_handle_dr_smp_recv / smi_check_forward_dr_smp 决定。
+ * # CQ polling 机制
+ * - IB_POLL_UNBOUND_WORKQUEUE, 让 kernel 通过 workqueue 来自动 polling.
+ *   ib_mad_recv_done() / ib_mad_send_done() 作为 cqe 的 callback 被低哦用
+ *
+ * # req-resp 匹配: TID (Transaction ID). ib_find_send_mad()
+ *
+ * # Mad Method 分发: version -> class_table -> method_table -> agent
  *
  *
+ * =========================================
+ * FAQ
+ * =========================================
+ * Q1: QP1 上 sq/rq/cq 的 post, polling 是谁进行的? ref: ib_mad_port_open()
+ * - ib_mad_port_open() enable 了 port 上 mad 的处理, 创建了 QP, CQ 资源.
+ * - rq: ib_mad_post_receive_mads().
+ *     - 设备初始化的时候
+ *     - 后续消耗的时候再补充
+ * - sq: ib_post_send_mad() 发包的时候提供
+ * - cq: 创建的是 IB_POLL_UNBOUND_WORKQUEUE 类型 cq, 会有 ib_cq_poll_work 帮忙
+ * polling 的
  *
- * 7. Local Completions (local_completions, L2568)
- * 环回（发送给自己的）MAD 通过 local_list + local_work workqueue 处理：
- * - 发出去的 DR SMP 如果目标是本设备，不经过硬件收发包路径
- * - 而是构造 ib_mad_local_private，挂入 local_list
- * - 由 local_completions() work 模拟收发完成
- * 
  *
+ * =========================================
+ * RMPP 机制
+ * =========================================
+ * # RMPP 机制: 大数据量走 RMPP 协议处理. ref: mad_rmpp.c
  *
- * 关键设计要点
- * 1. CQ polling 模式：使用 IB_POLL_UNBOUND_WORKQUEUE，内核自动通过 workqueue polling CQ，不需要手动 poll。ib_mad_recv_done 和 ib_mad_send_done 都是作为 CQE 的 .done 回调被调用。
- * 2. 请求-响应匹配：通过 TID (Transaction ID) 匹配响应和请求。收到 response MAD 时调用 ib_find_send_mad() 按 TID 查找。
- * 3. RMPP 支持：大数据量 MAD 使用 RMPP 协议分段传输，由 mad_rmpp.c 协助处理。
- * 4. Per-agent 定时器：每个 agent 有一个 delayed_work，管理所有等待响应的 send_wr 的超时，按超时时间排序以优化调度。
- * 5. Method 分发表：三层结构 version → class_table → method_table → agent，支持标准 class、vendor class (带 OUI) 的精确分发。
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -263,6 +213,8 @@ MODULE_PARM_DESC(recv_queue_size, "Size of receive queue in number of work reque
 
 static DEFINE_XARRAY_ALLOC1(ib_mad_clients); // 核心结构咯
 static u32 ib_mad_client_next;
+
+// ref: ib_mad_port_open() / ib_mad_port_close()
 static struct list_head ib_mad_port_list;
 
 /* Port list lock */
@@ -292,6 +244,8 @@ static void ib_mad_send_done(struct ib_cq *cq, struct ib_wc *wc);
 /*
  * Returns a ib_mad_port_private structure or NULL for a device/port
  * Assumes ib_mad_port_list_lock is being held
+ *
+ * mad 模块为每个 port 也抽象一个 port 结构出来
  */
 static inline struct ib_mad_port_private *
 __ib_get_mad_port(struct ib_device *device, int port_num)
@@ -333,9 +287,9 @@ static int get_spl_qp_index(enum ib_qp_type qp_type)
 {
 	switch (qp_type)
 	{
-	case IB_QPT_SMI:
+	case IB_QPT_SMI: // QP0
 		return 0;
-	case IB_QPT_GSI:
+	case IB_QPT_GSI: // QP1
 		return 1;
 	default:
 		return -1;
@@ -362,6 +316,7 @@ static int is_vendor_oui(char *oui)
 	return 0;
 }
 
+// 检查 vendor method 是否被占用了.
 static int is_vendor_method_in_use(
 		struct ib_mad_mgmt_vendor_class *vendor_class,
 		struct ib_mad_reg_req *mad_reg_req)
@@ -410,6 +365,18 @@ EXPORT_SYMBOL(ib_response_mad);
  * ref: ib_create_send_mad
  *
  * 使用 rmpp 的 mgmt_class 也是固定的(???), ref: ib_is_mad_class_rmpp
+ *
+ * 
+ *
+ * device + port_num 这个设备上注册一个 agent 来处理 qp_type(QP0/QP1) 上的 mad 报文.
+ * - 可以接收的 mad 报文: mad_reg_req 描述
+ * - mad_reg_req 为 NULL 的话, 那么这个 agent 即只能用来发送
+ *
+ * agent 相关参数:
+ * - rmpp_version
+ * - send_handler: post send mad 完成后调用
+ * - recv_handler: recv callback
+ * - context: user context 
  */
 struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 					   u8 port_num,
@@ -452,7 +419,7 @@ struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 	}
 
 	/* Validate MAD registration request if supplied */
-	if (mad_reg_req) {
+	if (mad_reg_req) { // 说明这个 agent 还要接收 MAD 报文处理. 接收哪一类, 是 mad_reg_req 描述
 		if (mad_reg_req->mgmt_class_version >= MAX_MGMT_VERSION) {
 			dev_dbg_ratelimited(&device->dev,
 					    "%s: invalid Class Version %u\n",
@@ -621,7 +588,7 @@ struct ib_mad_agent *ib_register_mad_agent(struct ib_device *device,
 	 * is non overlapping with any existing ones
 	 */
 	spin_lock_irq(&port_priv->reg_lock);
-	if (mad_reg_req) {
+	if (mad_reg_req) { // HERE
 		mgmt_class = convert_mgmt_class(mad_reg_req->mgmt_class);
 		if (!is_vendor_class(mgmt_class)) {
 			class = port_priv->version[mad_reg_req->
@@ -678,7 +645,7 @@ EXPORT_SYMBOL(ib_register_mad_agent);
 static inline void deref_mad_agent(struct ib_mad_agent_private *mad_agent_priv)
 {
 	if (refcount_dec_and_test(&mad_agent_priv->refcount))
-		complete(&mad_agent_priv->comp);
+		complete(&mad_agent_priv->comp); // ref: unregister_mad_agent
 }
 
 static void unregister_mad_agent(struct ib_mad_agent_private *mad_agent_priv)
@@ -741,6 +708,7 @@ static void dequeue_mad(struct ib_mad_list_head *mad_list)
 	spin_unlock_irqrestore(&mad_queue->lock, flags);
 }
 
+// 构建 work completion for submet management (???)
 static void build_smp_wc(struct ib_qp *qp, struct ib_cqe *cqe, u16 slid,
 		u16 pkey_index, u8 port_num, struct ib_wc *wc)
 {
@@ -963,6 +931,8 @@ out:
 	return ret;
 }
 
+// mad 报文必须正好是 256Byte ib_mad
+// mad_size: mad 报文的大小, 一般必须是 256
 static int get_pad_size(int hdr_len, int data_len, size_t mad_size)
 {
 	int seg_size, pad;
@@ -990,7 +960,7 @@ static int alloc_send_rmpp_list(struct ib_mad_send_wr_private *send_wr,
 {
 	struct ib_mad_send_buf *send_buf = &send_wr->send_buf;
 	struct ib_rmpp_mad *rmpp_mad = send_buf->mad;
-	struct ib_rmpp_segment *seg = NULL;
+	struct ib_rmpp_segment *seg = NULL; // seg 里保存数据, 但是还没有被填充数据的. 后续让 caller 通过 ib_get_rmpp_segment() 拿到 segment 后来复制
 	int left, seg_size, pad;
 
 	send_buf->seg_size = mad_size - send_buf->hdr_len;
@@ -1024,6 +994,7 @@ static int alloc_send_rmpp_list(struct ib_mad_send_wr_private *send_wr,
 	return 0;
 }
 
+// agent 是否支持 rmpp
 int ib_mad_kernel_rmpp_agent(const struct ib_mad_agent *agent)
 {
 	return agent->rmpp_version && !(agent->flags & IB_MAD_USER_RMPP);
@@ -1051,8 +1022,8 @@ struct ib_mad_send_buf * ib_create_send_mad(struct ib_mad_agent *mad_agent,
 
 	if (opa && base_version == OPA_MGMT_BASE_VERSION)
 		mad_size = sizeof(struct opa_mad);
-	else
-		mad_size = sizeof(struct ib_mad);
+	else // roce 走这里
+		mad_size = sizeof(struct ib_mad); // 256B
 
 	pad = get_pad_size(hdr_len, data_len, mad_size);
 	message_size = hdr_len + data_len + pad;
@@ -1065,6 +1036,8 @@ struct ib_mad_send_buf * ib_create_send_mad(struct ib_mad_agent *mad_agent,
 			return ERR_PTR(-EINVAL);
 
 	size = rmpp_active ? hdr_len : mad_size;
+	// 这块 buf 同时存控制结构 ib_mad_send_wr_private, 还存数据. 如果是 rmpp, buf 里只存 header 就可以了.
+	// 数据放到其他的 segment 里
 	buf = kzalloc(sizeof *mad_send_wr + size, gfp_mask);
 	if (!buf)
 		return ERR_PTR(-ENOMEM);
@@ -1076,10 +1049,12 @@ struct ib_mad_send_buf * ib_create_send_mad(struct ib_mad_agent *mad_agent,
 	mad_send_wr->send_buf.data_len = data_len;
 	mad_send_wr->pad = pad;
 
+	// sg[0] 存 header
 	mad_send_wr->mad_agent_priv = mad_agent_priv;
 	mad_send_wr->sg_list[0].length = hdr_len;
 	mad_send_wr->sg_list[0].lkey = mad_agent->qp->pd->local_dma_lkey;
 
+	// sg[1] 存 payload
 	/* OPA MADs don't have to be the full 2048 bytes */
 	if (opa && base_version == OPA_MGMT_BASE_VERSION &&
 	    data_len < mad_size - hdr_len)
@@ -1094,7 +1069,7 @@ struct ib_mad_send_buf * ib_create_send_mad(struct ib_mad_agent *mad_agent,
 
 	mad_send_wr->send_wr.wr.wr_cqe = &mad_send_wr->mad_list.cqe;
 	mad_send_wr->send_wr.wr.sg_list = mad_send_wr->sg_list;
-	mad_send_wr->send_wr.wr.num_sge = 2;
+	mad_send_wr->send_wr.wr.num_sge = 2; // 固定为 2 (???)
 	mad_send_wr->send_wr.wr.opcode = IB_WR_SEND;
 	mad_send_wr->send_wr.wr.send_flags = IB_SEND_SIGNALED;
 	mad_send_wr->send_wr.remote_qpn = remote_qpn;
@@ -1131,6 +1106,7 @@ int ib_get_mad_data_offset(u8 mgmt_class)
 }
 EXPORT_SYMBOL(ib_get_mad_data_offset);
 
+// conenction managemtn 不使用 RMPP
 int ib_is_mad_class_rmpp(u8 mgmt_class)
 {
 	if ((mgmt_class == IB_MGMT_CLASS_SUBN_ADM) ||
@@ -1168,6 +1144,7 @@ EXPORT_SYMBOL(ib_get_rmpp_segment);
 
 static inline void *ib_get_payload(struct ib_mad_send_wr_private *mad_send_wr)
 {
+	// 返回当前要处理的 payload
 	if (mad_send_wr->send_buf.seg_count)
 		return ib_get_rmpp_segment(&mad_send_wr->send_buf,
 					   mad_send_wr->seg_num);
@@ -1192,6 +1169,7 @@ void ib_free_send_mad(struct ib_mad_send_buf *send_buf)
 }
 EXPORT_SYMBOL(ib_free_send_mad);
 
+// 发一个 mad pkt
 int ib_send_mad(struct ib_mad_send_wr_private *mad_send_wr)
 {
 	struct ib_mad_qp_info *qp_info;
@@ -1219,7 +1197,7 @@ int ib_send_mad(struct ib_mad_send_wr_private *mad_send_wr)
 	mad_send_wr->header_mapping = sge[0].addr;
 
 	sge[1].addr = ib_dma_map_single(mad_agent->device,
-					ib_get_payload(mad_send_wr),
+					ib_get_payload(mad_send_wr), // 这里返回了当前要处理的 payload
 					sge[1].length,
 					DMA_TO_DEVICE);
 	if (unlikely(ib_dma_mapping_error(mad_agent->device, sge[1].addr))) {
@@ -1274,6 +1252,7 @@ int ib_post_send_mad(struct ib_mad_send_buf *send_buf,
 	int ret = -EINVAL;
 
 	/* Walk list of send WRs and post each on send list */
+	// 遍历 send_buf, 每个 node 变成一个 mad pkt 被发送出去
 	for (; send_buf; send_buf = next_send_buf) {
 		// ref: ib_create_send_mad()
 		mad_send_wr = container_of(send_buf,
@@ -1936,6 +1915,7 @@ static inline int is_direct(u8 class)
 	return (class == IB_MGMT_CLASS_SUBN_DIRECTED_ROUTE);
 }
 
+// 收到 resp 的时候要找到对应的 req 的
 struct ib_mad_send_wr_private*
 ib_find_send_mad(const struct ib_mad_agent_private *mad_agent_priv,
 		 const struct ib_mad_recv_wc *wc)
@@ -2665,6 +2645,7 @@ find_send_wr(struct ib_mad_agent_private *mad_agent_priv,
 	return NULL;
 }
 
+// 调整已经发出但是没有完成的 MAD timeout; 0 表示取消
 int ib_modify_mad(struct ib_mad_agent *mad_agent,
 		  struct ib_mad_send_buf *send_buf, u32 timeout_ms)
 {
@@ -3353,9 +3334,11 @@ static struct ib_client mad_client = {
 
 int ib_mad_init(void)
 {
+	// mad recvq size在 64-8192 之间
 	mad_recvq_size = min(mad_recvq_size, IB_MAD_QP_MAX_SIZE);
 	mad_recvq_size = max(mad_recvq_size, IB_MAD_QP_MIN_SIZE);
 
+	// mad sendq size在 64-8192 之间
 	mad_sendq_size = min(mad_sendq_size, IB_MAD_QP_MAX_SIZE);
 	mad_sendq_size = max(mad_sendq_size, IB_MAD_QP_MIN_SIZE);
 

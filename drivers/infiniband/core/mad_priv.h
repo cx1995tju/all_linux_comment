@@ -77,7 +77,7 @@ struct ib_mad_private_header {
 
 struct ib_mad_private {
 	struct ib_mad_private_header header;
-	size_t mad_size;
+	size_t mad_size; // ref: alloc_mad_private()
 	struct ib_grh grh;
 	u8 mad[];
 } __packed;
@@ -88,19 +88,20 @@ struct ib_rmpp_segment {
 	u8 data[];
 };
 
+// ref: ib_register_mad_agent
 struct ib_mad_agent_private {
 	struct ib_mad_agent agent;
 	struct ib_mad_reg_req *reg_req;
 	struct ib_mad_qp_info *qp_info;
 
 	spinlock_t lock;
-	struct list_head send_list;
-	struct list_head wait_list;
-	struct list_head done_list;
-	struct delayed_work timed_work;
+	struct list_head send_list; // 已经发送, 等待完成
+	struct list_head wait_list; // 等待响应
+	struct list_head done_list; // 已经完成
+	struct delayed_work timed_work; // 超时重传
 	unsigned long timeout;
-	struct list_head local_list;
-	struct work_struct local_work;
+	struct list_head local_list; // 本地完成
+	struct work_struct local_work; // 本地回调
 	struct list_head rmpp_list;
 
 	refcount_t refcount;
@@ -119,17 +120,18 @@ struct ib_mad_snoop_private {
 	struct completion comp;
 };
 
+// 一个 mad  req/resp 交互的 context
 struct ib_mad_send_wr_private {
-	struct ib_mad_list_head mad_list;
-	struct list_head agent_list;
-	struct ib_mad_agent_private *mad_agent_priv;
-	struct ib_mad_send_buf send_buf;
-	u64 header_mapping;
-	u64 payload_mapping;
-	struct ib_ud_wr send_wr;
-	struct ib_sge sg_list[IB_MAD_SEND_REQ_MAX_SG];
-	__be64 tid;
-	unsigned long timeout;
+	struct ib_mad_list_head mad_list; // cq 完成后的callback 结构点
+	struct list_head agent_list; // 挂到 agent list 的
+	struct ib_mad_agent_private *mad_agent_priv; // 所属的 agent
+	struct ib_mad_send_buf send_buf; // 
+	u64 header_mapping; // DMA mapping: header
+	u64 payload_mapping; // DMA mapping: payload
+	struct ib_ud_wr send_wr; // QP0/QP1 上实际要发送的 ud wr
+	struct ib_sge sg_list[IB_MAD_SEND_REQ_MAX_SG]; // scatter/gather
+	__be64 tid; // transcation ID
+	unsigned long timeout; // timeout
 	int max_retries;
 	int retries_left;
 	int retry;
@@ -137,7 +139,7 @@ struct ib_mad_send_wr_private {
 	enum ib_wc_status status;
 
 	/* RMPP control */
-	struct list_head rmpp_list;
+	struct list_head rmpp_list; // ref: ib_rmpp_segment
 	struct ib_rmpp_segment *last_ack_seg;
 	struct ib_rmpp_segment *cur_seg;
 	int last_ack;
@@ -204,7 +206,7 @@ struct ib_mad_port_private {
 	struct ib_pd *pd;
 
 	spinlock_t reg_lock;
-	struct ib_mad_mgmt_version_table version[MAX_MGMT_VERSION];
+	struct ib_mad_mgmt_version_table version[MAX_MGMT_VERSION]; // 这里用来分发 MAD 报文被谁处理的, 某个 method 只能是一个 agent 来注册.
 	struct workqueue_struct *wq;
 	struct ib_mad_qp_info qp_info[IB_MAD_QPS_CORE]; // QP0 / QP1, ethernet 设备是没有 QP0 的
 };

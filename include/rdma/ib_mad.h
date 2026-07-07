@@ -121,7 +121,7 @@
 
 enum {
 	IB_MGMT_MAD_HDR = 24,
-	IB_MGMT_MAD_DATA = 232, // 256 - IB_MGMT_MD_HDR ref: ib spec vol1 ch13 MAD Format
+	IB_MGMT_MAD_DATA = 232, // 256 - IB_MGMT_MD_HDR ref: ib spec vol1 ch13 MAD Format, mad 报文大小必须正好是 256
 	IB_MGMT_RMPP_HDR = 36,
 	IB_MGMT_RMPP_DATA = 220, // ref ib spec vol1 ch13.6 rmpp
 	IB_MGMT_VENDOR_HDR = 40,
@@ -139,11 +139,12 @@ enum {
 // ref ib spec vol1 Ch13.4.3 
 // mad 报文 header, mad 报文是作为 UD 的 transport 的 paylaod 被发送的
 // hdr 后面会跟着 data: ref: CM_STRUCT
+// ref: ib_response_mad
 struct ib_mad_hdr {
 	u8	base_version;
 	u8	mgmt_class;
 	u8	class_version;
-	u8	method;
+	u8	method; // 高位为 1 表示是 response pkt
 	__be16	status;
 	__be16	class_specific;
 	__be64	tid;	// transaction id
