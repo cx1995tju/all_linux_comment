@@ -76,8 +76,8 @@ struct cm_sidr_generic_msg {
 };
 
 struct cm_req_msg {
-	unsigned char unused[0x60];
-	union ib_gid primary_path_sgid;
+	unsigned char unused[0x60]; // 96B
+	union ib_gid primary_path_sgid; // 16B
 };
 
 

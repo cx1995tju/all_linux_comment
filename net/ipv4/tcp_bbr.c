@@ -1072,6 +1072,7 @@ static void bbr_init(struct sock *sk)
 	bbr->extra_acked[0] = 0;
 	bbr->extra_acked[1] = 0;
 
+	// 控制谁来实现 pacing
 	cmpxchg(&sk->sk_pacing_status, SK_PACING_NONE, SK_PACING_NEEDED);
 }
 

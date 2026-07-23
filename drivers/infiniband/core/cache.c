@@ -1090,6 +1090,7 @@ int ib_get_cached_subnet_prefix(struct ib_device *device,
 }
 EXPORT_SYMBOL(ib_get_cached_subnet_prefix);
 
+// pkey 转换为 pkey index
 int ib_find_cached_pkey(struct ib_device *device,
 			u8                port_num,
 			u16               pkey,

@@ -1264,6 +1264,7 @@ int ib_init_ah_attr_from_path(struct ib_device *device, u8 port_num,
 	rdma_ah_set_port_num(ah_attr, port_num);
 	rdma_ah_set_static_rate(ah_attr, rec->rate);
 
+	// 对于 roce 就是解析路由, 拿 dmac
 	if (sa_path_is_roce(rec)) {
 		ret = roce_resolve_route_from_path(rec, gid_attr);
 		if (ret)

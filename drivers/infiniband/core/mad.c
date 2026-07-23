@@ -1001,6 +1001,18 @@ int ib_mad_kernel_rmpp_agent(const struct ib_mad_agent *agent)
 }
 EXPORT_SYMBOL(ib_mad_kernel_rmpp_agent);
 
+// 创建一个表示 mad 报文的结构
+//
+// 对于 CM:
+// - 不用 RMPP
+// - 大小固定 256B
+// - 分为两个 seg
+//   - hdr_len 24
+//   - data_len 232
+// - QKey 需要硬件从 QPC 里提取
+//
+// 这里会分配一个 buf 存储 wr 和 mad 报文
+// | mad hdr | mad data | mad_send_wr |
 struct ib_mad_send_buf * ib_create_send_mad(struct ib_mad_agent *mad_agent,
 					    u32 remote_qpn, u16 pkey_index,
 					    int rmpp_active,
@@ -1025,6 +1037,7 @@ struct ib_mad_send_buf * ib_create_send_mad(struct ib_mad_agent *mad_agent,
 	else // roce 走这里
 		mad_size = sizeof(struct ib_mad); // 256B
 
+	// cm 里 pad 是 0, ref: cm_alloc_msg()
 	pad = get_pad_size(hdr_len, data_len, mad_size);
 	message_size = hdr_len + data_len + pad;
 
@@ -1038,10 +1051,12 @@ struct ib_mad_send_buf * ib_create_send_mad(struct ib_mad_agent *mad_agent,
 	size = rmpp_active ? hdr_len : mad_size;
 	// 这块 buf 同时存控制结构 ib_mad_send_wr_private, 还存数据. 如果是 rmpp, buf 里只存 header 就可以了.
 	// 数据放到其他的 segment 里
+	// cm 里 size 是 256
 	buf = kzalloc(sizeof *mad_send_wr + size, gfp_mask);
 	if (!buf)
 		return ERR_PTR(-ENOMEM);
 
+	// 前面放 mad 报文, 后面放 send_wr 结构
 	mad_send_wr = buf + size;
 	INIT_LIST_HEAD(&mad_send_wr->rmpp_list);
 	mad_send_wr->send_buf.mad = buf;
@@ -1107,6 +1122,7 @@ int ib_get_mad_data_offset(u8 mgmt_class)
 EXPORT_SYMBOL(ib_get_mad_data_offset);
 
 // conenction managemtn 不使用 RMPP
+// spec 里没有限制这一点, 但是 CM 里 MAD 报文不超过 256B, 所以不需要使用 RMPP
 int ib_is_mad_class_rmpp(u8 mgmt_class)
 {
 	if ((mgmt_class == IB_MGMT_CLASS_SUBN_ADM) ||
@@ -1148,7 +1164,7 @@ static inline void *ib_get_payload(struct ib_mad_send_wr_private *mad_send_wr)
 	if (mad_send_wr->send_buf.seg_count)
 		return ib_get_rmpp_segment(&mad_send_wr->send_buf,
 					   mad_send_wr->seg_num);
-	else
+	else // CM mad 走这里
 		return mad_send_wr->send_buf.mad +
 		       mad_send_wr->send_buf.hdr_len;
 }
@@ -1186,7 +1202,7 @@ int ib_send_mad(struct ib_mad_send_wr_private *mad_send_wr)
 	mad_send_wr->send_wr.wr.wr_cqe = &mad_send_wr->mad_list.cqe;
 
 	mad_agent = mad_send_wr->send_buf.mad_agent;
-	sge = mad_send_wr->sg_list;
+	sge = mad_send_wr->sg_list; // sg[0] 是 hdr, ref: ib_create_send_mad
 	sge[0].addr = ib_dma_map_single(mad_agent->device,
 					mad_send_wr->send_buf.mad,
 					sge[0].length,
@@ -1253,6 +1269,7 @@ int ib_post_send_mad(struct ib_mad_send_buf *send_buf,
 
 	/* Walk list of send WRs and post each on send list */
 	// 遍历 send_buf, 每个 node 变成一个 mad pkt 被发送出去
+	// rmpp 的时候有多个 send_buf
 	for (; send_buf; send_buf = next_send_buf) {
 		// ref: ib_create_send_mad()
 		mad_send_wr = container_of(send_buf,
@@ -1966,6 +1983,7 @@ void ib_mark_mad_done(struct ib_mad_send_wr_private *mad_send_wr)
 			      &mad_send_wr->mad_agent_priv->done_list);
 }
 
+// mad 报文分发
 static void ib_mad_complete_recv(struct ib_mad_agent_private *mad_agent_priv,
 				 struct ib_mad_recv_wc *mad_recv_wc)
 {
@@ -2988,7 +3006,7 @@ static int ib_mad_port_start(struct ib_mad_port_private *port_priv)
 	ret = ib_find_pkey(port_priv->device, port_priv->port_num,
 			   IB_DEFAULT_PKEY_FULL, &pkey_index);
 	if (ret)
-		pkey_index = 0;
+		pkey_index = 0; // 查找出错了, 那么就用默认的 0
 
 	for (i = 0; i < IB_MAD_QPS_CORE; i++) {
 		qp = port_priv->qp_info[i].qp;

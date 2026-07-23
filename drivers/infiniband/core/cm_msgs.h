@@ -45,7 +45,7 @@ static inline void cm_req_set_qp_type(struct cm_req_msg *req_msg,
 		IBA_SET(CM_REQ_TRANSPORT_SERVICE_TYPE, req_msg, 3);
 		IBA_SET(CM_REQ_EXTENDED_TRANSPORT_TYPE, req_msg, 1);
 		break;
-	default:
+	default: /* by default: RC */
 		IBA_SET(CM_REQ_TRANSPORT_SERVICE_TYPE, req_msg, 0);
 	}
 }

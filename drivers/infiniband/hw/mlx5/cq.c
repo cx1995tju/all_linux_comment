@@ -1481,7 +1481,7 @@ int mlx5_ib_generate_wc(struct ib_cq *ibcq, struct ib_wc *wc)
 	if (cq->notify_flags == IB_CQ_NEXT_COMP ||
 	    wc->status != IB_WC_SUCCESS) {
 		cq->notify_flags = 0;
-		schedule_work(&cq->notify_work);
+		schedule_work(&cq->notify_work); // ref: notify_soft_wc_handler
 	}
 	spin_unlock_irqrestore(&cq->lock, flags);
 

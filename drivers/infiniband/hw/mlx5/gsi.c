@@ -52,7 +52,13 @@
  * verbs 接口还是要对接到上层 qp 的verbs 接口的, 根据 qp type 分流到这里. 并不会直接暴露出去.
  *
  *
- *
+ *  mlx5_ib_create_gsi
+ *  mlx5_ib_destroy_gsi
+ *  mlx5_ib_gsi_modify_qp
+ *  mlx5_ib_gsi_pkey_change
+ *  mlx5_ib_gsi_post_recv
+ *  mlx5_ib_gsi_post_send
+ *  mlx5_ib_gsi_query_qp
  *
  */
 
@@ -86,7 +92,7 @@ static void generate_completions(struct mlx5_ib_qp *mqp)
 		if (!wr->completed) // 说明是有 order 的
 			break;
 
-		WARN_ON_ONCE(mlx5_ib_generate_wc(gsi_cq, &wr->wc));
+		WARN_ON_ONCE(mlx5_ib_generate_wc(gsi_cq, &wr->wc)); // 这里投递都上层用户了, 比如: mad.c
 		wr->completed = false;
 	}
 
@@ -114,6 +120,7 @@ static void handle_single_completion(struct ib_cq *cq, struct ib_wc *wc)
 	spin_unlock_irqrestore(&gsi->lock, flags);
 }
 
+// 一些信息的保存和检查咯, 然后就发送硬件命令
 int mlx5_ib_create_gsi(struct ib_pd *pd, struct mlx5_ib_qp *mqp,
 		       struct ib_qp_init_attr *attr)
 {

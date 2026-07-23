@@ -28,7 +28,7 @@ struct mlx5_eq {
 	u32                     cons_index;
 	struct mlx5_frag_buf    buf;
 	unsigned int            vecidx;
-	unsigned int            irqn;
+	unsigned int            irqn; // 对应的中断号, ref: mlx5_eq_poll_irq_disabled
 	u8                      eqn;
 	int                     nent;
 	struct mlx5_rsc_debug   *dbg;
@@ -36,7 +36,7 @@ struct mlx5_eq {
 
 struct mlx5_eq_async {
 	struct mlx5_eq          core;
-	struct notifier_block   irq_nb;
+	struct notifier_block   irq_nb; // interrupt 通过这个 nb 来 callback 过来
 	spinlock_t              lock; /* To avoid irq EQ handle races with resiliency flows */
 };
 

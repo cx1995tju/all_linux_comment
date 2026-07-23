@@ -803,6 +803,7 @@ static inline struct rdma_hw_stats *rdma_alloc_hw_stats_struct(
 #define RDMA_CORE_CAP_IB_GRH_REQUIRED   0x00008000
 
 /* Protocol                             0xFFF00000 */
+// 用来区分 port 类型
 #define RDMA_CORE_CAP_PROT_IB           0x00100000
 #define RDMA_CORE_CAP_PROT_ROCE         0x00200000
 #define RDMA_CORE_CAP_PROT_IWARP        0x00400000
@@ -1281,8 +1282,8 @@ struct ib_srq_init_attr {
 };
 
 struct ib_qp_cap {
-	u32	max_send_wr;
-	u32	max_recv_wr;
+	u32	max_send_wr; // max number of outstanding WR
+	u32	max_recv_wr; // max number of outstanding WR
 	u32	max_send_sge;
 	u32	max_recv_sge;
 	u32	max_inline_data;
@@ -2462,7 +2463,7 @@ struct ib_port_cache {
 struct ib_port_immutable {
 	int                           pkey_tbl_len;
 	int                           gid_tbl_len;
-	u32                           core_cap_flags;
+	u32                           core_cap_flags; // ref: rdma_protocol_ib()
 	u32                           max_mad_size;
 };
 
@@ -4333,6 +4334,8 @@ static inline int ib_dma_mapping_error(struct ib_device *dev, u64 dma_addr)
  * @cpu_addr: The kernel virtual address
  * @size: The size of the region in bytes
  * @direction: The direction of the DMA
+ *
+ * 拿到 iova
  */
 static inline u64 ib_dma_map_single(struct ib_device *dev,
 				    void *cpu_addr, size_t size,

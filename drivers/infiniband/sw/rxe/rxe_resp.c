@@ -1179,9 +1179,7 @@ static enum resp_states duplicate_request(struct rxe_qp *qp,
 	 * ref: execute() read_reply() ack_psn 不一定是 ePSN 的, ref: execute()
 	 * 对于 read 操作的处理的时候 ePSN 在增长, 但是 ack_psn 没有增长的, 这
 	 * 里为 read/write 回复 dup req 的时候, 不能用 ePSN - 1. 考虑下述
-	 * corner
-	 *
-	 * case:
+	 * corner case:
          *  - resp 收到: write-req(30), 然后发送 ack(30)
          *    - ePSN = 31
          *  - resp 收到: read-req(31)

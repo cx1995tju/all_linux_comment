@@ -1,21 +1,264 @@
-/*
- * 入口/出口
- * =========
- * - ib_cm_init()
- * - ib_cm_cleanup()
+/* 
+ * ================================================
+ * 核心全局变量 struct ib_cm cm;
+ * ================================================
+ * 4 棵 rbtree:
+ * ┌──────────────────────┬─────────────────────────────────┬───────────────────┐
+ * │        红黑树        │             索引键              │       用途        │
+ * ├──────────────────────┼─────────────────────────────────┼───────────────────┤
+ * │ listen_service_table │ service_id + service_mask       │ 查找监听者        │
+ * ├──────────────────────┼─────────────────────────────────┼───────────────────┤
+ * │ remote_id_table      │ remote_ca_guid + remote_comm_id │ 按远端 ID 查连接  │
+ * ├──────────────────────┼─────────────────────────────────┼───────────────────┤
+ * │ remote_qp_table      │ remote_ca_guid + remote_qpn     │ 按远端 QPN 查连接 │
+ * ├──────────────────────┼─────────────────────────────────┼───────────────────┤
+ * │ remote_sidr_table    │ remote_ca_guid + remote_qpn     │ SIDR 查询索引     │
+ * └──────────────────────┴─────────────────────────────────┴───────────────────┘
  *
- * 核心全局变量
- * ============
- * - struct ib_cm cm;
- *
- * 核心结构体
- * ==========
- * - cm_id_private
- * - cm_timewait_info
+ * 全局 device list: cm.device_list
  *
  *
+ * ================================================
+ * 关键数据结构
+ * ================================================
+ * - cm_device: 一个 ib device, 有一个或多个 port
+ * - cm_id_private: 对应 cm 连接, 内部使用的结构
+ * - cm_work
+ * - cm_timewait_info: 处理 TIME_WAIT 状态
+ *
+ *
+ * ================================================
+ * 初始化/设备管理/address 管理
+ * ================================================
+ *   基于 cm_client 实现, 将其注册到 ib_core.ko 的设备管理机制, 在设备相关事件(e.g. up/down)发生的时候构造/销毁相关结构
+ *   核心结构: cm.device_list
+ *   ┌─────────────────┬────────────────────────────────────────┐
+ *   │      函数       │                  功能                  │
+ *   ├─────────────────┼────────────────────────────────────────┤
+ *   │ ib_cm_init()    │ 模块加载：注册 cm_client，分配工作队列 │
+ *   ├─────────────────┼────────────────────────────────────────┤
+ *   │ ib_cm_cleanup() │ 模块卸载                               │
+ *   ├─────────────────┼────────────────────────────────────────┤
+ *   │ cm_add_one()    │ 设备添加：为每个端口创建 mad_agent     │
+ *   ├─────────────────┼────────────────────────────────────────┤
+ *   │ cm_remove_one() │ 设备移除：注销 agent，清理连接         │
+ *   └─────────────────┴────────────────────────────────────────┘
+ *   ┌───────────────────────────┬──────────────────────────────┐
+ *   │           函数            │             功能             │
+ *   ├───────────────────────────┼──────────────────────────────┤
+ *   │ cm_init_av_by_path()      │ 从 SA 路径记录初始化地址向量 │
+ *   ├───────────────────────────┼──────────────────────────────┤
+ *   │ cm_init_av_for_response() │ 为响应消息初始化 AV          │
+ *   ├───────────────────────────┼──────────────────────────────┤
+ *   │ cm_init_av_for_lap()      │ 为 LAP（路径切换）初始化 AV  │
+ *   └───────────────────────────┴──────────────────────────────┘
+ *
+ * ================================================
+ * 报文处理
+ * ================================================
+ * ┌──────────┬───────────────────────────┬────────────────────────────┬────────────────────────────┐
+ * │   消息   │         构造函数          │          发送 API          │          Handler           │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ REQ      │ cm_format_req             │ ib_send_cm_req             │ cm_req_handler             │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ REP      │ cm_format_rep             │ ib_send_cm_rep             │ cm_rep_handler             │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ RTU      │ cm_format_rtu             │ ib_send_cm_rtu             │ cm_rtu_handler             │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ DREQ     │ cm_format_dreq            │ ib_send_cm_dreq            │ cm_dreq_handler            │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ DREP     │ cm_format_drep            │ ib_send_cm_drep            │ cm_drep_handler            │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ MRA      │ cm_format_mra             │ ib_send_cm_mra             │ cm_mra_handler             │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ REJ      │ cm_format_rej             │ ib_send_cm_rej             │ cm_rej_handler             │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ LAP      │ —                         │ —                          │ cm_lap_handler             │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ APR      │ —                         │ —                          │ cm_apr_handler             │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ SIDR_REQ │ cm_format_sidr_req        │ ib_send_cm_sidr_req        │ cm_sidr_req_handler        │
+ * ├──────────┼───────────────────────────┼────────────────────────────┼────────────────────────────┤
+ * │ SIDR_REP │ cm_format_sidr_rep        │ ib_send_cm_sidr_rep        │ cm_sidr_rep_handler        │
+ * └──────────┴───────────────────────────┴────────────────────────────┴────────────────────────────┘
+ *
+ * ┌─────────────────────────┬────────────────────────────────────┐
+ * │          函数           │                功能                │
+ * ├─────────────────────────┼────────────────────────────────────┤
+ * │ cm_alloc_msg()          │ 分配一个 CM MAD 发送 buffer        │
+ * ├─────────────────────────┼────────────────────────────────────┤
+ * │ cm_alloc_response_msg() │ 分配响应 MAD（带 AH 创建）         │
+ * ├─────────────────────────┼────────────────────────────────────┤
+ * │ cm_recv_handler()       │ MAD 接收回调 → 构造 cm_work → 入队 │
+ * ├─────────────────────────┼────────────────────────────────────┤
+ * │ cm_send_handler()       │ MAD 发送完成回调                   │
+ * ├─────────────────────────┼────────────────────────────────────┤
+ * │ cm_process_send_error() │ 处理发送失败（重试或报错）         │
+ * └─────────────────────────┴────────────────────────────────────┘
+ *
+ * mad_agent 机制: 注册一个 per-port 的 mad agent, 这样底层收到 mad 报文后才知道分发给谁
+ * - 两个 handler, 分别处理 mad wr 的 post send complete 和 post recv complete
+ *
+ *
+ * ================================================
+ * work 机制
+ * ================================================
+ * ┌────────────────────────┬────────────────────────────────────────────────────────┐
+ * │          函数          │                     功能                               │
+ * ├────────────────────────┼────────────────────────────────────────────────────────┤
+ * │ cm_queue_work_unlock() │ 将工作项加入 work_list，后续 work 将 event 投递给用户  │
+ * ├────────────────────────┼────────────────────────────────────────────────────────┤
+ * │ cm_work_handler()      │ 工作队列回调，按消息类型分发到对应 handler             │
+ * ├────────────────────────┼────────────────────────────────────────────────────────┤
+ * │ cm_process_work()      │ dequeue work后, 直接将事件投递给用户                   │
+ * └────────────────────────┴────────────────────────────────────────────────────────┘
+ * - 发送报文的时候, 挂一个 work, handler 是 cm_work_handler(). 等收到回复报文的时候来做处理
+ *
+ * 基于 cm.work, 下层事件通过 callback handler 给到本层后, 并不会直接继续 callback 到更上层, 而是通过 work 机制通知更上层
+ * per cm_id_private work list: cm_id_private.work_list
+ *
+ *
+ *
+ * ================================================
+ * 连接管理:CM ID lifecycle / listen / timewait / CM 状态机
+ * ================================================
+ *   ┌──────────────────────────────────────┬──────────────────────────────┐
+ *   │                 函数                 │             功能             │
+ *   ├──────────────────────────────────────┼──────────────────────────────┤
+ *   │ cm_alloc_id_priv()                   │ 分配 cm_id_private           │
+ *   ├──────────────────────────────────────┼──────────────────────────────┤
+ *   │ ib_create_cm_id()                    │ 公开 API：创建连接端点       │
+ *   ├──────────────────────────────────────┼──────────────────────────────┤
+ *   │ ib_destroy_cm_id() / cm_destroy_id() │ 销毁连接端点                 │
+ *   ├──────────────────────────────────────┼──────────────────────────────┤
+ *   │ cm_acquire_id()                      │ 通过 local_id 查找并增加引用 │
+ *   ├──────────────────────────────────────┼──────────────────────────────┤
+ *   │ cm_deref_id()                        │ 减少引用                     │
+ *   └──────────────────────────────────────┴──────────────────────────────┘
+ *
+ *   ┌───────────────────────┬──────────────────────────────────┐
+ *   │         函数          │               功能               │
+ *   ├───────────────────────┼──────────────────────────────────┤
+ *   │ ib_cm_listen()        │ 公开 API：开始监听 service_id    │
+ *   ├───────────────────────┼──────────────────────────────────┤
+ *   │ ib_cm_insert_listen() │ 公开 API：插入监听者并设置回调   │
+ *   ├───────────────────────┼──────────────────────────────────┤
+ *   │ cm_insert_listen()    │ 插入 listen_service_table 红黑树 │
+ *   ├───────────────────────┼──────────────────────────────────┤
+ *   │ cm_find_listen()      │ 查找匹配的监听者                 │
+ *   └───────────────────────┴──────────────────────────────────┘
+ *
+ *   ┌───────────────────────────┬──────────────────────┐
+ *   │           函数            │         功能         │
+ *   ├───────────────────────────┼──────────────────────┤
+ *   │ cm_create_timewait_info() │ 创建 timewait 信息   │
+ *   ├───────────────────────────┼──────────────────────┤
+ *   │ cm_enter_timewait()       │ 进入 TIME_WAIT 状态  │
+ *   ├───────────────────────────┼──────────────────────┤
+ *   │ cm_timewait_handler()     │ TIME_WAIT 超时后清理 │
+ *   ├───────────────────────────┼──────────────────────┤
+ *   │ cm_reset_to_idle()        │ 重置为 IDLE 状态     │
+ *   └───────────────────────────┴──────────────────────┘
+ *
+ *   timewait 阶段的处理: cm.timewait_info 
+ *   - cm_enter_timewait(): 一个 cm_id_priv.timewait_info 结构挂到全局的 cm.timewait_list 上
+ *
+ *
+ *           ┌──────────┐
+ *           │  IDLE    │
+ *           └────┬─────┘
+ *                │ ib_send_cm_req()
+ *                ▼  发送 REQ
+ *           ┌──────────┐        ┌──────────┐
+ *           │ REQ_SENT │◄───────│  LISTEN  │ (被动端)
+ *           └────┬─────┘ REP    └────┬─────┘
+ *                │                   │ 收到 REQ → cm_req_handler
+ *                │ 收到 REP          │ 发送 REP
+ *                ▼                   ▼
+ *           ┌──────────┐         ┌──────────┐
+ *           │ REP_RCVD │         │ REQ_RCVD │
+ *           └────┬─────┘         └────┬─────┘
+ *                │ ib_send_cm_rtu()   │ 收到 RTU
+ *                ▼                    ▼
+ *           ┌──────────────────────────┐
+ *           │     ESTABLISHED          │
+ *           └────────────┬─────────────┘
+ *                        │ ib_send_cm_dreq()
+ *                        ▼
+ *                   ┌──────────┐
+ *                   │ DREQ_SENT│ → DREP → TIME_WAIT → IDLE
+ *                   └──────────┘
+ *   其他消息：MRA（消息接收确认）、REJ（拒绝）、LAP/APR（路径切换), SIDR_REQ/REP
+ *
+ *
+ *
+ *                     主动端                              被动端
+ *                     ─────                              ─────
+ *                                                         │
+ *                                                         │ ib_cm_listen()
+ *                                                         ▼
+ *                                                    cm.listen_service_table
+ *                                                         │
+ *   ib_send_cm_req()                                      │
+ *     │ cm_format_req()                                   │
+ *     │ cm_alloc_msg() → MAD                              │
+ *     │ ib_post_send_mad() ──────────────► cm_recv_handler()
+ *     │                                      │ find_listen() 匹配 service_id
+ *     ▼                                      │ cm_req_handler()
+ *   REQ_SENT                                 │   ├─ 创建新 cm_id_private
+ *                                            │   ├─ cm_format_rep()
+ *                                            │   └─ ib_post_send_mad() ═══►
+ *   cm_recv_handler()                                                ◄═══ REP
+ *     │ cm_rep_handler()
+ *     ▼
+ *   ib_send_cm_rtu()
+ *     │ cm_format_rtu()
+ *     │ ib_post_send_mad() ──────────────► cm_recv_handler()
+ *     │                                      │ cm_rtu_handler()
+ *   ESTABLISHED                              │
+ *                                            ▼
+ *                                       ESTABLISHED
+ *
+ * 状态机 trigger: 基于 work 机制实现的 连接状态机 cm_work_handler(), 状态机的事件驱动源:
+ * - 下层收到报文
+ * - 上层发送报文
+ * - 上层 notify()
+ *
+ * ================================================
+ * 事件机制
+ * ================================================
+ * - MAD 收包: cm_recv_handler() ->* cm_work_handler()
+ *   - 这里不是直接调用的, 而是通过 queue_delayed_work(cm.wq) 来延迟处理
+ * - work 处理: cm_work_handler() -> 各种 消息 handler cm_req_handler ...
+ *   - handler 里会将 work 分发给各个 cm_id_priv->work_list, 调用 cm_queue_work_unlock()
+ * - msg handler: cm_queue_work_unlock() -> cm_process_work() -> cm_handler()/cma_ib_handler 通知用户
+ *   - 对于并发的问题, 谁先之心隔离 cm_process_work() 谁就得一直处理该 cm_id_priv->work_list 上的 work
+ *
+ * ================================================
+ * QP helper
+ * ================================================
+ * ┌────────────────────────┬────────────────────────────────────────┐
+ * │          函数          │                  功能                  │
+ * ├────────────────────────┼────────────────────────────────────────┤
+ * │ cm_init_qp_init_attr() │ 填充 QP INIT 属性                      │
+ * ├────────────────────────┼────────────────────────────────────────┤
+ * │ cm_init_qp_rtr_attr()  │ 填充 QP RTR 属性                       │
+ * ├────────────────────────┼────────────────────────────────────────┤
+ * │ cm_init_qp_rts_attr()  │ 填充 QP RTS 属性                       │
+ * ├────────────────────────┼────────────────────────────────────────┤
+ * │ ib_cm_init_qp_attr()   │ 公开 API：根据 CM 状态返回 QP 迁移属性 │
+ * └────────────────────────┴────────────────────────────────────────┘
+ *
+ * ================================================
+ * sysfs
+ * ================================================
+ * cm_create_port_fs()   // 为每个端口创建 /sys/class/infiniband/<dev>/ports/<n>/cm_*
+ * cm_remove_port_fs()
+ * cm_show_counter()     // 显示各种 CM 消息的收发统计
+ *
+ * ================================================
  * 外部接口
- * ========
+ * ================================================
  * - 提供给上层的接口
  *     - 帮助上层实现 socket-like 语义, listen 这种操作需要让下层感知, 这样下层收到报文后才能将 event 分发到下层
  *         EXPORT_SYMBOL(ib_create_cm_id);
@@ -39,55 +282,6 @@
  *     - 从下层接收事件处理后发送给上层, 比如下层收到了连接相关的报文
  *         - cm_recv_handler() -> cm_work_handler() -> cm_process_work() -> cma层提供的 handler
  *         - 其中 cm_work_handler() 事实上实现了 连接建立的状态机, ref ib spec vol1 ch12.9.5
- *
- * 文件结构 
- * ========
- * - cm 层的 port / device / address_vector 的抽象
- *   - 基于 cm_client 实现的, 将其注册到 ib_core.ko 层, 在相应事件发生的时候构造/销毁相关结构
- *   - 核心结构: cm.device_list
- *
- * - work 机制: 基于 cm.work, 下层事件通过 callback handler 给到本层后, 并不会直接继续 callback 到更上层, 而是通过 work 机制通知更上层
- *   - per cm_id_private work list: cm_id_private.work_list
- *   - 相关函数:
- *	- cm_dequeue_work() / cm_free_work() / cm_queue_qork_unlock() / cm_process_work()
- *
- * - msg 机制: 构造/发送各种消息
- *
- * - 连接处理相关:
- *   - listen 机制的支持
- *   - 基于 work 机制实现的 连接状态机 cm_work_handler(), 状态机的事件驱动源:
- *	- 下层收到报文
- *	- 上层发送报文
- *	- 上层 notify()
- *   - timewait 阶段的处理: cm.timewait_info 
- *	- cm_enter_timewait(): 一个 cm_id_priv.timewait_info 结构挂到全局的 cm.timewait_list 上
- *
- * - mad_agent 机制: 注册一个 per-port 的 mad agent, 这样底层收到 mad 报文后才知道分发给谁
- *   - 两个 handler, 分别处理 mad wr 的 post send complete 和 post recv complete
- *
- * - 各种报文发送函数
- *	- ib_send_cm_req()
- *	- cm_issue_rej()
- *	- ib_send_cm_rep()
- *	- ib_send_cm_rtu()
- *	- cm_send_dreq()
- *	- cm_send_drep()
- *	- cm_issue_drep()
- *	- ib_send_cm_rej()
- *	- ib_send_cm_mra()
- *	- ...
- *
- * Advanced Topic
- * ==============
- * - 连接建立状态机
- * - qp 状态机
- * - 报文收发细节
- * - listen 机制
- * - timewait 机制
- *
- *
- * Q: mad_agent ?
- *
  * */
 // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
 /*
@@ -197,7 +391,6 @@ static struct ib_client cm_client = {
 	.remove = cm_remove_one
 };
 
-// XXX: 整个模块的 ctx
 static struct ib_cm {
 	spinlock_t lock;
 	struct list_head device_list; // 全局 device list
@@ -213,7 +406,7 @@ static struct ib_cm {
 	u32 local_id_next;
 	__be32 random_id_operand;
 	struct list_head timewait_list;	// time wait 相关, 挂载 struct cm_timewait_info 结构
-	struct workqueue_struct *wq;
+	struct workqueue_struct *wq; // 处理底层来的 callback, cm_work_handler()
 	/* Sync on cm change port state */
 	spinlock_t state_lock;
 } cm;
@@ -340,8 +533,9 @@ struct cm_timewait_info {
 };
 
 // ref: cm_alloc_id_priv() 分配的时候各个字段的默认值是 0
+// 每个连接 cm_id 的私有数据
 struct cm_id_private {
-	struct ib_cm_id	id;
+	struct ib_cm_id	id; // 对外部的接口
 
 	struct rb_node service_node;
 	struct rb_node sidr_id_node;
@@ -354,7 +548,7 @@ struct cm_id_private {
 	struct rcu_head rcu;
 
 	struct ib_mad_send_buf *msg; // mad 报文
-	struct cm_timewait_info *timewait_info;
+	struct cm_timewait_info *timewait_info; // timewait 信息
 	/* todo: use alternate port on send failure */
 	struct cm_av av;
 	struct cm_av alt_av;
@@ -384,7 +578,7 @@ struct cm_id_private {
 	int prim_send_port_not_ready;
 	int altr_send_port_not_ready;
 
-	struct list_head work_list;
+	struct list_head work_list; // 需要处理的 work
 	atomic_t work_count;
 
 	struct rdma_ucm_ece ece;
@@ -396,7 +590,7 @@ static inline void cm_deref_id(struct cm_id_private *cm_id_priv)
 {
 	// 最后一个 deref 负责唤醒
 	if (refcount_dec_and_test(&cm_id_priv->refcount))
-		complete(&cm_id_priv->comp);
+		complete(&cm_id_priv->comp); // cm_destroy_id wait for this.
 }
 
 // 分配一个存储 mad pkt 的结构: struct ib_mad_send_buf msg
@@ -441,6 +635,7 @@ static int cm_alloc_msg(struct cm_id_private *cm_id_priv,
 
 	// 创建一个关于 mad pkt 的 ctx 或者说 存储 mad pkt 的 buf
 	// 这里很关键, 每个 msg 结构 ib_mad_send_buf 关联了一个 mad_agent 的, ref: ib_create_send_mad()
+	// 报文mem layout: | 256B mad pkt | mad_send_wr |
 	m = ib_create_send_mad(mad_agent, cm_id_priv->id.remote_cm_qpn,
 			       av->pkey_index,
 			       0, IB_MGMT_MAD_HDR, IB_MGMT_MAD_DATA,
@@ -574,6 +769,8 @@ static int cm_init_av_for_lap(struct cm_port *port, struct ib_wc *wc,
 }
 
 // helper
+// 从 work completion 中提取地址信息, 来初始化一个 address handle.
+// UD 的 work completion 中有地址信息的
 static int cm_init_av_for_response(struct cm_port *port, struct ib_wc *wc,
 				   struct ib_grh *grh, struct cm_av *av)
 {
@@ -641,6 +838,9 @@ get_cm_port_from_path(struct sa_path_rec *path, const struct ib_gid_attr *attr)
 	return port;
 }
 
+// 利用 sa_path_rec 信息, 来初始化 address vector.
+// 后续 address ector 用来构造 adderss handle 来发送 MAD 报文使用. 因为 MAD
+// 报文是基于 UD 的, 所以必须要有地址信息.
 static int cm_init_av_by_path(struct sa_path_rec *path,
 			      const struct ib_gid_attr *sgid_attr,
 			      struct cm_av *av,
@@ -651,11 +851,13 @@ static int cm_init_av_by_path(struct sa_path_rec *path,
 	struct cm_port *port;
 	int ret;
 
+	// 找出口 port, 根据 sgid
 	port = get_cm_port_from_path(path, sgid_attr);
 	if (!port)
 		return -EINVAL;
 	cm_dev = port->cm_dev;
 
+	// 拿到 pkey index
 	ret = ib_find_cached_pkey(cm_dev->ib_device, port->port_num,
 				  be16_to_cpu(path->pkey), &av->pkey_index);
 	if (ret)
@@ -672,12 +874,13 @@ static int cm_init_av_by_path(struct sa_path_rec *path,
 	 * is used by overwriting the old one. So that right ah_attr
 	 * can be used to return an error response.
 	 */
+	// 对于 roce 来说就是解析路由, 拿 dmac
 	ret = ib_init_ah_attr_from_path(cm_dev->ib_device, port->port_num, path,
 					&new_ah_attr, sgid_attr);
 	if (ret)
 		return ret;
 
-	av->timeout = path->packet_life_time + 1;
+	av->timeout = path->packet_life_time + 1; // +1 是因为 CM 层用 life_time +1 作为 local ack 超时的起点. ref: cm_ack_timeout()
 	add_cm_id_to_port_list(cm_id_priv, av, port);
 	rdma_move_ah_attr(&av->ah_attr, &new_ah_attr);
 	return 0;
@@ -971,6 +1174,7 @@ static struct cm_id_private *cm_alloc_id_priv(struct ib_device *device,
 	refcount_set(&cm_id_priv->refcount, 1);
 
 	// 分配一个 entry 先, 分配的结果通过 id 返回
+	// 搞一个 local_id
 	ret = xa_alloc_cyclic(&cm.local_id_table, &id, NULL, xa_limit_32b,
 			      &cm.local_id_next, GFP_KERNEL);
 	if (ret < 0)
@@ -1144,7 +1348,7 @@ static void cm_enter_timewait(struct cm_id_private *cm_id_priv)
 
 	/* Check if the device started its remove_one */
 	spin_lock_irqsave(&cm.lock, flags);
-	if (!cm_dev->going_down)
+	if (!cm_dev->going_down) // 关键是这里, 挂了一个 work 去处理
 		queue_delayed_work(cm.wq, &cm_id_priv->timewait_info->work.work,
 				   msecs_to_jiffies(wait_time));
 	spin_unlock_irqrestore(&cm.lock, flags);
@@ -1479,18 +1683,18 @@ static void cm_format_req(struct cm_req_msg *req_msg,
 	// 然后 填 data, ref ib spec vol1 ch12.6.5
 	IBA_SET(CM_REQ_LOCAL_COMM_ID, req_msg,
 		be32_to_cpu(cm_id_priv->id.local_id));
-	IBA_SET(CM_REQ_SERVICE_ID, req_msg, be64_to_cpu(param->service_id));
+	IBA_SET(CM_REQ_SERVICE_ID, req_msg, be64_to_cpu(param->service_id));   // 来自 param
 	IBA_SET(CM_REQ_LOCAL_CA_GUID, req_msg,
-		be64_to_cpu(cm_id_priv->id.device->node_guid));
-	IBA_SET(CM_REQ_LOCAL_QPN, req_msg, param->qp_num);
-	IBA_SET(CM_REQ_INITIATOR_DEPTH, req_msg, param->initiator_depth);
-	IBA_SET(CM_REQ_REMOTE_CM_RESPONSE_TIMEOUT, req_msg,
-		param->remote_cm_response_timeout);
-	cm_req_set_qp_type(req_msg, param->qp_type);
-	IBA_SET(CM_REQ_END_TO_END_FLOW_CONTROL, req_msg, param->flow_control);
-	IBA_SET(CM_REQ_STARTING_PSN, req_msg, param->starting_psn);
+		be64_to_cpu(cm_id_priv->id.device->node_guid));                // 来自出口 device
+	IBA_SET(CM_REQ_LOCAL_QPN, req_msg, param->qp_num);                     // param
+	IBA_SET(CM_REQ_INITIATOR_DEPTH, req_msg, param->initiator_depth);      // param
+	IBA_SET(CM_REQ_REMOTE_CM_RESPONSE_TIMEOUT, req_msg,                    
+		param->remote_cm_response_timeout);                            // param
+	cm_req_set_qp_type(req_msg, param->qp_type);                           // 0 for RC
+	IBA_SET(CM_REQ_END_TO_END_FLOW_CONTROL, req_msg, param->flow_control); // param
+	IBA_SET(CM_REQ_STARTING_PSN, req_msg, param->starting_psn);            // param
 	IBA_SET(CM_REQ_LOCAL_CM_RESPONSE_TIMEOUT, req_msg,
-		param->local_cm_response_timeout);
+		param->local_cm_response_timeout);                             // param
 	IBA_SET(CM_REQ_PARTITION_KEY, req_msg,
 		be16_to_cpu(param->primary_path->pkey));
 	IBA_SET(CM_REQ_PATH_PACKET_PAYLOAD_MTU, req_msg,
@@ -1506,6 +1710,7 @@ static void cm_format_req(struct cm_req_msg *req_msg,
 		IBA_SET(CM_REQ_SRQ, req_msg, param->srq);
 	}
 
+	// 配置 path 信息了
 	*IBA_GET_MEM_PTR(CM_REQ_PRIMARY_LOCAL_PORT_GID, req_msg) =
 		pri_path->sgid;
 	*IBA_GET_MEM_PTR(CM_REQ_PRIMARY_REMOTE_PORT_GID, req_msg) =
@@ -1518,7 +1723,7 @@ static void cm_format_req(struct cm_req_msg *req_msg,
 			->global.interface_id =
 			OPA_MAKE_ID(be32_to_cpu(pri_path->opa.dlid));
 	}
-	if (pri_path->hop_limit <= 1) {
+	if (pri_path->hop_limit <= 1) { // local
 		IBA_SET(CM_REQ_PRIMARY_LOCAL_PORT_LID, req_msg,
 			be16_to_cpu(pri_ext ? 0 :
 					      htons(ntohl(sa_path_get_slid(
@@ -1978,6 +2183,7 @@ static void cm_process_work(struct cm_id_private *cm_id_priv,
 	ret = cm_id_priv->id.cm_handler(&cm_id_priv->id, &work->cm_event);
 	cm_free_work(work);
 
+	// ref: cm_queue_work_unlock, 谁先进入这个线程就得一直处理完.
 	while (!ret && !atomic_add_negative(-1, &cm_id_priv->work_count)) {
 		spin_lock_irq(&cm_id_priv->lock);
 		work = cm_dequeue_work(cm_id_priv);
@@ -1986,7 +2192,7 @@ static void cm_process_work(struct cm_id_private *cm_id_priv,
 			return;
 
 		ret = cm_id_priv->id.cm_handler(&cm_id_priv->id,
-						&work->cm_event);
+						&work->cm_event); // cma_ib_handler
 		cm_free_work(work);
 	}
 	cm_deref_id(cm_id_priv);
@@ -4608,6 +4814,7 @@ static void cm_remove_one(struct ib_device *ib_device, void *client_data)
 	kfree(cm_dev);
 }
 
+// 初始化全局的 cm 结构
 static int __init ib_cm_init(void)
 {
 	int ret;
@@ -4632,6 +4839,7 @@ static int __init ib_cm_init(void)
 		goto error2;
 	}
 
+	// 用来获得设备上的事件(up/down) 等, 进而做出特殊处理
 	ret = ib_register_client(&cm_client);
 	if (ret)
 		goto error3;

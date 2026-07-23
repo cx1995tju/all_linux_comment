@@ -28,6 +28,106 @@
  *  Note : When a flow becomes empty, we do not immediately remove it from
  *  rb trees, for performance reasons (its expected to send additional packets,
  *  or SLAB cache will reuse socket for another flow)
+ *
+ *
+ * 计算模式
+ *
+● qdisc_pkt_len 返回的是 skb 的"线上字节数"（pkt_len，GSO 大包是所有分段的总和）。现在我可以完整讲清 sch_fq 的 pacing 原理了。
+
+  一、sch_fq pacing 是"双层"机制
+
+  它不是简单地"每个包算一个延迟"，而是 信用预算（Deficit Round Robin）+ 时间节流 两层叠加。出队末尾这段代码（sch_fq.c:730–778）是核心：
+
+  plen = qdisc_pkt_len(skb);     // 线上字节数
+  f->credit   -= plen;           // ① 信用按【真实包长】扣除
+  pband->credit -= plen;
+  ...
+  if (!skb->tstamp) {            // 非 EDT 模式
+      rate = min(sk_pacing_rate, flow_max_rate);
+      if (rate <= low_rate_threshold) {
+          f->credit = 0;         // 低速流：直接清零信用
+      } else {
+          plen = max(plen, quantum);   // ② plen 被钳到至少 quantum
+          if (f->credit > 0)
+              goto out;          // ③ 信用还有 → 不算时间，继续发
+      }
+  }
+  if (rate != ~0UL) {
+      u64 len = (u64)plen * NSEC_PER_SEC / rate;   // ④ 节流时长
+      if (f->time_next_packet)
+          len -= min(len/2, now - f->time_next_packet);  // ⑤ 补偿定时器漂移
+      f->time_next_packet = now + len;
+  }
+
+  第一层：信用预算（允许微突发）
+  - 新流拿到 initial_quantum（10×MTU），之后每轮补 quantum（2×MTU，见 fq_init:1170–1171）。
+  - 只要 f->credit > 0，就走 ③ goto out——完全不算时间，包背靠背连续发送。
+  - 信用按真实包长 plen 扣（①），所以大包吃掉更多预算。
+
+  第二层：时间节流（信用耗尽后强制等待）
+  - 信用扣到 ≤0，才进入 ④ 计算 time_next_packet = now + len，把流挂进 delayed 红黑树，等定时器唤醒。
+
+  这种设计让 pacing 不是"每包一停"，而是"攒一个 quantum 突发、再等够时间"，既能控制平均速率，又减少了定时器唤醒次数。
+
+  二、大报文 vs 小报文：分情况
+
+  情况 1：信用还没耗尽（f->credit > 0）
+
+  大包小包都不算发送时间——都走 ③ 连续发。区别只在于扣信用：大包扣得多，更快耗尽预算；小包扣得少。
+
+  情况 2：信用耗尽、进入时间计算（native fq 模式）
+
+  这里就是关键。节流时长 len = plen / rate，但 plen 在 ② 被钳到 max(plen, quantum)：
+
+  ┌─────────────────────────────┬───────────┬─────────────────────┬───────────────────────────────────────────────────┐
+  │          报文类型           │ 实际 plen │ 计算 len 用的 plen  │                       结果                        │
+  ├─────────────────────────────┼───────────┼─────────────────────┼───────────────────────────────────────────────────┤
+  │ 大报文（> 2×MTU）           │ 大        │ = 实际包长          │ len = 真实包长 / rate，延迟正比于包长，大包等更久 │
+  ├─────────────────────────────┼───────────┼─────────────────────┼───────────────────────────────────────────────────┤
+  │ 小报文（< 2×MTU，如纯 ACK） │ 小        │ = quantum（被抬高） │ len = quantum / rate，不随真实包长变化            │
+  └─────────────────────────────┴───────────┴─────────────────────┴───────────────────────────────────────────────────┘
+
+  所以大包和小包算出来的下一个发送时间确实不一样，但有个"地板"：小包不会因为自己小而算出极短的等待，而是被当作至少一个
+  quantum（2×MTU）的调度单元。
+
+  情况 3：EDT 模式（TCP 已盖 skb->tstamp）
+
+  sch_fq.c:743 的 if (!skb->tstamp) 为假，整个信用/速率块被跳过。sch_fq 根本不按包长算时间，直接用 TCP 盖好的时间戳。
+  而 TCP 那边算时间戳（tcp_output.c:1452）是：
+  len_ns = div64_ul((u64)skb->len * NSEC_PER_SEC, rate);
+  严格正比于 skb->len——EDT 模式下大小包的时间差由 TCP 决定，且是严格的线性关系。
+
+  三、为什么要把小包 plen 钳到 quantum（② 的设计意图）
+
+  这是刻意的优化，不是 bug：
+
+  1. 避免高频唤醒：如果按真实小包长算 len，一个 40 字节 ACK 的等待时间会极短（比如 rate=1Gbps 时仅
+  0.3ns），导致流被反复唤醒、定时器开销爆炸。钳到 quantum 等于设了"最小调度粒度"。
+  2. 配合信用机制：信用是按真实包长扣的（①，大包扣多小包扣少），但"一次突发后等多久"用 quantum 统一。这样小包流（如 ACK
+  流）不会因为包小而比大包流唤醒更频繁，公平性更好。
+  3. 与 pacing rate 的 200% 余量呼应：默认 TCP 把 sk_pacing_rate 设为实际速率的 200%，所以 quantum/rate
+  算出的等待时间留了余量，不会拖慢吞吐。
+
+  四、补偿定时器漂移（⑤ 那行）
+
+  if (f->time_next_packet)
+      len -= min(len/2, now - f->time_next_packet);
+  time_next_packet 是上次发包时设的"理想时刻"，但 now（实际出队时刻）可能因为调度延迟迟到了几十微秒。这里把迟到的部分从 len
+  里扣除（最多扣一半），避免漂移累积导致流越走越慢。这是让 pacing 在真实系统（有抖动）下保持平均速率准确的关键。
+
+  总结
+
+  直接回答你的问题——大报文和小报文算出来的下一个发送时间不一样，但要分三层看：
+
+  1. 信用充足时：都不算时间，连续发（大小包一视同仁，只差扣信用多少）。
+  2. 信用耗尽时（native fq）：time_next_packet = now + plen/rate，大包延迟更长（正比包长）；小包被钳到
+  quantum，有个最低调度粒度，不会因小而频繁唤醒。
+  3. EDT 模式时：sch_fq 不算，TCP 按真实包长盖时间戳，严格正比包长。
+
+  核心公式就是 延迟 = 字节数 / 速率，所以"大包等更久"这条成立；但 sch_fq 用 credit 允许微突发、用 quantum
+  钳位避免小包抖动，使得它既精确又高效。
+ *
+ *
  */
 
 #include <linux/module.h>
@@ -634,7 +734,7 @@ begin:
 		 * f->time_next_packet was set when prior packet was sent,
 		 * and current time (@now) can be too late by tens of us.
 		 */
-		if (f->time_next_packet)
+		if (f->time_next_packet) // 下一个包最早可发送的时间
 			len -= min(len/2, now - f->time_next_packet);
 		f->time_next_packet = now + len;
 	}

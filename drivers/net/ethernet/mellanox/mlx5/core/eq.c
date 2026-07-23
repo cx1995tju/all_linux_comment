@@ -28,6 +28,116 @@
  * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
+ *
+ * 两类 EQ:
+ * - Completion EQ:
+ *   - N 个. per CPU/IRQ 一个
+ *   - interrupt handler: ~mlx5_eq_comp_int~
+ *
+ * - Async EQ:
+ *   - 固定 3 个
+ *     - cmd_eq: 硬件命令完成了
+ *     - async_eq: 通知异步事件
+ *     - pages_eq: 按需分配 page, 硬件请求 page
+ *   - interrupt handler: ~mlx5_eq_async_int~
+ *
+ *
+ * =========================================
+ * 核心结构:
+ * =========================================
+ * - ~struct mlx5_eq_table~, per-device 
+ *
+ * - ~strcut mlx5_eq~. base class
+ *
+ * - ~strcut mlx5_eq_comp~ 用于 completion 的 eq
+ *   - irq_nb + tasklet_ctx: 通过 tasklet 来做批处理
+ *
+ * - ~strcut mlx5_eq_async~: 用于异步事件的 eq
+ *   - irq_nb + lock. 通过 lock 来序列化 async EQE 的护理
+ *
+ * - ~strcut mlx5_cq_table~ comp EQ 用这个来通过 cqn 反查 CQ
+ *
+ *
+ * =========================================
+ * EQ lifecycle
+ * =========================================
+ *   mlx5_eq_table_create (929)
+ *     ├─ create_async_eqs (636)
+ *     │    ├─ 注册 cq_err_nb
+ *     │    ├─ setup_async_eq(cmd_eq)   → mlx5_cmd_use_events()
+ *   切换命令为事件模式
+ *     │    ├─ setup_async_eq(async_eq)
+ *   [mask=gather_async_events_mask]
+ *     │    └─ setup_async_eq(pages_eq)
+ *     │         每个: irq_nb.notifier_call=mlx5_eq_async_int
+ *     │               create_async_eq → create_map_eq →
+ *   mlx5_eq_enable
+ *     └─ create_comp_eqs (806)
+ *          for i in [0, num_comp_eqs):
+ *            alloc mlx5_eq_comp
+ *            tasklet_setup(mlx5_cq_tasklet_cb)
+ *            irq_nb.notifier_call = mlx5_eq_comp_int
+ *            create_map_eq(irq_index = i + MLX5_IRQ_VEC_COMP_BASE)
+ *            mlx5_eq_enable
+ *            list_add_tail   ← 顺序很重要(供 vector2eqn)
+ *
+ *
+ *
+ * =========================================
+ * EQ<->中断 映射
+ * =========================================
+ * - mlx5_eq_enable / mlx5_eq_disable
+ *
+ *
+ * =========================================
+ * CQ table 管理: cq 和 eq 映射关系
+ * =========================================
+ * - mlx5_eq_add_cq
+ * - mlx5_eq_del_cq
+ * - mlx5_eq_cq_get
+ * - mlx5_cq_hold
+ *
+ *
+ *
+ *
+ * =========================================
+ * API
+ * =========================================
+ *   ┌───────────────────────────┬───────┬───────────────────────┐
+ *   │           函数            │  行   │         作用          │
+ *   ├───────────────────────────┼───────┼───────────────────────┤
+ *   │ mlx5_get_async_eq         │ 704   │ 取主 async EQ（ODP    │
+ *   │                           │       │ 等用）                │
+ *   ├───────────────────────────┼───────┼───────────────────────┤
+ *   │ mlx5_eq_synchronize_async │ 709/7 │ synchronize_irq       │
+ *   │ _irq / _cmd_irq           │ 14    │ 等待在途 handler（tea │
+ *   │                           │       │ rdown/reconfig 用）   │
+ *   ├───────────────────────────┼───────┼───────────────────────┤
+ *   │ mlx5_eq_create_generic /  │ 722/7 │ 通用 EQ               │
+ *   │ destroy_generic           │ 42    │ 创建/销毁（RDMA ODP   │
+ *   │                           │       │ EQ 用）               │
+ *   ├───────────────────────────┼───────┼───────────────────────┤
+ *   │ mlx5_eq_get_eqe /         │ 759/7 │ EQE 访问 + doorbell   │
+ *   │ mlx5_eq_update_ci         │ 76    │ 写 CI（导出给 ODP     │
+ *   │                           │       │ 自轮询）              │
+ *   ├───────────────────────────┼───────┼───────────────────────┤
+ *   │                           │       │ IRQ 向量索引 → (eqn,  │
+ *   │ mlx5_vector2eqn           │ 862   │ irqn)，靠             │
+ *   │                           │       │ comp_eqs_list 顺序    │
+ *   ├───────────────────────────┼───────┼───────────────────────┤
+ *   │ mlx5_comp_vectors_count   │ 883   │ comp 向量数           │
+ *   ├───────────────────────────┼───────┼───────────────────────┤
+ *   │ mlx5_comp_irq_get_affinit │ 889   │ comp 向量的 CPU       │
+ *   │ y_mask                    │       │ 亲和（RSS/aRFS）      │
+ *   ├───────────────────────────┼───────┼───────────────────────┤
+ *   │ mlx5_eqn2comp_eq          │ 906   │ eqn → comp eq         │
+ *   ├───────────────────────────┼───────┼───────────────────────┤
+ *   │ mlx5_eq_table_get_rmap    │ 900   │ RFS_ACCEL 的 CPU rmap │
+ *   └───────────────────────────┴───────┴───────────────────────┘
+ *
+ *
+ *
+ *
  */
 
 #include <linux/interrupt.h>
@@ -70,20 +180,25 @@ enum {
 
 static_assert(MLX5_EQ_POLLING_BUDGET <= MLX5_NUM_SPARE_EQE);
 
+// per-device
 struct mlx5_eq_table {
+	// 所有的 completion EQ
 	struct list_head        comp_eqs_list;
+	// 3 个异步 eq
 	struct mlx5_eq_async    pages_eq;
 	struct mlx5_eq_async    cmd_eq;
 	struct mlx5_eq_async    async_eq;
 
+	// 事件分发核心: 每类事件一个 atomic notifier head
+	// 其他模块通过 mlx5_eq_notifier_register 注册其感兴趣的事件
 	struct atomic_notifier_head nh[MLX5_EVENT_TYPE_MAX];
 
 	/* Since CQ DB is stored in async_eq */
-	struct mlx5_nb          cq_err_nb;
+	struct mlx5_nb          cq_err_nb; // 专门用于 cq 错误事件处理的
 
 	struct mutex            lock; /* sync async eqs creations */
-	int			num_comp_eqs;
-	struct mlx5_irq_table	*irq_table;
+	int			num_comp_eqs; // compleiton eq 数目
+	struct mlx5_irq_table	*irq_table; // MSI-X IRQ table
 };
 
 #define MLX5_ASYNC_EVENT_MASK ((1ull << MLX5_EVENT_TYPE_PATH_MIG)	    | \
@@ -99,6 +214,7 @@ struct mlx5_eq_table {
 			       (1ull << MLX5_EVENT_TYPE_SRQ_LAST_WQE)	    | \
 			       (1ull << MLX5_EVENT_TYPE_SRQ_RQ_LIMIT))
 
+// 硬件命令
 static int mlx5_cmd_destroy_eq(struct mlx5_core_dev *dev, u8 eqn)
 {
 	u32 in[MLX5_ST_SZ_DW(destroy_eq_in)] = {};
@@ -115,6 +231,7 @@ static struct mlx5_core_cq *mlx5_eq_cq_get(struct mlx5_eq *eq, u32 cqn)
 	struct mlx5_core_cq *cq = NULL;
 
 	rcu_read_lock();
+	// 用 cqn 来查询 cq
 	cq = radix_tree_lookup(&table->tree, cqn);
 	if (likely(cq))
 		mlx5_cq_hold(cq);
@@ -151,7 +268,7 @@ static int mlx5_eq_comp_int(struct notifier_block *nb,
 		cq = mlx5_eq_cq_get(eq, cqn);
 		if (likely(cq)) {
 			++cq->arm_sn;
-			cq->comp(cq, eqe);
+			cq->comp(cq, eqe); // 仅仅通知 CQ 有东西完成了, polling 还是由 tasklet 来做的
 			mlx5_cq_put(cq);
 		} else {
 			dev_dbg_ratelimited(eq->dev->device,
@@ -166,7 +283,7 @@ out:
 	eq_update_ci(eq, 1);
 
 	if (cqn != -1)
-		tasklet_schedule(&eq_comp->tasklet_ctx.task);
+		tasklet_schedule(&eq_comp->tasklet_ctx.task); // tasklet 里调用 cqe->done()
 
 	return 0;
 }
@@ -240,6 +357,7 @@ static int mlx5_eq_async_int(struct notifier_block *nb,
 		 */
 		dma_rmb();
 
+		// 按照类型去分发事件了
 		atomic_notifier_call_chain(&eqt->nh[eqe->type], eqe->type, eqe);
 		atomic_notifier_call_chain(&eqt->nh[MLX5_EVENT_TYPE_NOTIFY_ANY], eqe->type, eqe);
 
@@ -374,6 +492,7 @@ int mlx5_eq_enable(struct mlx5_core_dev *dev, struct mlx5_eq *eq,
 	struct mlx5_eq_table *eq_table = dev->priv.eq_table;
 	int err;
 
+	// 向这个 irq 里去注册 eq. 这个 irq 就和 eq 关联了
 	err = mlx5_irq_attach_nb(eq_table->irq_table, eq->vecidx, nb);
 	if (!err)
 		eq_update_ci(eq, 1);
@@ -416,6 +535,7 @@ static int destroy_unmap_eq(struct mlx5_core_dev *dev, struct mlx5_eq *eq)
 	return err;
 }
 
+// 建立 cq 和 eq 的关系
 int mlx5_eq_add_cq(struct mlx5_eq *eq, struct mlx5_core_cq *cq)
 {
 	struct mlx5_cq_table *table = &eq->cq_table;
@@ -448,6 +568,7 @@ void mlx5_eq_del_cq(struct mlx5_eq *eq, struct mlx5_core_cq *cq)
 			      eq->eqn, cq->cqn);
 }
 
+// per-device
 int mlx5_eq_table_init(struct mlx5_core_dev *dev)
 {
 	struct mlx5_eq_table *eq_table;

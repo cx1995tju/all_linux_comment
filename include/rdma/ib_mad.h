@@ -96,7 +96,7 @@
 #define IB_QP0		0
 #define IB_QP1		cpu_to_be32(1)
 #define IB_QP1_QKEY	0x80010000
-#define IB_QP_SET_QKEY	0x80000000
+#define IB_QP_SET_QKEY	0x80000000 // 占位用的, 这个值表示协议栈不关心 Q_key, 需要 driver 或者硬件自己看着办. 这样省着每个消息都去设置.
 
 // rocev2 场景 pkey 没什么用, 可以完全固定用默认值
 #define IB_DEFAULT_PKEY_PARTIAL 0x7FFF
@@ -465,18 +465,21 @@ struct ib_mad_notice_attr {
  * Users are responsible for initializing the MAD buffer itself, with the
  * exception of any RMPP header.  Additional segment buffer space allocated
  * beyond data_len is padding.
+ *
+ * 一个 mad pkt 的 context
+ * ref: ib_create_send_mad
  */
 struct ib_mad_send_buf {
 	struct ib_mad_send_buf	*next;
 	void			*mad;	// mad 报文, 含 ib_mad_hdr, 注意 mad 报文是作为 UD transport 的 payload 发送的
 	struct ib_mad_agent	*mad_agent;
-	struct ib_ah		*ah;
-	void			*context[2];
-	int			hdr_len;
-	int			data_len;
-	int			seg_count;
-	int			seg_size;
-	int			seg_rmpp_size;
+	struct ib_ah		*ah;    // 地址
+	void			*context[2]; // user context
+	int			hdr_len; // MAD hdr size = mad + rmpp + class specific
+	int			data_len; // total size
+	int			seg_count; // RMPP seg count
+	int			seg_size; // data size in RMPP seg
+	int			seg_rmpp_size; // rmpp seg size, including class specific
 	int			timeout_ms;
 	int			retries;
 };

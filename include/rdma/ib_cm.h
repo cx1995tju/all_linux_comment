@@ -295,7 +295,7 @@ typedef int (*ib_cm_handler)(struct ib_cm_id *cm_id,
 			     const struct ib_cm_event *event);
 
 struct ib_cm_id {
-	ib_cm_handler		cm_handler;
+	ib_cm_handler		cm_handler; // cma_ib_handler
 	void			*context;
 	struct ib_device	*device;
 	__be64			service_id;

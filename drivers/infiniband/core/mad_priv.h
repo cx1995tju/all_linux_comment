@@ -63,9 +63,9 @@
 				IB_MGMT_CLASS_VENDOR_RANGE2_START + 1)
 
 struct ib_mad_list_head {
-	struct list_head list;
-	struct ib_cqe cqe;
-	struct ib_mad_queue *mad_queue;
+	struct list_head list; // 通过这个挂到 recv_queue, ref: ib_mad_post_receive_mads, ib_send_mad
+	struct ib_cqe cqe; // cq callback
+	struct ib_mad_queue *mad_queue; // 可以指导一个 buffer 来自哪个 QP
 };
 
 struct ib_mad_private_header {
@@ -122,14 +122,14 @@ struct ib_mad_snoop_private {
 
 // 一个 mad  req/resp 交互的 context
 struct ib_mad_send_wr_private {
-	struct ib_mad_list_head mad_list; // cq 完成后的callback 结构点
+	struct ib_mad_list_head mad_list; // 处理 接收 buffer 的. cq callback 通过这里进行.
 	struct list_head agent_list; // 挂到 agent list 的
 	struct ib_mad_agent_private *mad_agent_priv; // 所属的 agent
 	struct ib_mad_send_buf send_buf; // 
 	u64 header_mapping; // DMA mapping: header
 	u64 payload_mapping; // DMA mapping: payload
 	struct ib_ud_wr send_wr; // QP0/QP1 上实际要发送的 ud wr
-	struct ib_sge sg_list[IB_MAD_SEND_REQ_MAX_SG]; // scatter/gather
+	struct ib_sge sg_list[IB_MAD_SEND_REQ_MAX_SG]; // scatter/gather  ref: ib_create_send_mad. sg[0] 存 hedaer, sg[1] 存 payload
 	__be64 tid; // transcation ID
 	unsigned long timeout; // timeout
 	int max_retries;
