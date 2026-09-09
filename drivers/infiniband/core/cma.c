@@ -1024,6 +1024,7 @@ __rdma_create_id(struct net *net, rdma_cm_event_handler event_handler,
 	mutex_init(&id_priv->handler_mutex);
 	INIT_LIST_HEAD(&id_priv->listen_list);
 	INIT_LIST_HEAD(&id_priv->mc_list);
+	// 内核里是选择随机的, 用户如果走带外方式, 就是用户自己处理了.
 	get_random_bytes(&id_priv->seq_num, sizeof id_priv->seq_num);
 	id_priv->id.route.addr.dev_addr.net = get_net(net);
 	id_priv->seq_num &= 0x00ffffff;

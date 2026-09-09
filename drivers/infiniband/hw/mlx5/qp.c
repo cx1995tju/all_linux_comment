@@ -635,8 +635,8 @@ static int calc_sq_size(struct mlx5_ib_dev *dev, struct ib_qp_init_attr *attr,
 			    1 << MLX5_CAP_GEN(dev->mdev, log_max_qp_sz));
 		return -ENOMEM;
 	}
-	qp->sq.wqe_shift = ilog2(MLX5_SEND_WQE_BB);
-	qp->sq.max_gs = get_send_sge(attr, wqe_size);
+	qp->sq.wqe_shift = ilog2(MLX5_SEND_WQE_BB); // 这里将 sq 的 wqebb 固定为了 64B
+	qp->sq.max_gs = get_send_sge(attr, wqe_size); // 然后限制了 max_gs
 	if (qp->sq.max_gs < attr->cap.max_send_sge)
 		return -ENOMEM;
 
@@ -657,7 +657,7 @@ static int set_user_buf_size(struct mlx5_ib_dev *dev,
 {
 	int desc_sz = 1 << qp->sq.wqe_shift;
 
-	// 用户请求的 sq 的 wqe size 要比, 我们支持的最大的要小的
+	// 用户请求的 sq 的 wqe size 要比我们支持的最大的要小的
 	if (desc_sz > MLX5_CAP_GEN(dev->mdev, max_wqe_sz_sq)) {
 		mlx5_ib_warn(dev, "desc_sz %d, max_sq_desc_sz %d\n",
 			     desc_sz, MLX5_CAP_GEN(dev->mdev, max_wqe_sz_sq));

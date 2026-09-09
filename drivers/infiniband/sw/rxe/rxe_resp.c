@@ -1186,9 +1186,30 @@ static enum resp_states duplicate_request(struct rxe_qp *qp,
          *    - ePSN = 32
          *  - resp 收到了 req 重传的 write-req(30)
          *    - 此时如果用 ePSN-1 来回复, 就会回复 write-req(31). 就出错了, 因为 PSN 31
-         *      对应的是一个 read request.
+         *      对应的是一个 read request, 表示这是一个 read response 了.
 	 *
 	 * ref: b97db58557f4aa6d9903f8e1deea6b3d1ed0ba43
+	 *  +----------+                   +----------+
+         *  |requester |                   |responder |
+         *  |          |                   |          |
+         *  +----------+                   +----------+
+         *        |                             |     
+         *        |-----write(MSN:1,PSN:1)----->|     
+         *        |                             |     
+         *        |-----read(MSN:2,PSN:2,3)---->|    
+         *        |                             |     
+         *        |                             |     
+         *        |     X--ack(MSN:1,PSN:1)-----|     
+         *        |                             |     
+         *        |                             |     
+         *        |         RETRY               |     
+         *        |-----write(MSN:1,PSN:1)----->|     
+         *        |                             |     
+         *        |                             |     
+         *        |     ?---ack(MSN:?,PSN:?)----|     
+         *        |                             |     
+         *        |                             |     
+         *        |                             |     
 	 * */
 	u32 prev_psn = (qp->resp.ack_psn - 1) & BTH_PSN_MASK;
 

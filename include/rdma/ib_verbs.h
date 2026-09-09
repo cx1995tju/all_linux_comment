@@ -898,25 +898,39 @@ struct ib_port_modify {
 };
 
 enum ib_event_type {
+	/* ib_cq event_handler */
 	IB_EVENT_CQ_ERR,
+
+	/* ib_qp event_handler */
 	IB_EVENT_QP_FATAL,
 	IB_EVENT_QP_REQ_ERR,
 	IB_EVENT_QP_ACCESS_ERR,
-	IB_EVENT_COMM_EST, // ib spec vol1 Ch11.6.3 用户态都已经在 RQ 收到报文了, QP 却还是 RTR 状态, 没有完成连接建立
+	IB_EVENT_COMM_EST, // ib spec vol1 Ch11.6.3 QP 完成连接建立
 	IB_EVENT_SQ_DRAINED,
 	IB_EVENT_PATH_MIG,
 	IB_EVENT_PATH_MIG_ERR,
+
+	/* async event: ib_dispatch_event() */
 	IB_EVENT_DEVICE_FATAL,
-	IB_EVENT_PORT_ACTIVE,
-	IB_EVENT_PORT_ERR,
-	IB_EVENT_LID_CHANGE,
-	IB_EVENT_PKEY_CHANGE,
-	IB_EVENT_SM_CHANGE,
+	IB_EVENT_PORT_ACTIVE, // port up
+	IB_EVENT_PORT_ERR,    // port down
+	IB_EVENT_LID_CHANGE,  // rocev2 里不重要
+	IB_EVENT_PKEY_CHANGE, //  rocev2 里不重要
+	IB_EVENT_SM_CHANGE,   //  rocev2 里不重要
+
+
+	/* ib_srq event_handler */
 	IB_EVENT_SRQ_ERR,
 	IB_EVENT_SRQ_LIMIT_REACHED,
+
+	/* ib_qp event_handler */
 	IB_EVENT_QP_LAST_WQE_REACHED,
+
+	/* async event: ib_dispatch_event() */
 	IB_EVENT_CLIENT_REREGISTER,
-	IB_EVENT_GID_CHANGE,
+	IB_EVENT_GID_CHANGE, // GUID change
+
+        /* ibwq event_handler */
 	IB_EVENT_WQ_FATAL,
 };
 
@@ -1206,24 +1220,24 @@ enum ib_wc_flags {
 // work completion
 struct ib_wc {
 	union {
-		u64		wr_id;
+		u64		wr_id; // 对应的 work request
 		struct ib_cqe	*wr_cqe;
 	};
 	enum ib_wc_status	status;
 	enum ib_wc_opcode	opcode;
-	u32			vendor_err;
+	u32			vendor_err; // vendor 自定义 error
 	u32			byte_len;
 	struct ib_qp	       *qp;
 	union {
 		__be32		imm_data;
 		u32		invalidate_rkey;
 	} ex;
-	u32			src_qp;
-	u32			slid;
-	int			wc_flags;
+	u32			src_qp; // src qpn. 对于 UD 需要
+	u32			slid; // rocev2 不重要
+	int			wc_flags; // 这个 completion 附带了一些额外属性.  %IB_WC_WITH_IMM, bitmap
 	u16			pkey_index;
-	u8			sl;
-	u8			dlid_path_bits;
+	u8			sl; // rocev2 不重要
+	u8			dlid_path_bits; // rocev2 不重要
 	u8			port_num;	/* valid only for DR SMPs on switches */
 	u8			smac[ETH_ALEN];
 	u16			vlan_id;
@@ -1436,7 +1450,7 @@ enum ib_qp_attr_mask {
 	IB_QP_PKEY_INDEX		= (1<<4),
 	IB_QP_PORT			= (1<<5),
 	IB_QP_QKEY			= (1<<6),
-	IB_QP_AV			= (1<<7),
+	IB_QP_AV			= (1<<7), // 修改 QP 的
 	IB_QP_PATH_MTU			= (1<<8),
 	IB_QP_TIMEOUT			= (1<<9),
 	IB_QP_RETRY_CNT			= (1<<10),
@@ -1536,7 +1550,7 @@ struct ib_qp_attr {
 	struct rdma_ah_attr	alt_ah_attr;
 	u16			pkey_index;
 	u16			alt_pkey_index;
-	u8			en_sqd_async_notify;
+	u8			en_sqd_async_notify; // QP 进入 SQD (Send Queue Draining) 状态时，是否请求发送完成通知事件（async event） 的字段。 
 	u8			sq_draining;
 	u8			max_rd_atomic;
 	u8			max_dest_rd_atomic;
@@ -2765,7 +2779,9 @@ struct ib_device_ops {
 	int (*destroy_cq)(struct ib_cq *cq, struct ib_udata *udata);
 	int (*resize_cq)(struct ib_cq *cq, int cqe, struct ib_udata *udata);
 	// Mandatory
-	// 分配用于 dma 的 mr
+	// 分配用于 dma 的 mr. 这个mr  PA:VA 是 1-1 mapping. length 没有,
+	// 即默认涵盖整个物理空间. 只有内核有这个接口.
+	// ref: 还有一个类似的 rsvd lkey 的机制. ref: __ib_alloc_pd
 	struct ib_mr *(*get_dma_mr)(struct ib_pd *pd, int mr_access_flags);
 	// userspace 通过 uvebrs 来分配 mr, 最后走到这里
 	// ref: ib_uverbs_reg_mr

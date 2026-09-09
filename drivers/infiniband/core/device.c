@@ -2216,6 +2216,7 @@ static int __ib_query_port(struct ib_device *device,
 	    IB_LINK_LAYER_INFINIBAND)
 		return 0;
 
+	// rocev2 设备不会走到这里的. subnet_prefix 临时去 gid 里提取
 	err = device->ops.query_gid(device, port_num, 0, &gid);
 	if (err)
 		return err;

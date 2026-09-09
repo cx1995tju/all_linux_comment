@@ -1557,6 +1557,7 @@ int mlx5_ib_post_recv(struct ib_qp *ibqp, const struct ib_recv_wr *wr,
 		for (i = 0; i < wr->num_sge; i++)
 			set_data_ptr_seg(scat + i, wr->sg_list + i);
 
+		// 没有用完一个 rq wqe, 那么用这个特殊的 sge 表示完结.
 		if (i < qp->rq.max_gs) {
 			scat[i].byte_count = 0;
 			scat[i].lkey       = cpu_to_be32(MLX5_INVALID_LKEY);

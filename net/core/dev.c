@@ -5324,6 +5324,7 @@ static int __netif_receive_skb_one_core(struct sk_buff *skb, bool pfmemalloc)
  *	netif_receive_skb_core - special purpose version of netif_receive_skb
  *	@skb: buffer to process
  *
+ *      会跳过 RPS 的
  *	More direct receive version of netif_receive_skb().  It should
  *	only be used by callers that have a need to skip RPS and Generic XDP.
  *	Caller must also take care of handling if ``(page_is_)pfmemalloc``.
@@ -6430,14 +6431,14 @@ bool napi_complete_done(struct napi_struct *n, int work_done)
 	 */
 	if (unlikely(n->state & (NAPIF_STATE_NPSVC |
 				 NAPIF_STATE_IN_BUSY_POLL)))
-		return false;
+		return false; // 说明 napi 还是活跃的, 不结束 polling
 
-	if (work_done) {
+	if (work_done) { // 说明 rxq 是活跃的重新给其 defer hard irq 的机会.
 		if (n->gro_bitmask)
 			timeout = READ_ONCE(n->dev->gro_flush_timeout);
 		n->defer_hard_irqs_count = READ_ONCE(n->dev->napi_defer_hard_irqs);
 	}
-	if (n->defer_hard_irqs_count > 0) {
+	if (n->defer_hard_irqs_count > 0) { // 虽然 rxq 不活跃了, 但是给其几次机会, 再来 polling 一下
 		n->defer_hard_irqs_count--;
 		timeout = READ_ONCE(n->dev->gro_flush_timeout);
 		if (timeout)

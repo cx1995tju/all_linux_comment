@@ -334,7 +334,7 @@ static void virtqueue_napi_complete(struct napi_struct *napi,
 
 	opaque = virtqueue_enable_cb_prepare(vq); //开启中断
 	if (napi_complete_done(napi, processed)) {
-		if (unlikely(virtqueue_poll(vq, opaque)))
+		if (unlikely(virtqueue_poll(vq, opaque))) // 这里如果还能 polling 到东西, 那么就算前面关闭了 napi, 我们还是继续开启一下
 			virtqueue_napi_schedule(napi, vq);
 	} else {
 		virtqueue_disable_cb(vq);

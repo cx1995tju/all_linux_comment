@@ -1859,7 +1859,7 @@ enum netdev_priv_flags {
  *	moves out.
  */
 
-struct net_device {
+ net_device {
 	char			name[IFNAMSIZ];
 	struct netdev_name_node	*name_node;
 	struct dev_ifalias	__rcu *ifalias;

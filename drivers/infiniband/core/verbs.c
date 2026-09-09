@@ -351,6 +351,12 @@ EXPORT_SYMBOL(rdma_port_get_link_layer);
  *
  * Every PD has a local_dma_lkey which can be used as the lkey value for local
  * memory operations.
+ *
+ * 会搞一个 local_dma_lkey, 用来 VA <-> PA 1-1 映射
+ * - 如果 device 支持 reserved lkey, 那么直接用这个 lkey
+ * - 否则创建一个 dma mr
+ *
+ * 另外如果请求了 IB_PD_UNSAFE_GLOBAL_RKEY, 那么也要搞一个权限足够大的 MR 的.
  */
 struct ib_pd *__ib_alloc_pd(struct ib_device *device, unsigned int flags,
 		const char *caller)
@@ -1807,6 +1813,7 @@ static int _ib_modify_qp(struct ib_qp *qp, struct ib_qp_attr *attr,
 
 	attr->xmit_slave = NULL;
 	if (attr_mask & IB_QP_AV) {
+		// 对于 UD 来说, 这里修改 sgid 就可以了
 		ret = rdma_fill_sgid_attr(qp->device, &attr->ah_attr,
 					  &old_sgid_attr_av);
 		if (ret)
